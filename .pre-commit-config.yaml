@@ -1,0 +1,8 @@
+# Pre-commit hooks. Enable once per clone with:  pre-commit install
+# Thereafter, ruff runs automatically on staged files at each commit.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.18
+    hooks:
+      - id: ruff-check
+        args: [--fix]

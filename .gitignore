@@ -1,0 +1,21 @@
+# Secrets — never commit your real values
+.env
+
+# Python virtual environment
+.venv/
+
+# Python caches and build artifacts
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+
+# Test cache
+.pytest_cache/
+
+# Ruff cache
+.ruff_cache/
+
+# Local SQLite database
+*.db
