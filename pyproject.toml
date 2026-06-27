@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "brewerypi"
+version = "0.1.0"
+description = "A starter project skeleton following the repo naming conventions."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "sqlalchemy>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.15",
+    "pre-commit>=4.0",
+]
+
+# Lets you run the app as the `brewerypi` command after `pip install -e .`
+[project.scripts]
+brewerypi = "brewerypi.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+# Ruff enforces PEP 8. line-length = 79 matches the PEP 8 default so the
+# linter holds the same standard the codebase was verified against.
+[tool.ruff]
+line-length = 79
+src = ["src", "tests", "scripts"]
+
+[tool.ruff.lint]
+# E/W = pycodestyle (PEP 8), F = pyflakes, I = import ordering (also PEP 8).
+select = ["E", "W", "F", "I"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["brewerypi"]
