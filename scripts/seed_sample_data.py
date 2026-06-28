@@ -12,18 +12,88 @@ from brewerypi.config import DATABASE_URL
 from brewerypi.database import Base
 from brewerypi.models import Area, Enterprise, Site
 
+SEED_DATA = [
+    {
+        "abbreviation": "NR",
+        "name": "New Realm",
+        "sites": [
+            {
+                "abbreviation": "ATL",
+                "name": "Atlanta",
+                "areas": [
+                    ("BH", "Brewhouse"),
+                    ("CL", "Cellar"),
+                    ("PKG", "Packaging"),
+                ],
+            },
+            {
+                "abbreviation": "VB",
+                "name": "Virginia Beach",
+                "areas": [
+                    ("BH", "Brewhouse"),
+                    ("CL", "Cellar"),
+                    ("PKG", "Packaging"),
+                ],
+            },
+        ],
+    },
+    {
+        "abbreviation": "DB",
+        "name": "Deschutes Brewery",
+        "sites": [
+            {
+                "abbreviation": "B1",
+                "name": "Brew1",
+                "areas": [
+                    ("BH", "Brewhouse"),
+                    ("CL", "Cellar"),
+                    ("PKG", "Packaging"),
+                ],
+            },
+            {
+                "abbreviation": "B2",
+                "name": "Brew2",
+                "areas": [
+                    ("BH", "Brewhouse"),
+                    ("CL", "Cellar"),
+                    ("PKG", "Packaging"),
+                ],
+            },
+            {
+                "abbreviation": "B3",
+                "name": "Brew3",
+                "areas": [
+                    ("BH", "Brewhouse"),
+                    ("CL", "Cellar"),
+                    ("PKG", "Packaging"),
+                ],
+            },
+        ],
+    },
+]
+
 
 def main() -> None:
     engine = create_engine(DATABASE_URL)
     Base.metadata.create_all(engine)
 
     with Session(engine) as session:
-        enterprise = Enterprise(abbreviation="BRW", name="Brewery Co")
-        site = Site(abbreviation="HQ", name="Headquarters")
-        site.areas.append(Area(abbreviation="MASH", name="Mash House"))
-        site.areas.append(Area(abbreviation="FERM", name="Fermentation"))
-        enterprise.sites.append(site)
-        session.add(enterprise)
+        for ent_data in SEED_DATA:
+            enterprise = Enterprise(
+                abbreviation=ent_data["abbreviation"],
+                name=ent_data["name"],
+            )
+            for site_data in ent_data["sites"]:
+                site = Site(
+                    abbreviation=site_data["abbreviation"],
+                    name=site_data["name"],
+                )
+                for abbr, name in site_data["areas"]:
+                    site.areas.append(
+                        Area(abbreviation=abbr, name=name)
+                    )
+                enterprise.sites.append(site)
+            session.add(enterprise)
         session.commit()
 
     print("Seeded sample data.")
