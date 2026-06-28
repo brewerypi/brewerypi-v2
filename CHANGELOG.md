@@ -7,8 +7,23 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
-- Initial project skeleton: `src/` layout, tests, and the
-  naming-convention-aware SQLAlchemy `Base`.
-- Enterprise / Site / Area models (the top of the BreweryPi hierarchy) in
-  SQLAlchemy 2.0 style.
-- Ruff configured for PEP 8 (79-col) plus a pre-commit hook.
+- Project skeleton: `src/` layout, `pyproject.toml` packaging with a
+  `brewerypi` console script, example tests, and a sample-data seed script.
+- SQLAlchemy 2.0 models for the top of the BreweryPi equipment hierarchy —
+  `Enterprise`, `Site`, `Area` — on a `Base` preconfigured with a constraint
+  and index naming convention.
+- `CONVENTIONS.md` documenting the naming standard for both database
+  identifiers and project files.
+- PEP 8 enforcement with ruff (line length 79; `E`/`W`/`F`/`I` rules) plus a
+  pre-commit hook that runs it on every commit.
+- Continuous integration: a GitHub Actions workflow running ruff and pytest on
+  every push and pull request across Python 3.10–3.13.
+- `LICENSE` (MIT) for the project.
+- `CLAUDE.md` project-context file so Claude Code loads the project's
+  decisions and conventions automatically.
+- `.gitattributes` normalizing line endings to LF across platforms.
+
+### Changed
+- Expanded `.gitignore` to cover virtual environments, type-check and coverage
+  caches, editor/OS files, and `CLAUDE.local.md`.
+- README now links to the `LICENSE` file and notes the upstream attribution.
