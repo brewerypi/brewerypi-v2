@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from brewerypi.config import DATABASE_URL
 from brewerypi.database import Base
-from brewerypi.models import Area, Enterprise, Site
+from brewerypi.models import Area, Enterprise, Lookup, LookupValue, Site
 
 SEED_DATA = [
     {
@@ -33,6 +33,23 @@ SEED_DATA = [
                     ("BH", "Brewhouse"),
                     ("CL", "Cellar"),
                     ("PKG", "Packaging"),
+                ],
+            },
+        ],
+        "lookups": [
+            {
+                "name": "Yes / No",
+                "values": [
+                    ("Yes", True),
+                    ("No", True),
+                ],
+            },
+            {
+                "name": "Brands",
+                "values": [
+                    ("Hazy Like a Fox", True),
+                    ("Psychedelic Rabbit", True),
+                    ("El Guapo", True),
                 ],
             },
         ],
@@ -69,6 +86,23 @@ SEED_DATA = [
                 ],
             },
         ],
+        "lookups": [
+            {
+                "name": "Yes / No",
+                "values": [
+                    ("Yes", True),
+                    ("No", True),
+                ],
+            },
+            {
+                "name": "Brands",
+                "values": [
+                    ("Fresh Squeezed", True),
+                    ("Black Butte", True),
+                    ("Mirror Pond", True),
+                ],
+            },
+        ],
     },
 ]
 
@@ -93,6 +127,16 @@ def main() -> None:
                         Area(abbreviation=abbr, name=name)
                     )
                 enterprise.sites.append(site)
+            for lookup_data in ent_data["lookups"]:
+                lookup = Lookup(name=lookup_data["name"])
+                for name, is_selectable in lookup_data["values"]:
+                    lookup.lookup_values.append(
+                        LookupValue(
+                            name=name,
+                            is_selectable=is_selectable,
+                        )
+                    )
+                enterprise.lookups.append(lookup)
             session.add(enterprise)
         session.commit()
 

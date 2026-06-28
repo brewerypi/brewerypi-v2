@@ -7,6 +7,12 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- SQLAlchemy 2.0 models for `Lookup` and `LookupValue`, extending the
+  hierarchy as `Enterprise 1——* Lookup 1——* LookupValue`; includes cascade
+  deletes, composite unique constraints with distinct names, and a reverse
+  `lookups` relationship on `Enterprise`.
+- Tests for `Lookup`/`LookupValue` navigation and cascade delete added to
+  `tests/test_models.py`.
 - Project skeleton: `src/` layout, `pyproject.toml` packaging with a
   `brewerypi` console script, example tests, and a sample-data seed script.
 - SQLAlchemy 2.0 models for the top of the BreweryPi equipment hierarchy —
