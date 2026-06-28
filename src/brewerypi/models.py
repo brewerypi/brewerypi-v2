@@ -1,4 +1,4 @@
-"""BreweryPi domain models — Enterprise, Site, Area.
+"""BreweryPi domain models — Enterprise, Site, Area, Lookup, LookupValue.
 
 A SQLAlchemy 2.0 translation of the top of the BreweryPi equipment hierarchy
 (github.com/brewerypi/brewerypi), restyled to this repo's naming conventions:
@@ -10,11 +10,12 @@ A SQLAlchemy 2.0 translation of the top of the BreweryPi equipment hierarchy
   - constraints named automatically by the convention on Base.metadata
 
 Hierarchy (a containment chain):  Enterprise 1——* Site 1——* Area.
+Lookup hierarchy:                  Enterprise 1——* Lookup 1——* LookupValue.
 
 In BreweryPi a name and an abbreviation are unique *within their parent*, not
 globally — so those uniqueness rules are composite constraints including the
-parent's foreign key. Relationships to tables not yet defined (Lookups,
-ElementTemplates, Elements, Tags) are intentionally omitted; add them later.
+parent's foreign key. Relationships to tables not yet defined
+(ElementTemplates, Elements, Tags) are intentionally omitted; add them later.
 """
 
 from __future__ import annotations
@@ -36,6 +37,12 @@ class Enterprise(Base):
     # Enterprise 1 ——* Site. Deleting an enterprise removes its sites (and, in
     # turn, their areas), mirroring BreweryPi's cascading delete.
     sites: Mapped[list[Site]] = relationship(
+        back_populates="enterprise",
+        cascade="all, delete-orphan",
+    )
+
+    # Enterprise 1 ——* Lookup.
+    lookups: Mapped[list[Lookup]] = relationship(
         back_populates="enterprise",
         cascade="all, delete-orphan",
     )
@@ -91,3 +98,46 @@ class Area(Base):
 
     def __repr__(self) -> str:
         return f"<Area {self.name!r}>"
+
+
+class Lookup(Base):
+    __tablename__ = "lookups"
+    __table_args__ = (
+        UniqueConstraint("enterprise_id", "name"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    enterprise_id: Mapped[int] = mapped_column(
+        ForeignKey("enterprises.id"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(45))
+
+    enterprise: Mapped[Enterprise] = relationship(back_populates="lookups")
+
+    # Lookup 1 ——* LookupValue.
+    lookup_values: Mapped[list[LookupValue]] = relationship(
+        back_populates="lookup",
+        cascade="all, delete-orphan",
+    )
+
+    def __repr__(self) -> str:
+        return f"<Lookup {self.name!r}>"
+
+
+class LookupValue(Base):
+    __tablename__ = "lookup_values"
+    # Column order chosen so the two constraints get distinct names under the
+    # convention (uq_lookup_values_name, uq_lookup_values_value).
+    __table_args__ = (UniqueConstraint("name", "lookup_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    lookup_id: Mapped[int] = mapped_column(
+        ForeignKey("lookups.id"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(45))
+    is_selectable: Mapped[bool] = mapped_column()
+
+    lookup: Mapped[Lookup] = relationship(back_populates="lookup_values")
+
+    def __repr__(self) -> str:
+        return f"<LookupValue {self.name!r}>"
