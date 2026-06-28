@@ -7,6 +7,21 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- SQLAlchemy 2.0 models for `MeasurementUnit`, `Tag`, and `TagValue`.
+  `MeasurementUnit` is enterprise-scoped (abbreviation, name, description).
+  `Tag` belongs to `Area` with nullable `lookup_id` and `measurement_unit_id`
+  FKs; `lookup_id` presence distinguishes lookup-typed from numeric tags.
+  `TagValue` uses two nullable columns (`value` Float for numeric tags,
+  `lookup_value_id` FK for lookup-typed tags) with a `CHECK` constraint
+  (`ck_tag_values_value_xor_lookup_value_id`) enforcing exactly one is
+  non-null. `lookup_value_id` carries `ON DELETE RESTRICT` to protect
+  historical data; `LookupValue.tag_values` sets `passive_deletes=True` so
+  the database — not the ORM — enforces the restriction.
+- Tests for the new models covering navigation, cascade deletes, the XOR
+  constraint, and `RESTRICT` enforcement; `PRAGMA foreign_keys=ON` now
+  enabled in the test engine.
+- Seed data now includes four measurement units (°C, °P, bar, pH) per
+  enterprise.
 - SQLAlchemy 2.0 models for `Lookup` and `LookupValue`, extending the
   hierarchy as `Enterprise 1——* Lookup 1——* LookupValue`; includes cascade
   deletes, composite unique constraints with distinct names, and a reverse

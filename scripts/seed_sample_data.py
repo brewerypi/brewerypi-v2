@@ -10,12 +10,25 @@ from sqlalchemy.orm import Session
 
 from brewerypi.config import DATABASE_URL
 from brewerypi.database import Base
-from brewerypi.models import Area, Enterprise, Lookup, LookupValue, Site
+from brewerypi.models import (
+    Area,
+    Enterprise,
+    Lookup,
+    LookupValue,
+    MeasurementUnit,
+    Site,
+)
 
 SEED_DATA = [
     {
         "abbreviation": "NR",
         "name": "New Realm",
+        "measurement_units": [
+            ("°C", "Celsius"),
+            ("°P", "Plato"),
+            ("bar", "Bar"),
+            ("pH", "pH Units"),
+        ],
         "sites": [
             {
                 "abbreviation": "ATL",
@@ -57,6 +70,12 @@ SEED_DATA = [
     {
         "abbreviation": "DB",
         "name": "Deschutes Brewery",
+        "measurement_units": [
+            ("°C", "Celsius"),
+            ("°P", "Plato"),
+            ("bar", "Bar"),
+            ("pH", "pH Units"),
+        ],
         "sites": [
             {
                 "abbreviation": "B1",
@@ -117,6 +136,10 @@ def main() -> None:
                 abbreviation=ent_data["abbreviation"],
                 name=ent_data["name"],
             )
+            for abbr, name in ent_data["measurement_units"]:
+                enterprise.measurement_units.append(
+                    MeasurementUnit(abbreviation=abbr, name=name)
+                )
             for site_data in ent_data["sites"]:
                 site = Site(
                     abbreviation=site_data["abbreviation"],
