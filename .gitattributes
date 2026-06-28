@@ -1,0 +1,14 @@
+# Normalize line endings: store text files as LF in the repo and check them
+# out as LF on every platform, regardless of each contributor's local Git
+# settings (overrides core.autocrlf, which is what caused the CRLF warnings).
+* text=auto eol=lf
+
+# Treat these as binary — never normalize line endings or diff them as text.
+*.db    binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.pdf   binary
+*.zip   binary

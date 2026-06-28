@@ -59,4 +59,4 @@ Lint manually any time with `ruff check .` (or `ruff check . --fix`).
 
 ## License
 
-Add a `LICENSE` file (e.g. MIT) with your name and year before publishing.
+Released under the MIT License — see [LICENSE](LICENSE).
