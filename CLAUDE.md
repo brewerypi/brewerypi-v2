@@ -10,7 +10,8 @@ owns and has rights to. Keep the name `brewerypi` everywhere.
 - SQLAlchemy 2.0 ORM style (`DeclarativeBase`, `Mapped`, `mapped_column`).
 - SQLite for local dev via `DATABASE_URL` in `src/brewerypi/config.py`
   (default `sqlite:///app.db`); designed to swap to Postgres/Turso later.
-- Intended future consumers: a Flask web app and an MCP server.
+- Consumers: a read-only MCP server (`src/brewerypi/mcp_server.py`) — built
+  and deployed for demos; a Flask web app is still planned.
 - `pyproject.toml` is the single source of build, dependency, and tool config.
 
 ## Commands
@@ -20,6 +21,9 @@ owns and has rights to. Keep the name `brewerypi` everywhere.
 - Tests: `pytest`
 - Lint (PEP 8): `ruff check .`  (auto-fix: `ruff check . --fix`)
 - Enable the commit hook: `pre-commit install`
+- Run the read-only MCP server: `pip install -e ".[mcp]"` then `brewerypi-mcp`
+  (env: `MCP_HOST`/`MCP_PORT`/`MCP_PATH`, `DATABASE_URL`). Deploy guide:
+  `docs/deploy-mcp-hetzner.md`.
 
 ## Conventions (full detail in CONVENTIONS.md)
 - Tables: plural `snake_case` (`enterprises`, `sites`, `areas`).
@@ -35,11 +39,22 @@ owns and has rights to. Keep the name `brewerypi` everywhere.
 - PEP 8 enforced by ruff at line-length 79 (configured in `pyproject.toml`).
 
 ## Current models (src/brewerypi/models.py)
-- `Enterprise` 1—* `Site` 1—* `Area` (top of the ISA-95 equipment hierarchy).
-- Each has `id`, `abbreviation` (10), `name` (45), `description` (255, nullable),
-  and a parent FK with `index=True`. Name and abbreviation are unique *within
-  the parent* (composite unique constraints). Relationships cascade-delete.
-- Derived from upstream BreweryPi's schema.
+- Equipment hierarchy: `Enterprise` 1—* `Site` 1—* `Area` 1—* `Tag` 1—*
+  `TagValue` (ISA-95 style). `Enterprise` also owns `Lookup` (1—*
+  `LookupValue`) and `MeasurementUnit`.
+- `Enterprise`/`Site`/`Area` each have `id`, `abbreviation` (10), `name` (45),
+  `description` (255, nullable), a parent FK with `index=True`, and composite
+  unique constraints (name/abbreviation unique within the parent). Cascade.
+- `Tag` belongs to `Area` with nullable `lookup_id` and `measurement_unit_id`;
+  `lookup_id` presence marks a lookup-typed tag vs a numeric one.
+- `TagValue` is the time-series table: a `timestamp` column (note: named
+  `timestamp`, a deviation from the `_at` convention) plus two nullable value
+  columns — `value` (Float) for numeric tags, `lookup_value_id` for
+  lookup-typed — with a `CHECK` enforcing exactly one is set. `lookup_value_id`
+  uses `ON DELETE RESTRICT` + `passive_deletes=True` so historical readings
+  can't be silently deleted. This is the high-volume table that motivates the
+  eventual Postgres/Timescale move.
+- Derived from upstream BreweryPi's schema; tested in `tests/test_models.py`.
 
 ## OPEN DECISION — schema naming (parked; decide before renaming anything)
 Our conventions rename upstream's existing identifiers — e.g. table `Enterprise`
@@ -68,13 +83,21 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
 - Line endings: `.gitattributes` pins `* text=auto eol=lf`; keep the editor on LF.
 
 ## Not done yet
-- Not pushed to GitHub yet; once pushed, add a branch-protection ruleset that
-  requires the CI checks to pass before merging to `main`.
+- No Alembic yet; the schema is built with `create_all`. Introduce Alembic
+  before the schema rename OR before the first database with data worth
+  keeping (whichever comes first). `app.db` is currently a throwaway.
+- Add a branch-protection ruleset on GitHub requiring the CI checks to pass
+  before merging to `main` (repo is pushed; ruleset not yet configured).
 - `brewerypi` is unclaimed on PyPI; reserve it if you plan to publish.
 - Repo split (e.g. `brewerypi-db`) intentionally deferred until a second
   consumer exists and the schema stabilizes.
 - Schema-naming decision (see above) is still open.
 
 ## In place
-- MIT `LICENSE`, CI (GitHub Actions: ruff + pytest on 3.10–3.13), pre-commit
-  hook, `.gitattributes` (LF normalization).
+- MIT `LICENSE`, CI (GitHub Actions: ruff + pytest on 3.10–3.13, installing
+  the `dev` + `mcp` extras), pre-commit hook, `.gitattributes` (LF).
+- Pushed to GitHub at `github.com/brewerypi/brewerypi-v2`.
+- Read-only MCP server built, tested (`tests/test_mcp_server.py`), and deployed
+  for a demo: Hetzner VPS + Caddy (HTTPS), added as a custom connector behind a
+  secret-path gate. Every MCP tool is read-only. Guide:
+  `docs/deploy-mcp-hetzner.md`.
