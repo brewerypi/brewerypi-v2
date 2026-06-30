@@ -7,6 +7,14 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- Read-only MCP server (`src/brewerypi/mcp_server.py`) exposing seven tools
+  over the hierarchy and time series (`list_enterprises`, `list_sites`,
+  `list_areas`, `list_tags`, `get_tag_values`, `tag_value_stats`,
+  `browse_hierarchy`), served over streamable HTTP. Adds an optional `mcp`
+  dependency group (`fastmcp`) and a `brewerypi-mcp` console script. Tests in
+  `tests/test_mcp_server.py` cover the tools (CI installs the `mcp` extra to
+  run them), and `docs/deploy-mcp-hetzner.md` documents deploying it on a
+  Hetzner VPS behind Caddy with a secret-path gate.
 - SQLAlchemy 2.0 models for `MeasurementUnit`, `Tag`, and `TagValue`.
   `MeasurementUnit` is enterprise-scoped (abbreviation, name, description).
   `Tag` belongs to `Area` with nullable `lookup_id` and `measurement_unit_id`
