@@ -27,8 +27,10 @@ Throughout, replace `mcp.brewerypi.com` with your subdomain and
    CX23** plan (2 vCPU / 4 GB / 40 GB, x86, ~$6.49/mo). The Cost-Optimized
    tier is EU-only; a US location (Ashburn/Hillsboro) only offers the pricier
    **Regular Performance (CPX)** tab (~$22.99/mo for the smallest), worth it
-   only if your demo users need US-local latency. Attach your SSH key. Create
-   it, and note the public **IPv4** address.
+   only if your demo users need US-local latency. In the **Networking**
+   section, make sure **Public IPv4** is ticked — it's a ~$0.60/month add-on
+   that is *not* enabled by default, and you need it for the DNS A record and
+   SSH. Attach your SSH key. Create it, and note the public **IPv4** address.
 
 ## 2. Point the subdomain at it
 
@@ -155,7 +157,9 @@ journalctl -u caddy --no-pager | tail -20   # watch for certificate success
 
 ## 8. Test before handing it out
 
-From your laptop, an MCP `initialize` call should return `200`:
+Run this **on the server** (it has a real `curl`), substituting your secret.
+An MCP `initialize` call should return `200`. This still exercises the whole
+public chain — DNS, certificate, secret path, proxy, and the MCP service:
 
 ```
 curl -s -o /dev/null -w "%{http_code}\n" \
@@ -165,7 +169,23 @@ curl -s -o /dev/null -w "%{http_code}\n" \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}'
 ```
 
-A path **without** the secret should return `404`.
+A path **without** the secret should return `404`. If the public URL fails,
+test the service directly (bypassing Caddy) — `http://127.0.0.1:8000/mcp`
+returning `200` means the issue is in Caddy (usually a secret mismatch or the
+certificate), while a failure there means the service isn't running
+(`systemctl status brewerypi-mcp`).
+
+> **Windows note:** don't run the above in PowerShell — there `curl` is an
+> alias for `Invoke-WebRequest`, with different syntax, so it will error. Test
+> from the server as shown, or use this PowerShell-native version, entering the
+> two statements as **separate** lines:
+>
+> ```powershell
+> $body = '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}'
+> ```
+> ```powershell
+> try { (Invoke-WebRequest -Method Post -Uri "https://mcp.brewerypi.com/REPLACE_WITH_SECRET/mcp" -Headers @{ "Accept" = "application/json, text/event-stream" } -ContentType "application/json" -Body $body).StatusCode } catch { $_.Exception.Response.StatusCode.value__ }
+> ```
 
 ## 9. Add it to Claude (each demo user)
 
