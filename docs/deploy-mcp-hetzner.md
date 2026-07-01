@@ -1,6 +1,6 @@
 # Deploying the BreweryPi MCP server (Hetzner + Caddy)
 
-A step-by-step guide to running the read-only MCP server on a small Hetzner
+A step-by-step guide to running the BreweryPi MCP server on a small Hetzner
 VPS, behind HTTPS, so a few demo users can add it to Claude as a custom
 connector.
 
@@ -9,7 +9,9 @@ connector.
 HTTPS for `mcp.brewerypi.com` with an automatic Let's Encrypt certificate,
 and reverse-proxies a **secret path** to the local server. The secret path
 is the access credential: only people who have the full URL can reach the
-tools, and every tool is read-only.
+tools. All tools are read-only except `record_tag_value`, which appends a
+reading — so anyone with the URL can write. That is acceptable here only
+because the database is a rebuildable demo (see the reset note below).
 
 Throughout, replace `mcp.brewerypi.com` with your subdomain and
 `REPLACE_WITH_SECRET` with a random token you generate in step 6.
@@ -217,9 +219,15 @@ systemctl restart brewerypi-mcp
 - **Rotating the secret:** change it in the Caddyfile, `systemctl reload
   caddy`, and re-share the new URL. (Removing the old connector and re-adding
   is the user-side step, since connector URLs can't be edited in place.)
-- **Read-only:** the server exposes only SELECT tools, so a leaked URL means
-  read access to demo data — never modification. If you later add write
-  tools, upgrade the auth to OAuth (Caddy can sit in front, or FastMCP can
-  enforce it) rather than relying on a secret path.
+- **Write access & the shared secret:** all tools are read-only except
+  `record_tag_value`, which appends a reading. Because auth is a single shared
+  secret path (not per-user), anyone with the URL can write. That is fine for
+  a throwaway demo — worst case is junk readings in a rebuildable database —
+  but before allowing anything sensitive or per-user, move to OAuth (Caddy in
+  front, or FastMCP enforcing it) instead of a shared secret.
+- **Resetting the demo data:** to wipe accumulated writes, rebuild the DB —
+  `systemctl stop brewerypi-mcp`, `rm -f app.db app.db-wal app.db-shm`,
+  `.venv/bin/brewerypi`, `.venv/bin/python scripts/seed_sample_data.py`,
+  `systemctl start brewerypi-mcp`.
 - **Backups:** the whole database is the single file `/opt/brewerypi/app.db`;
   copy it off the box to back it up.

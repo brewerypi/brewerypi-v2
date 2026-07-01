@@ -44,7 +44,8 @@ def seeded(tmp_path, monkeypatch):
         ent.measurement_units.append(mu)
         lookup = Lookup(name="Fermentation Stage")
         lv = LookupValue(name="Primary", is_selectable=True)
-        lookup.lookup_values.append(lv)
+        lv2 = LookupValue(name="Secondary", is_selectable=False)
+        lookup.lookup_values.extend([lv, lv2])
         ent.lookups.append(lookup)
         site = Site(abbreviation="HQ", name="Headquarters")
         area = Area(abbreviation="BH", name="Brewhouse")
@@ -131,3 +132,48 @@ def test_tag_value_stats(seeded):
 def test_unknown_tag_returns_error(seeded):
     assert "error" in mcp_server.get_tag_values(99999)
     assert "error" in mcp_server.tag_value_stats(99999)
+
+
+def test_record_numeric_value(seeded):
+    result = mcp_server.record_tag_value(
+        seeded["num_tag_id"],
+        value=70.5,
+        timestamp="2026-06-01T10:00:00",
+    )
+    assert result["type"] == "numeric"
+    assert result["value"] == 70.5
+    assert "id" in result
+    latest = mcp_server.get_tag_values(seeded["num_tag_id"], limit=1)
+    assert latest["readings"][0]["value"] == 70.5
+
+
+def test_record_lookup_value(seeded):
+    result = mcp_server.record_tag_value(
+        seeded["lk_tag_id"], lookup_value="Primary"
+    )
+    assert result["type"] == "lookup"
+    assert result["value"] == "Primary"
+
+
+def test_record_rejects_value_on_lookup_tag(seeded):
+    assert "error" in mcp_server.record_tag_value(
+        seeded["lk_tag_id"], value=5.0
+    )
+
+
+def test_record_rejects_lookup_on_numeric_tag(seeded):
+    assert "error" in mcp_server.record_tag_value(
+        seeded["num_tag_id"], lookup_value="Primary"
+    )
+
+
+def test_record_rejects_unselectable_lookup_value(seeded):
+    result = mcp_server.record_tag_value(
+        seeded["lk_tag_id"], lookup_value="Secondary"
+    )
+    assert "error" in result
+    assert result["allowed"] == ["Primary"]
+
+
+def test_record_unknown_tag(seeded):
+    assert "error" in mcp_server.record_tag_value(99999, value=1.0)
