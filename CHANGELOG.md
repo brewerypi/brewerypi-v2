@@ -7,6 +7,12 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- `record_tag_value` write tool on the MCP server — appends a single reading
+  to a tag, validating numeric vs lookup-typed tags and (for lookup tags)
+  that the value is selectable. SQLite engine now enables `foreign_keys` and a
+  busy-timeout for safe concurrent writes. **Auth is unchanged (one shared
+  secret path), so anyone with the URL can write** — acceptable only because
+  the demo database is a rebuildable throwaway.
 - Read-only MCP server (`src/brewerypi/mcp_server.py`) exposing seven tools
   over the hierarchy and time series (`list_enterprises`, `list_sites`,
   `list_areas`, `list_tags`, `get_tag_values`, `tag_value_stats`,

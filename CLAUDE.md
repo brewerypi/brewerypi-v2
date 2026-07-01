@@ -10,8 +10,9 @@ owns and has rights to. Keep the name `brewerypi` everywhere.
 - SQLAlchemy 2.0 ORM style (`DeclarativeBase`, `Mapped`, `mapped_column`).
 - SQLite for local dev via `DATABASE_URL` in `src/brewerypi/config.py`
   (default `sqlite:///app.db`); designed to swap to Postgres/Turso later.
-- Consumers: a read-only MCP server (`src/brewerypi/mcp_server.py`) — built
-  and deployed for demos; a Flask web app is still planned.
+- Consumers: an MCP server (`src/brewerypi/mcp_server.py`) — read tools plus
+  one write tool (`record_tag_value`); built and deployed for demos. A Flask
+  web app is still planned.
 - `pyproject.toml` is the single source of build, dependency, and tool config.
 
 ## Commands
@@ -21,7 +22,7 @@ owns and has rights to. Keep the name `brewerypi` everywhere.
 - Tests: `pytest`
 - Lint (PEP 8): `ruff check .`  (auto-fix: `ruff check . --fix`)
 - Enable the commit hook: `pre-commit install`
-- Run the read-only MCP server: `pip install -e ".[mcp]"` then `brewerypi-mcp`
+- Run the MCP server: `pip install -e ".[mcp]"` then `brewerypi-mcp`
   (env: `MCP_HOST`/`MCP_PORT`/`MCP_PATH`, `DATABASE_URL`). Deploy guide:
   `docs/deploy-mcp-hetzner.md`.
 
@@ -97,7 +98,9 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
 - MIT `LICENSE`, CI (GitHub Actions: ruff + pytest on 3.10–3.13, installing
   the `dev` + `mcp` extras), pre-commit hook, `.gitattributes` (LF).
 - Pushed to GitHub at `github.com/brewerypi/brewerypi-v2`.
-- Read-only MCP server built, tested (`tests/test_mcp_server.py`), and deployed
-  for a demo: Hetzner VPS + Caddy (HTTPS), added as a custom connector behind a
-  secret-path gate. Every MCP tool is read-only. Guide:
+- MCP server built, tested (`tests/test_mcp_server.py`), and deployed for a
+  demo: Hetzner VPS + Caddy (HTTPS), added as a custom connector behind a
+  secret-path gate. All tools read-only except `record_tag_value` (write);
+  single shared secret = anyone with the URL can write, acceptable only
+  because the demo DB is a rebuildable throwaway. Guide:
   `docs/deploy-mcp-hetzner.md`.

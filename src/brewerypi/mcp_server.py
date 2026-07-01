@@ -1,9 +1,11 @@
-"""Read-only MCP server over the BreweryPi hierarchy and time series.
+"""MCP server over the BreweryPi hierarchy and time series.
 
-Exposes a small set of read-only tools so that Claude (via a custom
-connector) can browse the enterprise -> site -> area -> tag hierarchy and
-query a tag's recorded values. Intended for demos: every tool is a SELECT,
-so connected users can read but never modify the shared database.
+Exposes tools so that Claude (via a custom connector) can browse the
+enterprise -> site -> area -> tag hierarchy, query a tag's recorded values,
+and record new readings. All tools are read-only except ``record_tag_value``,
+which appends a single reading. There is no per-user auth — the deployment
+gates access with one shared secret path — so this is intended for a demo
+against a throwaway database that can be rebuilt from the seed.
 
 Run it with the ``brewerypi-mcp`` command (or
 ``python -m brewerypi.mcp_server``). Configuration is read from the
@@ -22,7 +24,8 @@ import os
 from datetime import datetime
 
 from fastmcp import FastMCP
-from sqlalchemy import create_engine, func, select
+from sqlalchemy import create_engine, event, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from brewerypi.config import DATABASE_URL
@@ -37,6 +40,16 @@ from brewerypi.models import (
 
 _engine = create_engine(DATABASE_URL)
 _Session = sessionmaker(_engine)
+
+if _engine.dialect.name == "sqlite":
+
+    @event.listens_for(_engine, "connect")
+    def _sqlite_pragmas(dbapi_conn, _record):
+        """Enforce foreign keys and wait on locks (writes need both)."""
+        cur = dbapi_conn.cursor()
+        cur.execute("PRAGMA foreign_keys=ON")
+        cur.execute("PRAGMA busy_timeout=5000")
+        cur.close()
 
 mcp = FastMCP("BreweryPi")
 
@@ -250,6 +263,91 @@ def browse_hierarchy() -> list[dict]:
                 sites.append({"id": s.id, "name": s.name, "areas": areas})
             out.append({"id": e.id, "name": e.name, "sites": sites})
         return out
+
+
+@mcp.tool
+def record_tag_value(
+    tag_id: int,
+    value: float | None = None,
+    lookup_value: str | None = None,
+    timestamp: str | None = None,
+) -> dict:
+    """Record a single new reading for a tag (the one write tool).
+
+    For a numeric tag, pass ``value``. For a lookup-typed tag, pass
+    ``lookup_value`` as the name of an allowed, selectable lookup value.
+    Provide exactly one of the two. ``timestamp`` is an optional ISO 8601
+    time and defaults to now. Returns the created reading, or an ``error``
+    describing what was wrong (unknown tag, wrong value kind for the tag's
+    type, or a lookup value that isn't selectable).
+    """
+    when = _parse_dt(timestamp) or datetime.now()
+    with _Session() as session:
+        tag = session.get(Tag, tag_id)
+        if tag is None:
+            return {"error": f"no tag with id {tag_id}"}
+
+        if tag.lookup_id is not None:
+            if lookup_value is None or value is not None:
+                return {
+                    "error": (
+                        f"tag {tag_id} ({tag.name}) is lookup-typed; pass "
+                        "only 'lookup_value'"
+                    )
+                }
+            lv = session.scalars(
+                select(LookupValue).where(
+                    LookupValue.lookup_id == tag.lookup_id,
+                    LookupValue.name == lookup_value,
+                    LookupValue.is_selectable.is_(True),
+                )
+            ).first()
+            if lv is None:
+                allowed = session.scalars(
+                    select(LookupValue.name).where(
+                        LookupValue.lookup_id == tag.lookup_id,
+                        LookupValue.is_selectable.is_(True),
+                    )
+                ).all()
+                return {
+                    "error": (
+                        f"'{lookup_value}' is not a selectable value for "
+                        f"tag {tag_id}"
+                    ),
+                    "allowed": list(allowed),
+                }
+            reading = TagValue(
+                tag_id=tag_id, timestamp=when, lookup_value_id=lv.id
+            )
+            stored: object = lv.name
+            vtype = "lookup"
+        else:
+            if value is None or lookup_value is not None:
+                return {
+                    "error": (
+                        f"tag {tag_id} ({tag.name}) is numeric; pass only "
+                        "'value'"
+                    )
+                }
+            reading = TagValue(tag_id=tag_id, timestamp=when, value=value)
+            stored = value
+            vtype = "numeric"
+
+        session.add(reading)
+        try:
+            session.commit()
+        except IntegrityError:
+            session.rollback()
+            return {"error": "could not record the reading"}
+        session.refresh(reading)
+        return {
+            "id": reading.id,
+            "tag_id": tag_id,
+            "tag_name": tag.name,
+            "timestamp": reading.timestamp.isoformat(),
+            "value": stored,
+            "type": vtype,
+        }
 
 
 def main() -> None:
