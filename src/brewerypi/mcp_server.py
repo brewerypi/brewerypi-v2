@@ -28,15 +28,18 @@ from sqlalchemy import create_engine, event, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
+from brewerypi import services
 from brewerypi.config import DATABASE_URL
 from brewerypi.models import (
     Area,
     Enterprise,
     LookupValue,
+    MeasurementUnit,
     Site,
     Tag,
     TagValue,
 )
+from brewerypi.services import ServiceError
 
 _engine = create_engine(DATABASE_URL)
 _Session = sessionmaker(_engine)
@@ -348,6 +351,112 @@ def record_tag_value(
             "value": stored,
             "type": vtype,
         }
+
+
+def _unit_dict(unit: MeasurementUnit) -> dict:
+    return {
+        "id": unit.id,
+        "enterprise_id": unit.enterprise_id,
+        "abbreviation": unit.abbreviation,
+        "name": unit.name,
+        "description": unit.description,
+    }
+
+
+def list_measurement_units(enterprise_id: int | None = None) -> list[dict]:
+    """List measurement units, optionally filtered by enterprise (admin)."""
+    with _Session() as session:
+        units = services.list_measurement_units(session, enterprise_id)
+        return [_unit_dict(u) for u in units]
+
+
+def create_measurement_unit(
+    enterprise_id: int,
+    abbreviation: str,
+    name: str,
+    description: str | None = None,
+) -> dict:
+    """Create a measurement unit under an enterprise (admin, write).
+
+    ``abbreviation`` and ``name`` must be unique within the enterprise.
+    Returns the created unit, or an ``error`` describing the rule it broke.
+    """
+    with _Session() as session:
+        try:
+            unit = services.create_measurement_unit(
+                session, enterprise_id, abbreviation, name, description
+            )
+            result = _unit_dict(unit)
+            session.commit()
+            return result
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
+def update_measurement_unit(
+    unit_id: int,
+    abbreviation: str | None = None,
+    name: str | None = None,
+    description: str | None = None,
+) -> dict:
+    """Update a measurement unit; only provided fields change (admin)."""
+    with _Session() as session:
+        try:
+            unit = services.update_measurement_unit(
+                session, unit_id, abbreviation, name, description
+            )
+            result = _unit_dict(unit)
+            session.commit()
+            return result
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
+def delete_measurement_unit(unit_id: int, confirm: bool = False) -> dict:
+    """Delete a measurement unit (admin, destructive).
+
+    Without ``confirm=true`` this only previews and does not delete; call
+    again with ``confirm=true`` to remove it. Refuses if any tag still
+    references the unit.
+    """
+    with _Session() as session:
+        try:
+            unit = services.get_measurement_unit(session, unit_id)
+        except ServiceError as exc:
+            return {"error": str(exc)}
+        if not confirm:
+            return {
+                "confirm_required": True,
+                "unit": _unit_dict(unit),
+                "message": (
+                    f"Would delete measurement unit {unit_id} "
+                    f"({unit.name}). Call again with confirm=true."
+                ),
+            }
+        try:
+            services.delete_measurement_unit(session, unit_id)
+            session.commit()
+            return {"deleted": unit_id}
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
+def _register_config_tools(server: FastMCP) -> None:
+    """Register the admin-only configuration CRUD tools on a server."""
+    server.tool(list_measurement_units)
+    server.tool(create_measurement_unit)
+    server.tool(update_measurement_unit)
+    server.tool(delete_measurement_unit)
+
+
+# Config editing is gated by role. The default tier is "operator" (read +
+# record_tag_value); the admin tier (MCP_ROLE=admin) additionally exposes the
+# config CRUD tools. Run the admin tier on its own port and secret path.
+if os.getenv("MCP_ROLE", "operator") == "admin":
+    _register_config_tools(mcp)
 
 
 def main() -> None:

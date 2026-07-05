@@ -68,8 +68,21 @@ ufw --force enable
 git clone https://github.com/brewerypi/brewerypi-v2.git /opt/brewerypi
 cd /opt/brewerypi
 python3 -m venv .venv
-.venv/bin/pip install -e ".[mcp]"
+.venv/bin/pip install -e ".[mcp,migrations]"
 ```
+
+**Adopt Alembic on the existing database (one time).** The current `app.db`
+was built by `create_all`, so tell Alembic it is already at the latest
+migration — this stamps it without re-running, so nothing is rebuilt:
+
+```
+cd /opt/brewerypi
+DATABASE_URL=sqlite:////opt/brewerypi/app.db .venv/bin/alembic stamp head
+```
+
+From now on, schema changes ship as migrations and you apply them with
+`alembic upgrade head` (see "Updating later"). On a brand-new box with no
+`app.db` yet, run `alembic upgrade head` instead of stamping.
 
 ## 5. Create and seed the database
 
@@ -205,14 +218,73 @@ settings → Connectors, and members connect individually.
 Try: *"Browse the brewery hierarchy,"* or *"What tags are in the Brewhouse,
 and what are the latest Mash Temp readings?"*
 
+## 10. (Optional) Admin endpoint for configuration editing
+
+The base (default) **operator** tier is read + record-value only. Configuration
+editing (CRUD on measurement units, and later the other config tables) lives in
+a separate **admin tier**, gated by `MCP_ROLE=admin`, on its own port and its
+own secret path — so you hand the admin URL only to the handful of people who
+should edit configuration.
+
+Generate a **second, different** secret (`openssl rand -hex 16`), then create
+`/etc/systemd/system/brewerypi-mcp-admin.service` — identical to the base unit
+but on port 8001 with the admin role:
+
+```ini
+[Unit]
+Description=BreweryPi MCP admin server
+After=network.target
+
+[Service]
+WorkingDirectory=/opt/brewerypi
+Environment=MCP_ROLE=admin
+Environment=MCP_HOST=127.0.0.1
+Environment=MCP_PORT=8001
+Environment=MCP_PATH=/mcp
+Environment=DATABASE_URL=sqlite:////opt/brewerypi/app.db
+ExecStart=/opt/brewerypi/.venv/bin/brewerypi-mcp
+Restart=on-failure
+User=root
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```
+systemctl daemon-reload
+systemctl enable --now brewerypi-mcp-admin
+```
+
+Add a second route to `/etc/caddy/Caddyfile` inside the same site block,
+using the **admin** secret and pointing at port 8001:
+
+```
+    @admin path /ADMIN_SECRET/*
+    handle @admin {
+        uri strip_prefix /ADMIN_SECRET
+        reverse_proxy 127.0.0.1:8001
+    }
+```
+
+Reload Caddy (`systemctl reload caddy`). The admin connector URL is then
+`https://mcp.brewerypi.com/ADMIN_SECRET/mcp`, and it exposes the config CRUD
+tools on top of the read/write ones. Because auth is still a shared secret,
+guard the admin URL tightly and rotate it if anyone leaves the circle — this
+is the first thing to move to OAuth when you need per-user identity or audit.
+
 ## Updating later
 
 ```
 cd /opt/brewerypi
 git pull
-.venv/bin/pip install -e ".[mcp]"
+.venv/bin/pip install -e ".[mcp,migrations]"
+DATABASE_URL=sqlite:////opt/brewerypi/app.db .venv/bin/alembic upgrade head
 systemctl restart brewerypi-mcp
+systemctl restart brewerypi-mcp-admin   # if the admin tier is running
 ```
+
+The `alembic upgrade head` applies any new migrations; it's a no-op when
+there are none, so it's safe to run every time.
 
 ## Notes
 

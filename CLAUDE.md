@@ -10,9 +10,12 @@ owns and has rights to. Keep the name `brewerypi` everywhere.
 - SQLAlchemy 2.0 ORM style (`DeclarativeBase`, `Mapped`, `mapped_column`).
 - SQLite for local dev via `DATABASE_URL` in `src/brewerypi/config.py`
   (default `sqlite:///app.db`); designed to swap to Postgres/Turso later.
-- Consumers: an MCP server (`src/brewerypi/mcp_server.py`) — read tools plus
-  one write tool (`record_tag_value`); built and deployed for demos. A Flask
-  web app is still planned.
+- Consumers: an MCP server (`src/brewerypi/mcp_server.py`) with two tiers,
+  selected by `MCP_ROLE`: the default **operator** tier (browse/query + one
+  write tool `record_tag_value`), and an **admin** tier (`MCP_ROLE=admin`)
+  that also exposes config CRUD tools (measurement units so far) wrapping the
+  service layer. The tiers run as separate processes on separate ports/secret
+  paths; built and deployed for demos. A Flask web app is still planned.
 - `pyproject.toml` is the single source of build, dependency, and tool config.
 
 ## Commands

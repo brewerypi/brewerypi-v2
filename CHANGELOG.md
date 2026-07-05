@@ -7,6 +7,13 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- Admin MCP tier: config-editing tools are gated by `MCP_ROLE=admin` and
+  registered only on that tier, run as a separate process on its own port and
+  secret path. First config CRUD exposed is measurement units
+  (`list`/`create`/`update`/`delete_measurement_unit`, wrapping the service
+  layer), with destructive deletes requiring an explicit `confirm=true` after
+  a preview. Covered by `tests/test_mcp_config_tools.py`. Deploy guide gains
+  the admin endpoint and the Alembic adoption/upgrade steps.
 - Service layer (`src/brewerypi/services/`): reusable business logic shared by
   the MCP tools and future consumers, with a `ServiceError` hierarchy
   (`NotFoundError`/`ValidationError`/`ConflictError`). First slice is
