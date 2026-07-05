@@ -23,6 +23,10 @@ owns and has rights to. Keep the name `brewerypi` everywhere.
 - Lint (PEP 8): `ruff check .`  (auto-fix: `ruff check . --fix`)
 - Enable the commit hook: `pre-commit install`
 - Run the MCP server: `pip install -e ".[mcp]"` then `brewerypi-mcp`
+- Migrations (Alembic): `pip install -e ".[migrations]"`, then
+  `alembic upgrade head` (new DB) or `alembic stamp head` (adopt on an
+  existing create_all DB); `alembic revision --autogenerate -m "..."` for
+  schema changes.
   (env: `MCP_HOST`/`MCP_PORT`/`MCP_PATH`, `DATABASE_URL`). Deploy guide:
   `docs/deploy-mcp-hetzner.md`.
 
@@ -84,9 +88,9 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
 - Line endings: `.gitattributes` pins `* text=auto eol=lf`; keep the editor on LF.
 
 ## Not done yet
-- No Alembic yet; the schema is built with `create_all`. Introduce Alembic
-  before the schema rename OR before the first database with data worth
-  keeping (whichever comes first). `app.db` is currently a throwaway.
+- `create_all` (in `main.py`) still builds the schema for the throwaway
+  demo DB; Alembic is now the mechanism for versioned schema changes. Adopt
+  Alembic on the existing server DB with `alembic stamp head`.
 - Add a branch-protection ruleset on GitHub requiring the CI checks to pass
   before merging to `main` (repo is pushed; ruleset not yet configured).
 - `brewerypi` is unclaimed on PyPI; reserve it if you plan to publish.
@@ -98,6 +102,8 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
 - MIT `LICENSE`, CI (GitHub Actions: ruff + pytest on 3.10–3.13, installing
   the `dev` + `mcp` extras), pre-commit hook, `.gitattributes` (LF).
 - Pushed to GitHub at `github.com/brewerypi/brewerypi-v2`.
+- Alembic migrations in `migrations/` (initial migration captures the current
+  schema; `env.py` wired to `Base.metadata` + `DATABASE_URL`).
 - MCP server built, tested (`tests/test_mcp_server.py`), and deployed for a
   demo: Hetzner VPS + Caddy (HTTPS), added as a custom connector behind a
   secret-path gate. All tools read-only except `record_tag_value` (write);

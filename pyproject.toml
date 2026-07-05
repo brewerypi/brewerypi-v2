@@ -22,6 +22,10 @@ dev = [
 mcp = [
     "fastmcp>=3.0",
 ]
+# Install with `pip install -e ".[migrations]"` to run Alembic.
+migrations = [
+    "alembic>=1.13",
+]
 
 # Lets you run the app as the `brewerypi` command after `pip install -e .`
 [project.scripts]
@@ -40,6 +44,7 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 79
 src = ["src", "tests", "scripts"]
+extend-exclude = ["migrations"]
 
 [tool.ruff.lint]
 # E/W = pycodestyle (PEP 8), F = pyflakes, I = import ordering (also PEP 8).

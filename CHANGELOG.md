@@ -7,6 +7,10 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- Alembic migrations (`migrations/`) with an initial migration capturing the
+  current schema, wired to `Base.metadata` and `DATABASE_URL`. Adds a
+  `migrations` optional dependency (`alembic`); versioned schema changes now go
+  through Alembic rather than `create_all`.
 - `record_tag_value` write tool on the MCP server — appends a single reading
   to a tag, validating numeric vs lookup-typed tags and (for lookup tags)
   that the value is selectable. SQLite engine now enables `foreign_keys` and a
