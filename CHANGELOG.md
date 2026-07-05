@@ -7,6 +7,13 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- Service layer (`src/brewerypi/services/`): reusable business logic shared by
+  the MCP tools and future consumers, with a `ServiceError` hierarchy
+  (`NotFoundError`/`ValidationError`/`ConflictError`). First slice is
+  measurement-unit CRUD (`create`/`get`/`list`/`update`/`delete`) with
+  enterprise-existence and per-enterprise uniqueness validation and a delete
+  guard that refuses to remove a unit still referenced by tags. Covered by
+  `tests/test_services_measurement_units.py`.
 - Alembic migrations (`migrations/`) with an initial migration capturing the
   current schema, wired to `Base.metadata` and `DATABASE_URL`. Adds a
   `migrations` optional dependency (`alembic`); versioned schema changes now go
