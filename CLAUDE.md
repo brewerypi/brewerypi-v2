@@ -110,8 +110,9 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
 - Service layer (`src/brewerypi/services/`): reusable CRUD/business logic
   shared by MCP tools and future consumers; raises a `ServiceError` hierarchy;
   callers own the Session/transaction. Module per table: `measurement_units`,
-  `lookups`, `lookup_values` done (shared `clean_str` in `_validation.py`).
-  Admin MCP tools expose all three (admin tier ~20 tools); `tag` is next.
+  `lookups`, `lookup_values`, `tags` done (shared `clean_str` in
+  `_validation.py`). Admin MCP tools expose the first three (admin tier ~20
+  tools); tag admin tools are next.
 - MCP server built, tested (`tests/test_mcp_server.py`), and deployed for a
   demo: Hetzner VPS + Caddy (HTTPS), added as a custom connector behind a
   secret-path gate. All tools read-only except `record_tag_value` (write);

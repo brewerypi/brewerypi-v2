@@ -33,6 +33,13 @@ from brewerypi.services.measurement_units import (
     list_measurement_units,
     update_measurement_unit,
 )
+from brewerypi.services.tags import (
+    create_tag,
+    delete_tag,
+    get_tag,
+    list_tags,
+    update_tag,
+)
 
 __all__ = [
     "ConflictError",
@@ -42,16 +49,21 @@ __all__ = [
     "create_lookup",
     "create_lookup_value",
     "create_measurement_unit",
+    "create_tag",
     "delete_lookup",
     "delete_lookup_value",
     "delete_measurement_unit",
+    "delete_tag",
     "get_lookup",
     "get_lookup_value",
     "get_measurement_unit",
+    "get_tag",
     "list_lookup_values",
     "list_lookups",
     "list_measurement_units",
+    "list_tags",
     "update_lookup",
     "update_lookup_value",
     "update_measurement_unit",
+    "update_tag",
 ]

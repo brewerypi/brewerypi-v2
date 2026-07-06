@@ -7,6 +7,12 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- Service-layer CRUD for tags (`services/tags.py`). Create validates the area,
+  per-area name uniqueness, that a tag is either lookup-typed or numeric (not
+  both), and that any referenced lookup or measurement unit belongs to the
+  tag's own enterprise; delete refuses when the tag has recorded readings
+  (which would otherwise cascade-delete history). Update covers name and
+  description only. Covered by `tests/test_services_tags.py`.
 - Admin MCP tools for lookups and lookup values (`list`/`create`/`update`/
   `delete` each), wrapping the service layer and registered on the admin tier
   next to the measurement-unit tools (admin tier is now 20 tools). Destructive
