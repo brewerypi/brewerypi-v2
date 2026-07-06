@@ -11,3 +11,11 @@ def clean_str(value: str, field: str, max_len: int) -> str:
     if len(value) > max_len:
         raise ValidationError(f"{field} exceeds {max_len} characters")
     return value
+
+
+def optional_str(value: str | None) -> str | None:
+    """Normalize an optional text field: None or blank becomes None."""
+    if value is None:
+        return None
+    value = value.strip()
+    return value or None

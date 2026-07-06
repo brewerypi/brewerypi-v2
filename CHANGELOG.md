@@ -7,6 +7,12 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- Service-layer CRUD for areas (`services/areas.py`), plus an `optional_str`
+  helper in `_validation.py`. Create/update validate per-site uniqueness of
+  abbreviation and name; delete refuses when any recorded reading exists under
+  the area's tags (Area -> tags -> tag_values all cascade), so a structural
+  delete can't silently destroy history. Covered by
+  `tests/test_services_areas.py`.
 - Documented the MCP tool naming convention in `CONVENTIONS.md` (with a
   pointer from `CLAUDE.md`): admin tools never shadow operator tools; hierarchy
   tables reuse the operator `list_<table>` and add `get_<table>`, reference
