@@ -109,8 +109,9 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
   schema; `env.py` wired to `Base.metadata` + `DATABASE_URL`).
 - Service layer (`src/brewerypi/services/`): reusable CRUD/business logic
   shared by MCP tools and future consumers; raises a `ServiceError` hierarchy;
-  callers own the Session/transaction. `measurement_units` is the first slice
-  (template for the other config tables). MCP tools/admin tier still to come.
+  callers own the Session/transaction. Module per table: `measurement_units`,
+  `lookups`, `lookup_values` done (shared `clean_str` in `_validation.py`).
+  Admin MCP tools wrap them; measurement_units is exposed so far, lookups next.
 - MCP server built, tested (`tests/test_mcp_server.py`), and deployed for a
   demo: Hetzner VPS + Caddy (HTTPS), added as a custom connector behind a
   secret-path gate. All tools read-only except `record_tag_value` (write);

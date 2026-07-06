@@ -7,6 +7,12 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- Service-layer CRUD for lookups and lookup values
+  (`services/lookups.py`, `services/lookup_values.py`), plus a shared
+  `clean_str` validator (`services/_validation.py`, now also used by
+  measurement_units). Lookup delete refuses when a tag uses the lookup or a
+  recorded reading references one of its values; lookup-value delete refuses
+  when a reading references it. Covered by `tests/test_services_lookups.py`.
 - Admin MCP tier: config-editing tools are gated by `MCP_ROLE=admin` and
   registered only on that tier, run as a separate process on its own port and
   secret path. First config CRUD exposed is measurement units

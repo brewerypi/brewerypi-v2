@@ -11,6 +11,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from brewerypi.models import Enterprise, MeasurementUnit, Tag
+from brewerypi.services._validation import clean_str
 from brewerypi.services.exceptions import (
     ConflictError,
     NotFoundError,
@@ -48,8 +49,8 @@ def create_measurement_unit(
     Validates that the enterprise exists and that abbreviation and name are
     each unique within that enterprise.
     """
-    abbreviation = _clean(abbreviation, "abbreviation", 10)
-    name = _clean(name, "name", 45)
+    abbreviation = clean_str(abbreviation, "abbreviation", 10)
+    name = clean_str(name, "name", 45)
     if session.get(Enterprise, enterprise_id) is None:
         raise NotFoundError(f"no enterprise with id {enterprise_id}")
     _check_unique(session, enterprise_id, abbreviation, name)
@@ -76,9 +77,9 @@ def update_measurement_unit(
     new_abbr = unit.abbreviation
     new_name = unit.name
     if abbreviation is not None:
-        new_abbr = _clean(abbreviation, "abbreviation", 10)
+        new_abbr = clean_str(abbreviation, "abbreviation", 10)
     if name is not None:
-        new_name = _clean(name, "name", 45)
+        new_name = clean_str(name, "name", 45)
     _check_unique(
         session,
         unit.enterprise_id,
@@ -109,16 +110,6 @@ def delete_measurement_unit(session: Session, unit_id: int) -> None:
         )
     session.delete(unit)
     session.flush()
-
-
-def _clean(value: str, field: str, max_len: int) -> str:
-    """Strip a string field and enforce required + max length."""
-    value = (value or "").strip()
-    if not value:
-        raise ValidationError(f"{field} is required")
-    if len(value) > max_len:
-        raise ValidationError(f"{field} exceeds {max_len} characters")
-    return value
 
 
 def _check_unique(

@@ -12,6 +12,20 @@ from brewerypi.services.exceptions import (
     ServiceError,
     ValidationError,
 )
+from brewerypi.services.lookup_values import (
+    create_lookup_value,
+    delete_lookup_value,
+    get_lookup_value,
+    list_lookup_values,
+    update_lookup_value,
+)
+from brewerypi.services.lookups import (
+    create_lookup,
+    delete_lookup,
+    get_lookup,
+    list_lookups,
+    update_lookup,
+)
 from brewerypi.services.measurement_units import (
     create_measurement_unit,
     delete_measurement_unit,
@@ -25,9 +39,19 @@ __all__ = [
     "NotFoundError",
     "ServiceError",
     "ValidationError",
+    "create_lookup",
+    "create_lookup_value",
     "create_measurement_unit",
+    "delete_lookup",
+    "delete_lookup_value",
     "delete_measurement_unit",
+    "get_lookup",
+    "get_lookup_value",
     "get_measurement_unit",
+    "list_lookup_values",
+    "list_lookups",
     "list_measurement_units",
+    "update_lookup",
+    "update_lookup_value",
     "update_measurement_unit",
 ]
