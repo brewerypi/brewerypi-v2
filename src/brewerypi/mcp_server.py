@@ -33,6 +33,7 @@ from brewerypi.config import DATABASE_URL
 from brewerypi.models import (
     Area,
     Enterprise,
+    Lookup,
     LookupValue,
     MeasurementUnit,
     Site,
@@ -444,12 +445,174 @@ def delete_measurement_unit(unit_id: int, confirm: bool = False) -> dict:
             return {"error": str(exc)}
 
 
+def _lookup_dict(lookup: Lookup) -> dict:
+    return {
+        "id": lookup.id,
+        "enterprise_id": lookup.enterprise_id,
+        "name": lookup.name,
+    }
+
+
+def list_lookups(enterprise_id: int | None = None) -> list[dict]:
+    """List lookups, optionally filtered by enterprise (admin)."""
+    with _Session() as session:
+        rows = services.list_lookups(session, enterprise_id)
+        return [_lookup_dict(lk) for lk in rows]
+
+
+def create_lookup(enterprise_id: int, name: str) -> dict:
+    """Create a lookup under an enterprise (admin, write)."""
+    with _Session() as session:
+        try:
+            lookup = services.create_lookup(session, enterprise_id, name)
+            result = _lookup_dict(lookup)
+            session.commit()
+            return result
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
+def update_lookup(lookup_id: int, name: str | None = None) -> dict:
+    """Rename a lookup (admin, write)."""
+    with _Session() as session:
+        try:
+            lookup = services.update_lookup(session, lookup_id, name)
+            result = _lookup_dict(lookup)
+            session.commit()
+            return result
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
+def delete_lookup(lookup_id: int, confirm: bool = False) -> dict:
+    """Delete a lookup and its values (admin, destructive).
+
+    Without ``confirm=true`` this only previews. Refuses if a tag uses the
+    lookup or a recorded reading references one of its values.
+    """
+    with _Session() as session:
+        try:
+            lookup = services.get_lookup(session, lookup_id)
+        except ServiceError as exc:
+            return {"error": str(exc)}
+        if not confirm:
+            return {
+                "confirm_required": True,
+                "lookup": _lookup_dict(lookup),
+                "message": (
+                    f"Would delete lookup {lookup_id} ({lookup.name}) "
+                    "and its values. Call again with confirm=true."
+                ),
+            }
+        try:
+            services.delete_lookup(session, lookup_id)
+            session.commit()
+            return {"deleted": lookup_id}
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
+def _lookup_value_dict(value: LookupValue) -> dict:
+    return {
+        "id": value.id,
+        "lookup_id": value.lookup_id,
+        "name": value.name,
+        "is_selectable": value.is_selectable,
+    }
+
+
+def list_lookup_values(lookup_id: int) -> list[dict]:
+    """List the values belonging to a lookup (admin)."""
+    with _Session() as session:
+        rows = services.list_lookup_values(session, lookup_id)
+        return [_lookup_value_dict(v) for v in rows]
+
+
+def create_lookup_value(
+    lookup_id: int, name: str, is_selectable: bool = True
+) -> dict:
+    """Create a value under a lookup (admin, write)."""
+    with _Session() as session:
+        try:
+            value = services.create_lookup_value(
+                session, lookup_id, name, is_selectable
+            )
+            result = _lookup_value_dict(value)
+            session.commit()
+            return result
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
+def update_lookup_value(
+    value_id: int,
+    name: str | None = None,
+    is_selectable: bool | None = None,
+) -> dict:
+    """Update a lookup value; only provided fields change (admin)."""
+    with _Session() as session:
+        try:
+            value = services.update_lookup_value(
+                session, value_id, name, is_selectable
+            )
+            result = _lookup_value_dict(value)
+            session.commit()
+            return result
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
+def delete_lookup_value(value_id: int, confirm: bool = False) -> dict:
+    """Delete a lookup value (admin, destructive).
+
+    Without ``confirm=true`` this only previews. Refuses if any recorded
+    reading references the value.
+    """
+    with _Session() as session:
+        try:
+            value = services.get_lookup_value(session, value_id)
+        except ServiceError as exc:
+            return {"error": str(exc)}
+        if not confirm:
+            return {
+                "confirm_required": True,
+                "lookup_value": _lookup_value_dict(value),
+                "message": (
+                    f"Would delete lookup value {value_id} "
+                    f"({value.name}). Call again with confirm=true."
+                ),
+            }
+        try:
+            services.delete_lookup_value(session, value_id)
+            session.commit()
+            return {"deleted": value_id}
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
 def _register_config_tools(server: FastMCP) -> None:
     """Register the admin-only configuration CRUD tools on a server."""
-    server.tool(list_measurement_units)
-    server.tool(create_measurement_unit)
-    server.tool(update_measurement_unit)
-    server.tool(delete_measurement_unit)
+    for tool in (
+        list_measurement_units,
+        create_measurement_unit,
+        update_measurement_unit,
+        delete_measurement_unit,
+        list_lookups,
+        create_lookup,
+        update_lookup,
+        delete_lookup,
+        list_lookup_values,
+        create_lookup_value,
+        update_lookup_value,
+        delete_lookup_value,
+    ):
+        server.tool(tool)
 
 
 # Config editing is gated by role. The default tier is "operator" (read +

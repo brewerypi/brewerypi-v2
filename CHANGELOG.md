@@ -7,6 +7,11 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- Admin MCP tools for lookups and lookup values (`list`/`create`/`update`/
+  `delete` each), wrapping the service layer and registered on the admin tier
+  next to the measurement-unit tools (admin tier is now 20 tools). Destructive
+  deletes preview and require `confirm=true`. Covered by
+  `tests/test_mcp_config_tools_lookups.py`.
 - Service-layer CRUD for lookups and lookup values
   (`services/lookups.py`, `services/lookup_values.py`), plus a shared
   `clean_str` validator (`services/_validation.py`, now also used by

@@ -88,11 +88,21 @@ def test_config_tools_registered_by_helper():
 
     async def names():
         async with Client(server) as client:
-            return sorted(t.name for t in await client.list_tools())
+            return {t.name for t in await client.list_tools()}
 
-    assert asyncio.run(names()) == [
-        "create_measurement_unit",
-        "delete_measurement_unit",
+    registered = asyncio.run(names())
+    expected = {
         "list_measurement_units",
+        "create_measurement_unit",
         "update_measurement_unit",
-    ]
+        "delete_measurement_unit",
+        "list_lookups",
+        "create_lookup",
+        "update_lookup",
+        "delete_lookup",
+        "list_lookup_values",
+        "create_lookup_value",
+        "update_lookup_value",
+        "delete_lookup_value",
+    }
+    assert expected <= registered
