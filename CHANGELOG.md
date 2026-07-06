@@ -7,6 +7,12 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- Service-layer read/update/delete for tag values (`services/tag_values.py`):
+  `get_tag_value`, `update_tag_value` (corrects a reading's value and/or
+  timestamp, enforcing the tag's numeric-vs-lookup type so the XOR invariant
+  holds), and `delete_tag_value`. Creation stays with the operator-tier
+  `record_tag_value`; these are corrective operations for the admin tier.
+  Covered by `tests/test_services_tag_values.py`.
 - Admin MCP tools for areas: `get_area`, `create_area`, `update_area`,
   `delete_area` (admin tier now 28 tools). Listing reuses the operator
   `list_areas`. `delete_area` previews with the tag count, requires

@@ -40,6 +40,11 @@ from brewerypi.services.measurement_units import (
     list_measurement_units,
     update_measurement_unit,
 )
+from brewerypi.services.tag_values import (
+    delete_tag_value,
+    get_tag_value,
+    update_tag_value,
+)
 from brewerypi.services.tags import (
     create_tag,
     delete_tag,
@@ -63,11 +68,13 @@ __all__ = [
     "delete_lookup_value",
     "delete_measurement_unit",
     "delete_tag",
+    "delete_tag_value",
     "get_area",
     "get_lookup",
     "get_lookup_value",
     "get_measurement_unit",
     "get_tag",
+    "get_tag_value",
     "list_areas",
     "list_lookup_values",
     "list_lookups",
@@ -78,4 +85,5 @@ __all__ = [
     "update_lookup_value",
     "update_measurement_unit",
     "update_tag",
+    "update_tag_value",
 ]
