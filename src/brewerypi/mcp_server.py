@@ -700,6 +700,104 @@ def delete_tag(tag_id: int, confirm: bool = False) -> dict:
             return {"error": str(exc)}
 
 
+def _area_dict(area: Area) -> dict:
+    return {
+        "id": area.id,
+        "site_id": area.site_id,
+        "abbreviation": area.abbreviation,
+        "name": area.name,
+        "description": area.description,
+    }
+
+
+def get_area(area_id: int) -> dict:
+    """Return one area's full configuration by id (admin).
+
+    Use the operator `list_areas` to browse areas within a site.
+    """
+    with _Session() as session:
+        try:
+            return _area_dict(services.get_area(session, area_id))
+        except ServiceError as exc:
+            return {"error": str(exc)}
+
+
+def create_area(
+    site_id: int,
+    abbreviation: str,
+    name: str,
+    description: str | None = None,
+) -> dict:
+    """Create an area under a site (admin, write)."""
+    with _Session() as session:
+        try:
+            area = services.create_area(
+                session, site_id, abbreviation, name, description
+            )
+            result = _area_dict(area)
+            session.commit()
+            return result
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
+def update_area(
+    area_id: int,
+    abbreviation: str | None = None,
+    name: str | None = None,
+    description: str | None = None,
+) -> dict:
+    """Update an area; only provided fields change (admin, write)."""
+    with _Session() as session:
+        try:
+            area = services.update_area(
+                session, area_id, abbreviation, name, description
+            )
+            result = _area_dict(area)
+            session.commit()
+            return result
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
+def delete_area(area_id: int, confirm: bool = False) -> dict:
+    """Delete an area and its tags (admin, destructive).
+
+    Without ``confirm=true`` this previews and reports how many tags would be
+    removed. Refuses if any recorded reading exists under the area's tags.
+    """
+    with _Session() as session:
+        try:
+            area = services.get_area(session, area_id)
+        except ServiceError as exc:
+            return {"error": str(exc)}
+        if not confirm:
+            tag_count = session.scalar(
+                select(func.count())
+                .select_from(Tag)
+                .where(Tag.area_id == area_id)
+            )
+            return {
+                "confirm_required": True,
+                "area": _area_dict(area),
+                "tag_count": tag_count,
+                "message": (
+                    f"Would delete area {area_id} ({area.name}) and its "
+                    f"{tag_count} tag(s). Refused if any readings exist. "
+                    "Call again with confirm=true."
+                ),
+            }
+        try:
+            services.delete_area(session, area_id)
+            session.commit()
+            return {"deleted": area_id}
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
 def _register_config_tools(server: FastMCP) -> None:
     """Register the admin-only configuration CRUD tools on a server."""
     for tool in (
@@ -719,6 +817,10 @@ def _register_config_tools(server: FastMCP) -> None:
         create_tag,
         update_tag,
         delete_tag,
+        get_area,
+        create_area,
+        update_area,
+        delete_area,
     ):
         server.tool(tool)
 

@@ -7,6 +7,11 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- Admin MCP tools for areas: `get_area`, `create_area`, `update_area`,
+  `delete_area` (admin tier now 28 tools). Listing reuses the operator
+  `list_areas`. `delete_area` previews with the tag count, requires
+  `confirm=true`, and is refused when readings exist below the area. Covered by
+  `tests/test_mcp_config_tools_areas.py`.
 - Service-layer CRUD for areas (`services/areas.py`), plus an `optional_str`
   helper in `_validation.py`. Create/update validate per-site uniqueness of
   abbreviation and name; delete refuses when any recorded reading exists under
