@@ -2,7 +2,8 @@
 
 Readings are the historian's time-series data. Creation is handled by the
 operator-tier record_tag_value; update and delete here are corrective
-operations (fix or remove a bad reading), intended for the admin tier.
+operations (fix or remove a bad reading), exposed on the operator tier so
+operators can fix their own mis-entries.
 
 Each function takes an open Session and raises the service exceptions on
 rule violations. Callers own the transaction; these functions ``flush`` but

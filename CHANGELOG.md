@@ -7,11 +7,17 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- Operator MCP tools for correcting readings: `get_tag_value`,
+  `update_tag_value` (value and/or timestamp), and `delete_tag_value`
+  (`confirm=true`), on the operator tier so operators can fix their own
+  mis-entries without an admin. `get_tag_values` now includes each reading's
+  `id` so a reading can be targeted. Covered by
+  `tests/test_mcp_tag_value_tools.py`.
 - Service-layer read/update/delete for tag values (`services/tag_values.py`):
   `get_tag_value`, `update_tag_value` (corrects a reading's value and/or
   timestamp, enforcing the tag's numeric-vs-lookup type so the XOR invariant
   holds), and `delete_tag_value`. Creation stays with the operator-tier
-  `record_tag_value`; these are corrective operations for the admin tier.
+  `record_tag_value`; these are corrective operations on the operator tier.
   Covered by `tests/test_services_tag_values.py`.
 - Admin MCP tools for areas: `get_area`, `create_area`, `update_area`,
   `delete_area` (admin tier now 28 tools). Listing reuses the operator

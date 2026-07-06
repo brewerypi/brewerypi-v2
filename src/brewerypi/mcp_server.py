@@ -26,7 +26,7 @@ from datetime import datetime
 from fastmcp import FastMCP
 from sqlalchemy import create_engine, event, func, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
 from brewerypi import services
 from brewerypi.config import DATABASE_URL
@@ -190,6 +190,7 @@ def get_tag_values(
                 vtype = "numeric"
             readings.append(
                 {
+                    "id": tv.id,
                     "timestamp": tv.timestamp.isoformat(),
                     "value": value,
                     "type": vtype,
@@ -352,6 +353,95 @@ def record_tag_value(
             "value": stored,
             "type": vtype,
         }
+
+
+def _reading_dict(session: Session, tv: TagValue) -> dict:
+    if tv.lookup_value_id is not None:
+        lv = session.get(LookupValue, tv.lookup_value_id)
+        value: object = lv.name if lv is not None else None
+        vtype = "lookup"
+    else:
+        value = tv.value
+        vtype = "numeric"
+    return {
+        "id": tv.id,
+        "tag_id": tv.tag_id,
+        "timestamp": tv.timestamp.isoformat(),
+        "value": value,
+        "type": vtype,
+    }
+
+
+@mcp.tool
+def get_tag_value(value_id: int) -> dict:
+    """Return one recorded reading by id.
+
+    Reading ids come from `get_tag_values`. Use this to check a reading
+    before correcting it with `update_tag_value`.
+    """
+    with _Session() as session:
+        try:
+            tv = services.get_tag_value(session, value_id)
+        except ServiceError as exc:
+            return {"error": str(exc)}
+        return _reading_dict(session, tv)
+
+
+@mcp.tool
+def update_tag_value(
+    value_id: int,
+    value: float | None = None,
+    lookup_value: str | None = None,
+    timestamp: str | None = None,
+) -> dict:
+    """Correct a recorded reading's value and/or timestamp.
+
+    For a numeric tag pass ``value``; for a lookup-typed tag pass
+    ``lookup_value`` (the name of a selectable value). ``timestamp`` is an
+    optional ISO 8601 time. A reading's type cannot be switched; to move a
+    reading to a different tag, delete it and record it again.
+    """
+    with _Session() as session:
+        try:
+            tv = services.update_tag_value(
+                session, value_id, value, lookup_value, timestamp
+            )
+            result = _reading_dict(session, tv)
+            session.commit()
+            return result
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
+@mcp.tool
+def delete_tag_value(value_id: int, confirm: bool = False) -> dict:
+    """Delete a single recorded reading (e.g. one logged to the wrong tag).
+
+    Without ``confirm=true`` this only previews; call again with
+    ``confirm=true`` to remove it.
+    """
+    with _Session() as session:
+        try:
+            tv = services.get_tag_value(session, value_id)
+        except ServiceError as exc:
+            return {"error": str(exc)}
+        if not confirm:
+            return {
+                "confirm_required": True,
+                "reading": _reading_dict(session, tv),
+                "message": (
+                    f"Would delete reading {value_id}. Call again with "
+                    "confirm=true."
+                ),
+            }
+        try:
+            services.delete_tag_value(session, value_id)
+            session.commit()
+            return {"deleted": value_id}
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
 
 
 def _unit_dict(unit: MeasurementUnit) -> dict:

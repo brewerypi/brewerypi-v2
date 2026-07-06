@@ -122,9 +122,11 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
   enterprise are hierarchy tables: admin reuses operator `list_<table>` + adds
   `get_<table>`.
 - `tag_values` (historian data, not config): create = operator
-  `record_tag_value`; read = operator `get_tag_values`. Service layer adds
-  corrective `get_tag_value`/`update_tag_value`/`delete_tag_value` (admin tier)
-  — update enforces the tag's numeric/lookup type. Admin tools pending.
+  `record_tag_value`; read = operator `get_tag_values` (now includes reading
+  `id`). Operators also get corrective `get_tag_value` / `update_tag_value` /
+  `delete_tag_value` (update enforces the tag's numeric/lookup type; delete
+  takes `confirm=true`) — on the operator tier so they can fix their own
+  mis-entries.
 - MCP server built, tested (`tests/test_mcp_server.py`), and deployed for a
   demo: Hetzner VPS + Caddy (HTTPS), added as a custom connector behind a
   secret-path gate. All tools read-only except `record_tag_value` (write);
