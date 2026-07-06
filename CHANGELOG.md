@@ -7,6 +7,10 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- Documented the MCP tool naming convention in `CONVENTIONS.md` (with a
+  pointer from `CLAUDE.md`): admin tools never shadow operator tools; hierarchy
+  tables reuse the operator `list_<table>` and add `get_<table>`, reference
+  tables own `list_<table>`; destructive tools require `confirm=true`.
 - Admin MCP tools for tags: `get_tag`, `create_tag`, `update_tag`,
   `delete_tag` (admin tier now 24 tools). Listing reuses the operator
   `list_tags`; `get_tag` returns the raw config fields (lookup_id,

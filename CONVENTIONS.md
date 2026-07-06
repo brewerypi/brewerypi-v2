@@ -180,6 +180,36 @@ entirely, which matters most when you develop on Windows and run CI or deploy on
 | Doc in `docs/` | lowercase `kebab-case` | `getting-started.md` |
 | Config / dotfile | exact lowercase tool name | `.gitignore`, `pyproject.toml` |
 
+## MCP tool naming
+
+The MCP server runs two tiers (`operator` and `admin`; the admin tier is a
+superset). Tool names follow one rule: **admin tools never shadow operator
+tools.**
+
+- **Writes are uniform.** `create_<table>`, `update_<table>`, and
+  `delete_<table>` are used everywhere. They never collide with operator
+  tools, which are read-only apart from `record_tag_value`.
+- **Reads split by whether the operator tier already browses that table:**
+  - **Hierarchy tables** (`enterprise`, `site`, `area`, `tag`) — the operator
+    tier already lists them (this is the browse tree behind
+    `browse_hierarchy`). The admin tier **reuses that operator `list_<table>`**
+    for browsing and adds **`get_<table>`** for the full editable record,
+    because the operator list is a lossy display view (e.g. `list_tags`
+    returns a unit abbreviation and a `lookup_typed` flag, not `lookup_id` /
+    `measurement_unit_id`).
+  - **Reference tables** (`measurement_units`, `lookups`, `lookup_values`) —
+    the operator tier does not list them, so the admin tier **owns
+    `list_<table>`**, and since that list returns complete records there is no
+    separate `get_`.
+
+The resulting asymmetry (some admin tables expose `list_`, others `get_`) is
+intentional: it tracks a real difference in the tables' roles (browse tree vs
+reference data), not an accident. Prefer this over blanket `admin_`-prefixing,
+which is more verbose and would force renaming already-shipped tools.
+
+Destructive admin tools (`delete_*`) take a `confirm: bool = False` and only
+preview until called again with `confirm=true`.
+
 ## When to deviate
 
 Override any of these only for a deliberate reason: an existing schema or codebase you

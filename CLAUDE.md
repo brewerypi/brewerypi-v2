@@ -45,6 +45,11 @@ owns and has rights to. Keep the name `brewerypi` everywhere.
 - Files: `snake_case.py` modules; ALL-CAPS root meta files; lowercase
   `kebab-case` docs under `docs/`.
 - PEP 8 enforced by ruff at line-length 79 (configured in `pyproject.toml`).
+- MCP tool naming (see CONVENTIONS.md): admin tools never shadow operator
+  tools. Writes are uniform `create_/update_/delete_<table>`. Reads: hierarchy
+  tables (enterprise/site/area/tag) reuse the operator `list_<table>` and add
+  `get_<table>`; reference tables (measurement_units/lookups/lookup_values)
+  own `list_<table>`. Destructive tools take `confirm=true`.
 
 ## Current models (src/brewerypi/models.py)
 - Equipment hierarchy: `Enterprise` 1—* `Site` 1—* `Area` 1—* `Tag` 1—*
