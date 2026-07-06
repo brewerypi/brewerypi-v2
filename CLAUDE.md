@@ -111,8 +111,8 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
   shared by MCP tools and future consumers; raises a `ServiceError` hierarchy;
   callers own the Session/transaction. Module per table: `measurement_units`,
   `lookups`, `lookup_values`, `tags` done (shared `clean_str` in
-  `_validation.py`). Admin MCP tools expose the first three (admin tier ~20
-  tools); tag admin tools are next.
+  `_validation.py`). Admin MCP tools expose all four config tables (admin tier
+  24 tools; tag listing reuses the operator `list_tags`).
 - MCP server built, tested (`tests/test_mcp_server.py`), and deployed for a
   demo: Hetzner VPS + Caddy (HTTPS), added as a custom connector behind a
   secret-path gate. All tools read-only except `record_tag_value` (write);

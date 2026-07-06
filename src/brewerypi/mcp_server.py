@@ -596,6 +596,110 @@ def delete_lookup_value(value_id: int, confirm: bool = False) -> dict:
             return {"error": str(exc)}
 
 
+def _tag_dict(tag: Tag) -> dict:
+    return {
+        "id": tag.id,
+        "area_id": tag.area_id,
+        "name": tag.name,
+        "description": tag.description,
+        "lookup_id": tag.lookup_id,
+        "measurement_unit_id": tag.measurement_unit_id,
+    }
+
+
+def get_tag(tag_id: int) -> dict:
+    """Return one tag's full configuration by id (admin).
+
+    Use the operator `list_tags` to browse tags in an area; this returns the
+    raw config fields (lookup_id, measurement_unit_id) needed for editing.
+    """
+    with _Session() as session:
+        try:
+            return _tag_dict(services.get_tag(session, tag_id))
+        except ServiceError as exc:
+            return {"error": str(exc)}
+
+
+def create_tag(
+    area_id: int,
+    name: str,
+    description: str | None = None,
+    lookup_id: int | None = None,
+    measurement_unit_id: int | None = None,
+) -> dict:
+    """Create a tag under an area (admin, write).
+
+    A tag is either lookup-typed (pass ``lookup_id``) or numeric (pass
+    ``measurement_unit_id``, or neither) — not both. Any referenced lookup or
+    unit must belong to the area's enterprise.
+    """
+    with _Session() as session:
+        try:
+            tag = services.create_tag(
+                session,
+                area_id,
+                name,
+                description,
+                lookup_id,
+                measurement_unit_id,
+            )
+            result = _tag_dict(tag)
+            session.commit()
+            return result
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
+def update_tag(
+    tag_id: int,
+    name: str | None = None,
+    description: str | None = None,
+) -> dict:
+    """Update a tag's name and/or description (admin, write).
+
+    Changing a tag's type (lookup vs numeric) is not supported here.
+    """
+    with _Session() as session:
+        try:
+            tag = services.update_tag(session, tag_id, name, description)
+            result = _tag_dict(tag)
+            session.commit()
+            return result
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
+def delete_tag(tag_id: int, confirm: bool = False) -> dict:
+    """Delete a tag (admin, destructive).
+
+    Without ``confirm=true`` this only previews. Refuses if the tag has any
+    recorded readings, which would otherwise be destroyed with it.
+    """
+    with _Session() as session:
+        try:
+            tag = services.get_tag(session, tag_id)
+        except ServiceError as exc:
+            return {"error": str(exc)}
+        if not confirm:
+            return {
+                "confirm_required": True,
+                "tag": _tag_dict(tag),
+                "message": (
+                    f"Would delete tag {tag_id} ({tag.name}). Call again "
+                    "with confirm=true (refused if it has readings)."
+                ),
+            }
+        try:
+            services.delete_tag(session, tag_id)
+            session.commit()
+            return {"deleted": tag_id}
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
 def _register_config_tools(server: FastMCP) -> None:
     """Register the admin-only configuration CRUD tools on a server."""
     for tool in (
@@ -611,6 +715,10 @@ def _register_config_tools(server: FastMCP) -> None:
         create_lookup_value,
         update_lookup_value,
         delete_lookup_value,
+        get_tag,
+        create_tag,
+        update_tag,
+        delete_tag,
     ):
         server.tool(tool)
 

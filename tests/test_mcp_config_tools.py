@@ -104,5 +104,9 @@ def test_config_tools_registered_by_helper():
         "create_lookup_value",
         "update_lookup_value",
         "delete_lookup_value",
+        "get_tag",
+        "create_tag",
+        "update_tag",
+        "delete_tag",
     }
     assert expected <= registered

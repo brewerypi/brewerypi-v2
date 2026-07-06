@@ -7,6 +7,12 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- Admin MCP tools for tags: `get_tag`, `create_tag`, `update_tag`,
+  `delete_tag` (admin tier now 24 tools). Listing reuses the operator
+  `list_tags`; `get_tag` returns the raw config fields (lookup_id,
+  measurement_unit_id) for editing. `delete_tag` previews, requires
+  `confirm=true`, and is refused when the tag has readings. Covered by
+  `tests/test_mcp_config_tools_tags.py`.
 - Service-layer CRUD for tags (`services/tags.py`). Create validates the area,
   per-area name uniqueness, that a tag is either lookup-typed or numeric (not
   both), and that any referenced lookup or measurement unit belongs to the
