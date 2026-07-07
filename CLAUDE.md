@@ -118,10 +118,9 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
   callers own the Session/transaction. Module per table (all done):
   `measurement_units`, `lookups`, `lookup_values`, `tags`, `areas`, `sites`,
   `enterprises` (shared `clean_str` / `optional_str` in `_validation.py`).
-  Admin MCP tools expose all except enterprises (35 tools); `enterprises`
-  admin tools are the last step. Hierarchy deletes guard on readings in the
-  subtree; hierarchy tables' admin read reuses operator `list_<table>` + adds
-  `get_<table>`.
+  Admin MCP tools expose all seven config tables (39 tools) — config CRUD is
+  complete. Hierarchy deletes guard on readings in the subtree; hierarchy
+  tables' admin read reuses operator `list_<table>` + adds `get_<table>`.
 - `tag_values` (historian data, not config): create = operator
   `record_tag_value`; read = operator `get_tag_values` (now includes reading
   `id`). Operators also get corrective `get_tag_value` / `update_tag_value` /

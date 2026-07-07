@@ -116,5 +116,9 @@ def test_config_tools_registered_by_helper():
         "create_site",
         "update_site",
         "delete_site",
+        "get_enterprise",
+        "create_enterprise",
+        "update_enterprise",
+        "delete_enterprise",
     }
     assert expected <= registered

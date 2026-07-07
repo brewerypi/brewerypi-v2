@@ -221,9 +221,8 @@ and what are the latest Mash Temp readings?"*
 ## 10. (Optional) Admin endpoint for configuration editing
 
 The base (default) **operator** tier is read + record-value only. Configuration
-editing (CRUD on measurement units, lookups, tags, areas, and sites so far,
-more to
-come) lives in
+editing (full CRUD on measurement units, lookups, lookup values, tags, areas,
+sites, and enterprises) lives in
 a separate **admin tier**, gated by `MCP_ROLE=admin`, on its own port and its
 own secret path — so you hand the admin URL only to the handful of people who
 should edit configuration.

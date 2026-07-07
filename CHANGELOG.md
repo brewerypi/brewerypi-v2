@@ -14,6 +14,13 @@ All notable changes to this project are documented here. The format is based on
   `datetime.now(timezone.utc)` (UTC by design, not by server-clock luck).
 
 ### Added
+- Admin MCP tools for enterprises: `get_enterprise`, `create_enterprise`,
+  `update_enterprise`, `delete_enterprise` (admin tier now 39 tools). Listing
+  reuses the operator `list_enterprises`. `delete_enterprise` previews the full
+  subtree (site/area/tag/lookup/measurement-unit counts), requires
+  `confirm=true`, and is refused when readings exist under the enterprise. This
+  completes config CRUD for all seven tables. Covered by
+  `tests/test_mcp_config_tools_enterprises.py`.
 - Service-layer CRUD for enterprises (`services/enterprises.py`), the top of
   the hierarchy. Create/update validate global uniqueness of abbreviation and
   name; delete refuses if any recorded reading exists under its sites, or (as

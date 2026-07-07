@@ -993,6 +993,138 @@ def delete_site(site_id: int, confirm: bool = False) -> dict:
             return {"error": str(exc)}
 
 
+def _enterprise_dict(ent: Enterprise) -> dict:
+    return {
+        "id": ent.id,
+        "abbreviation": ent.abbreviation,
+        "name": ent.name,
+        "description": ent.description,
+    }
+
+
+def get_enterprise(enterprise_id: int) -> dict:
+    """Return one enterprise's full configuration by id (admin).
+
+    Use the operator `list_enterprises` to browse all enterprises.
+    """
+    with _Session() as session:
+        try:
+            return _enterprise_dict(
+                services.get_enterprise(session, enterprise_id)
+            )
+        except ServiceError as exc:
+            return {"error": str(exc)}
+
+
+def create_enterprise(
+    abbreviation: str,
+    name: str,
+    description: str | None = None,
+) -> dict:
+    """Create an enterprise (admin, write).
+
+    ``abbreviation`` and ``name`` are globally unique.
+    """
+    with _Session() as session:
+        try:
+            ent = services.create_enterprise(
+                session, abbreviation, name, description
+            )
+            result = _enterprise_dict(ent)
+            session.commit()
+            return result
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
+def update_enterprise(
+    enterprise_id: int,
+    abbreviation: str | None = None,
+    name: str | None = None,
+    description: str | None = None,
+) -> dict:
+    """Update an enterprise; only provided fields change (admin, write)."""
+    with _Session() as session:
+        try:
+            ent = services.update_enterprise(
+                session, enterprise_id, abbreviation, name, description
+            )
+            result = _enterprise_dict(ent)
+            session.commit()
+            return result
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
+def delete_enterprise(enterprise_id: int, confirm: bool = False) -> dict:
+    """Delete an enterprise and its entire subtree (admin, destructive).
+
+    Without ``confirm=true`` this previews and reports the full blast radius
+    (sites, areas, tags, lookups, measurement units). Refuses if any recorded
+    reading exists under the enterprise, or if any of its lookup values are
+    referenced by a reading.
+    """
+    with _Session() as session:
+        try:
+            ent = services.get_enterprise(session, enterprise_id)
+        except ServiceError as exc:
+            return {"error": str(exc)}
+        if not confirm:
+            sites = session.scalar(
+                select(func.count())
+                .select_from(Site)
+                .where(Site.enterprise_id == enterprise_id)
+            )
+            areas = session.scalar(
+                select(func.count())
+                .select_from(Area)
+                .join(Site, Area.site_id == Site.id)
+                .where(Site.enterprise_id == enterprise_id)
+            )
+            tags = session.scalar(
+                select(func.count())
+                .select_from(Tag)
+                .join(Area, Tag.area_id == Area.id)
+                .join(Site, Area.site_id == Site.id)
+                .where(Site.enterprise_id == enterprise_id)
+            )
+            lookups = session.scalar(
+                select(func.count())
+                .select_from(Lookup)
+                .where(Lookup.enterprise_id == enterprise_id)
+            )
+            units = session.scalar(
+                select(func.count())
+                .select_from(MeasurementUnit)
+                .where(MeasurementUnit.enterprise_id == enterprise_id)
+            )
+            return {
+                "confirm_required": True,
+                "enterprise": _enterprise_dict(ent),
+                "site_count": sites,
+                "area_count": areas,
+                "tag_count": tags,
+                "lookup_count": lookups,
+                "measurement_unit_count": units,
+                "message": (
+                    f"Would delete enterprise {enterprise_id} "
+                    f"({ent.name}) and its entire subtree: {sites} site(s), "
+                    f"{areas} area(s), {tags} tag(s), {lookups} lookup(s), "
+                    f"{units} measurement unit(s). Refused if any readings "
+                    "exist. Call again with confirm=true."
+                ),
+            }
+        try:
+            services.delete_enterprise(session, enterprise_id)
+            session.commit()
+            return {"deleted": enterprise_id}
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
 def _register_config_tools(server: FastMCP) -> None:
     """Register the admin-only configuration CRUD tools on a server."""
     for tool in (
@@ -1020,6 +1152,10 @@ def _register_config_tools(server: FastMCP) -> None:
         create_site,
         update_site,
         delete_site,
+        get_enterprise,
+        create_enterprise,
+        update_enterprise,
+        delete_enterprise,
     ):
         server.tool(tool)
 
