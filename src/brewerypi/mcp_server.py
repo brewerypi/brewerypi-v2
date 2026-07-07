@@ -888,6 +888,111 @@ def delete_area(area_id: int, confirm: bool = False) -> dict:
             return {"error": str(exc)}
 
 
+def _site_dict(site: Site) -> dict:
+    return {
+        "id": site.id,
+        "enterprise_id": site.enterprise_id,
+        "abbreviation": site.abbreviation,
+        "name": site.name,
+        "description": site.description,
+    }
+
+
+def get_site(site_id: int) -> dict:
+    """Return one site's full configuration by id (admin).
+
+    Use the operator `list_sites` to browse sites within an enterprise.
+    """
+    with _Session() as session:
+        try:
+            return _site_dict(services.get_site(session, site_id))
+        except ServiceError as exc:
+            return {"error": str(exc)}
+
+
+def create_site(
+    enterprise_id: int,
+    abbreviation: str,
+    name: str,
+    description: str | None = None,
+) -> dict:
+    """Create a site under an enterprise (admin, write)."""
+    with _Session() as session:
+        try:
+            site = services.create_site(
+                session, enterprise_id, abbreviation, name, description
+            )
+            result = _site_dict(site)
+            session.commit()
+            return result
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
+def update_site(
+    site_id: int,
+    abbreviation: str | None = None,
+    name: str | None = None,
+    description: str | None = None,
+) -> dict:
+    """Update a site; only provided fields change (admin, write)."""
+    with _Session() as session:
+        try:
+            site = services.update_site(
+                session, site_id, abbreviation, name, description
+            )
+            result = _site_dict(site)
+            session.commit()
+            return result
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
+def delete_site(site_id: int, confirm: bool = False) -> dict:
+    """Delete a site and its areas/tags (admin, destructive).
+
+    Without ``confirm=true`` this previews and reports how many areas and tags
+    would be removed. Refuses if any recorded reading exists under the site.
+    """
+    with _Session() as session:
+        try:
+            site = services.get_site(session, site_id)
+        except ServiceError as exc:
+            return {"error": str(exc)}
+        if not confirm:
+            area_count = session.scalar(
+                select(func.count())
+                .select_from(Area)
+                .where(Area.site_id == site_id)
+            )
+            tag_count = session.scalar(
+                select(func.count())
+                .select_from(Tag)
+                .join(Area, Tag.area_id == Area.id)
+                .where(Area.site_id == site_id)
+            )
+            return {
+                "confirm_required": True,
+                "site": _site_dict(site),
+                "area_count": area_count,
+                "tag_count": tag_count,
+                "message": (
+                    f"Would delete site {site_id} ({site.name}) with its "
+                    f"{area_count} area(s) and {tag_count} tag(s). Refused "
+                    "if any readings exist. Call again with confirm=true."
+                ),
+            }
+        try:
+            services.delete_site(session, site_id)
+            session.commit()
+            return {"deleted": site_id}
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
 def _register_config_tools(server: FastMCP) -> None:
     """Register the admin-only configuration CRUD tools on a server."""
     for tool in (
@@ -911,6 +1016,10 @@ def _register_config_tools(server: FastMCP) -> None:
         create_area,
         update_area,
         delete_area,
+        get_site,
+        create_site,
+        update_site,
+        delete_site,
     ):
         server.tool(tool)
 

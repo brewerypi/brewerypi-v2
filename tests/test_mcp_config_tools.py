@@ -112,5 +112,9 @@ def test_config_tools_registered_by_helper():
         "create_area",
         "update_area",
         "delete_area",
+        "get_site",
+        "create_site",
+        "update_site",
+        "delete_site",
     }
     assert expected <= registered

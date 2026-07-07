@@ -14,6 +14,11 @@ All notable changes to this project are documented here. The format is based on
   `datetime.now(timezone.utc)` (UTC by design, not by server-clock luck).
 
 ### Added
+- Admin MCP tools for sites: `get_site`, `create_site`, `update_site`,
+  `delete_site` (admin tier now 35 tools). Listing reuses the operator
+  `list_sites`. `delete_site` previews with the area and tag counts, requires
+  `confirm=true`, and is refused when readings exist below the site. Covered by
+  `tests/test_mcp_config_tools_sites.py`.
 - Service-layer CRUD for sites (`services/sites.py`). Create/update validate
   per-enterprise uniqueness of abbreviation and name; delete refuses when any
   recorded reading exists under the site (Site -> areas -> tags -> tag_values
