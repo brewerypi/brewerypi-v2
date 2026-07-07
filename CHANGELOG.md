@@ -14,6 +14,12 @@ All notable changes to this project are documented here. The format is based on
   `datetime.now(timezone.utc)` (UTC by design, not by server-clock luck).
 
 ### Added
+- Service-layer CRUD for enterprises (`services/enterprises.py`), the top of
+  the hierarchy. Create/update validate global uniqueness of abbreviation and
+  name; delete refuses if any recorded reading exists under its sites, or (as
+  a defense-in-depth safety net) if any of its lookup values are referenced by
+  a reading — either would destroy or block on history when the whole subtree
+  cascades. Covered by `tests/test_services_enterprises.py`.
 - Admin MCP tools for sites: `get_site`, `create_site`, `update_site`,
   `delete_site` (admin tier now 35 tools). Listing reuses the operator
   `list_sites`. `delete_site` previews with the area and tag counts, requires
