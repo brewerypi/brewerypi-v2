@@ -63,12 +63,12 @@ def seeded(tmp_path, monkeypatch):
         for i, value in enumerate([64.0, 66.0, 68.0]):
             num_tag.tag_values.append(
                 TagValue(
-                    timestamp=base + datetime.timedelta(minutes=15 * i),
+                    observed_at=base + datetime.timedelta(minutes=15 * i),
                     value=value,
                 )
             )
         lk_tag.tag_values.append(
-            TagValue(timestamp=base, lookup_value_id=lv.id)
+            TagValue(observed_at=base, lookup_value_id=lv.id)
         )
         session.commit()
 
@@ -138,7 +138,7 @@ def test_record_numeric_value(seeded):
     result = mcp_server.record_tag_value(
         seeded["num_tag_id"],
         value=70.5,
-        timestamp="2026-06-01T10:00:00",
+        observed_at="2026-06-01T10:00:00",
     )
     assert result["type"] == "numeric"
     assert result["value"] == 70.5

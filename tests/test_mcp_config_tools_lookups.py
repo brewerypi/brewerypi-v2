@@ -41,7 +41,7 @@ def _reference_value_with_reading(eid, lookup_id, value_id):
         session.add(
             TagValue(
                 tag_id=tag.id,
-                timestamp=datetime.datetime(2026, 6, 1, 8, 0, 0),
+                observed_at=datetime.datetime(2026, 6, 1, 8, 0, 0),
                 lookup_value_id=value_id,
             )
         )

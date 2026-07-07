@@ -56,9 +56,9 @@ def seeded(tmp_path, monkeypatch):
         lk_tag = Tag(name="Stage", area_id=area.id, lookup_id=lookup.id)
         session.add_all([num_tag, lk_tag])
         session.flush()
-        num_tv = TagValue(tag_id=num_tag.id, timestamp=_TS, value=64.0)
+        num_tv = TagValue(tag_id=num_tag.id, observed_at=_TS, value=64.0)
         lk_tv = TagValue(
-            tag_id=lk_tag.id, timestamp=_TS, lookup_value_id=prim.id
+            tag_id=lk_tag.id, observed_at=_TS, lookup_value_id=prim.id
         )
         session.add_all([num_tv, lk_tv])
         session.commit()
@@ -87,11 +87,11 @@ def test_update_value(seeded):
     assert updated["value"] == 66.5
 
 
-def test_update_timestamp(seeded):
+def test_update_observed_at(seeded):
     updated = mcp_server.update_tag_value(
-        seeded["num_tv"], timestamp="2026-06-02T09:30:00"
+        seeded["num_tv"], observed_at="2026-06-02T09:30:00"
     )
-    assert updated["timestamp"] == "2026-06-02T09:30:00"
+    assert updated["observed_at"] == "2026-06-02T09:30:00"
 
 
 def test_update_wrong_kind_error(seeded):

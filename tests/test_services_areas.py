@@ -104,7 +104,7 @@ def test_delete_refused_when_readings_exist(ctx):
     session.add(
         TagValue(
             tag_id=tag.id,
-            timestamp=datetime.datetime(2026, 6, 1, 8, 0, 0),
+            observed_at=datetime.datetime(2026, 6, 1, 8, 0, 0),
             value=64.0,
         )
     )

@@ -164,7 +164,7 @@ def test_numeric_tag_navigation_and_cascade():
         session.flush()
 
         ts = __import__("datetime").datetime(2024, 1, 1, 12, 0, 0)
-        tag.tag_values.append(TagValue(timestamp=ts, value=68.5))
+        tag.tag_values.append(TagValue(observed_at=ts, value=68.5))
         session.commit()
 
         loaded_tag = session.scalar(select(Tag))
@@ -207,7 +207,7 @@ def test_lookup_tag_navigation_and_cascade():
 
         ts = __import__("datetime").datetime(2024, 1, 1, 12, 0, 0)
         tag.tag_values.append(
-            TagValue(timestamp=ts, lookup_value_id=lv_primary.id)
+            TagValue(observed_at=ts, lookup_value_id=lv_primary.id)
         )
         session.commit()
 
@@ -251,7 +251,7 @@ def test_tag_value_requires_exactly_one_value_column():
         ts = __import__("datetime").datetime(2024, 1, 1, 12, 0, 0)
 
         # both null — must be rejected
-        session.add(TagValue(tag_id=tag.id, timestamp=ts))
+        session.add(TagValue(tag_id=tag.id, observed_at=ts))
         with pytest.raises(IntegrityError):
             session.flush()
         session.rollback()
@@ -266,7 +266,7 @@ def test_tag_value_requires_exactly_one_value_column():
         session.add(
             TagValue(
                 tag_id=tag.id,
-                timestamp=ts,
+                observed_at=ts,
                 value=68.5,
                 lookup_value_id=lv.id,
             )
@@ -295,7 +295,7 @@ def test_lookup_value_delete_blocked_when_referenced_by_tag_value():
         session.flush()
 
         ts = __import__("datetime").datetime(2024, 1, 1, 12, 0, 0)
-        tag.tag_values.append(TagValue(timestamp=ts, lookup_value_id=lv.id))
+        tag.tag_values.append(TagValue(observed_at=ts, lookup_value_id=lv.id))
         session.commit()
 
     # attempt to delete the LookupValue in a fresh session

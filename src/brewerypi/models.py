@@ -210,7 +210,7 @@ class TagValue(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     tag_id: Mapped[int] = mapped_column(ForeignKey("tags.id"), index=True)
-    timestamp: Mapped[datetime] = mapped_column()
+    observed_at: Mapped[datetime] = mapped_column()
     value: Mapped[float | None] = mapped_column()
     lookup_value_id: Mapped[int | None] = mapped_column(
         ForeignKey("lookup_values.id", ondelete="RESTRICT"), index=True
@@ -224,5 +224,5 @@ class TagValue(Base):
     def __repr__(self) -> str:
         return (
             f"<TagValue tag_id={self.tag_id!r}"
-            f" timestamp={self.timestamp!r}>"
+            f" observed_at={self.observed_at!r}>"
         )

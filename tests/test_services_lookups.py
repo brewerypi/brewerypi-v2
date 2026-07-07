@@ -119,7 +119,7 @@ def test_delete_lookup_refused_when_value_referenced(ctx):
     session.add(
         TagValue(
             tag_id=tag.id,
-            timestamp=datetime.datetime(2026, 6, 1, 8, 0, 0),
+            observed_at=datetime.datetime(2026, 6, 1, 8, 0, 0),
             lookup_value_id=value.id,
         )
     )
@@ -180,7 +180,7 @@ def test_delete_value_refused_when_referenced(ctx):
     session.add(
         TagValue(
             tag_id=tag.id,
-            timestamp=datetime.datetime(2026, 6, 1, 8, 0, 0),
+            observed_at=datetime.datetime(2026, 6, 1, 8, 0, 0),
             lookup_value_id=v.id,
         )
     )

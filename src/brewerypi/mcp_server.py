@@ -21,7 +21,7 @@ terminates HTTPS and gates access with a secret path; see the deploy guide.
 """
 
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastmcp import FastMCP
 from sqlalchemy import create_engine, event, func, select
@@ -163,7 +163,7 @@ def get_tag_values(
 
     ``start`` and ``end`` are optional ISO 8601 timestamps that bound the
     time range. ``limit`` caps the number of readings (1-1000). Each reading
-    has a ``timestamp`` and a ``value`` that is a number for numeric tags or
+    has a ``observed_at`` and a ``value`` that is a number for numeric tags or
     the selected lookup value's name for lookup-typed tags.
     """
     start_dt = _parse_dt(start)
@@ -175,10 +175,10 @@ def get_tag_values(
             return {"error": f"no tag with id {tag_id}"}
         stmt = select(TagValue).where(TagValue.tag_id == tag_id)
         if start_dt is not None:
-            stmt = stmt.where(TagValue.timestamp >= start_dt)
+            stmt = stmt.where(TagValue.observed_at >= start_dt)
         if end_dt is not None:
-            stmt = stmt.where(TagValue.timestamp <= end_dt)
-        stmt = stmt.order_by(TagValue.timestamp.desc()).limit(limit)
+            stmt = stmt.where(TagValue.observed_at <= end_dt)
+        stmt = stmt.order_by(TagValue.observed_at.desc()).limit(limit)
         readings = []
         for tv in session.scalars(stmt).all():
             if tv.lookup_value_id is not None:
@@ -191,7 +191,7 @@ def get_tag_values(
             readings.append(
                 {
                     "id": tv.id,
-                    "timestamp": tv.timestamp.isoformat(),
+                    "observed_at": tv.observed_at.isoformat(),
                     "value": value,
                     "type": vtype,
                 }
@@ -232,9 +232,9 @@ def tag_value_stats(
             TagValue.value.is_not(None),
         )
         if start_dt is not None:
-            stmt = stmt.where(TagValue.timestamp >= start_dt)
+            stmt = stmt.where(TagValue.observed_at >= start_dt)
         if end_dt is not None:
-            stmt = stmt.where(TagValue.timestamp <= end_dt)
+            stmt = stmt.where(TagValue.observed_at <= end_dt)
         count, vmin, vmax, vavg = session.execute(stmt).one()
         return {
             "tag_id": tag_id,
@@ -275,18 +275,18 @@ def record_tag_value(
     tag_id: int,
     value: float | None = None,
     lookup_value: str | None = None,
-    timestamp: str | None = None,
+    observed_at: str | None = None,
 ) -> dict:
     """Record a single new reading for a tag (the one write tool).
 
     For a numeric tag, pass ``value``. For a lookup-typed tag, pass
     ``lookup_value`` as the name of an allowed, selectable lookup value.
-    Provide exactly one of the two. ``timestamp`` is an optional ISO 8601
+    Provide exactly one of the two. ``observed_at`` is an optional ISO 8601
     time and defaults to now. Returns the created reading, or an ``error``
     describing what was wrong (unknown tag, wrong value kind for the tag's
     type, or a lookup value that isn't selectable).
     """
-    when = _parse_dt(timestamp) or datetime.now()
+    when = _parse_dt(observed_at) or datetime.now(timezone.utc)
     with _Session() as session:
         tag = session.get(Tag, tag_id)
         if tag is None:
@@ -322,7 +322,7 @@ def record_tag_value(
                     "allowed": list(allowed),
                 }
             reading = TagValue(
-                tag_id=tag_id, timestamp=when, lookup_value_id=lv.id
+                tag_id=tag_id, observed_at=when, lookup_value_id=lv.id
             )
             stored: object = lv.name
             vtype = "lookup"
@@ -334,7 +334,7 @@ def record_tag_value(
                         "'value'"
                     )
                 }
-            reading = TagValue(tag_id=tag_id, timestamp=when, value=value)
+            reading = TagValue(tag_id=tag_id, observed_at=when, value=value)
             stored = value
             vtype = "numeric"
 
@@ -349,7 +349,7 @@ def record_tag_value(
             "id": reading.id,
             "tag_id": tag_id,
             "tag_name": tag.name,
-            "timestamp": reading.timestamp.isoformat(),
+            "observed_at": reading.observed_at.isoformat(),
             "value": stored,
             "type": vtype,
         }
@@ -366,7 +366,7 @@ def _reading_dict(session: Session, tv: TagValue) -> dict:
     return {
         "id": tv.id,
         "tag_id": tv.tag_id,
-        "timestamp": tv.timestamp.isoformat(),
+        "observed_at": tv.observed_at.isoformat(),
         "value": value,
         "type": vtype,
     }
@@ -392,19 +392,19 @@ def update_tag_value(
     value_id: int,
     value: float | None = None,
     lookup_value: str | None = None,
-    timestamp: str | None = None,
+    observed_at: str | None = None,
 ) -> dict:
-    """Correct a recorded reading's value and/or timestamp.
+    """Correct a recorded reading's value and/or observed_at.
 
     For a numeric tag pass ``value``; for a lookup-typed tag pass
-    ``lookup_value`` (the name of a selectable value). ``timestamp`` is an
+    ``lookup_value`` (the name of a selectable value). ``observed_at`` is an
     optional ISO 8601 time. A reading's type cannot be switched; to move a
     reading to a different tag, delete it and record it again.
     """
     with _Session() as session:
         try:
             tv = services.update_tag_value(
-                session, value_id, value, lookup_value, timestamp
+                session, value_id, value, lookup_value, observed_at
             )
             result = _reading_dict(session, tv)
             session.commit()

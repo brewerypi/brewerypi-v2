@@ -60,12 +60,13 @@ owns and has rights to. Keep the name `brewerypi` everywhere.
   unique constraints (name/abbreviation unique within the parent). Cascade.
 - `Tag` belongs to `Area` with nullable `lookup_id` and `measurement_unit_id`;
   `lookup_id` presence marks a lookup-typed tag vs a numeric one.
-- `TagValue` is the time-series table: a `timestamp` column (note: named
-  `timestamp`, a deviation from the `_at` convention) plus two nullable value
-  columns — `value` (Float) for numeric tags, `lookup_value_id` for
-  lookup-typed — with a `CHECK` enforcing exactly one is set. `lookup_value_id`
-  uses `ON DELETE RESTRICT` + `passive_deletes=True` so historical readings
-  can't be silently deleted. This is the high-volume table that motivates the
+- `TagValue` is the time-series table: an `observed_at` column (the reading's
+  time, UTC — new writes default to `datetime.now(timezone.utc)`) plus two
+  nullable value columns — `value` (Float) for numeric tags, `lookup_value_id`
+  for lookup-typed — with a `CHECK` enforcing exactly one is set.
+  `lookup_value_id` uses `ON DELETE RESTRICT` + `passive_deletes=True` so
+  historical readings can't be silently deleted. This is the high-volume table
+  that motivates the
   eventual Postgres/Timescale move.
 - Derived from upstream BreweryPi's schema; tested in `tests/test_models.py`.
 

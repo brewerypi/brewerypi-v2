@@ -181,7 +181,7 @@ def main() -> None:
                     for ts in week_of_timestamps:
                         tag.tag_values.append(
                             TagValue(
-                                timestamp=ts,
+                                observed_at=ts,
                                 value=_ambient_temp(abbr),
                             )
                         )

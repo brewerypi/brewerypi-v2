@@ -34,9 +34,9 @@ def update_tag_value(
     value_id: int,
     value: float | None = None,
     lookup_value: str | None = None,
-    timestamp: str | None = None,
+    observed_at: str | None = None,
 ) -> TagValue:
-    """Correct a reading's value and/or timestamp.
+    """Correct a reading's value and/or observed_at.
 
     The value kind must match the reading's tag: numeric tags take ``value``,
     lookup-typed tags take ``lookup_value`` (the name of a selectable value).
@@ -62,8 +62,8 @@ def update_tag_value(
             )
         if value is not None:
             tv.value = value
-    if timestamp is not None:
-        tv.timestamp = _parse_timestamp(timestamp)
+    if observed_at is not None:
+        tv.observed_at = _parse_timestamp(observed_at)
     session.flush()
     return tv
 

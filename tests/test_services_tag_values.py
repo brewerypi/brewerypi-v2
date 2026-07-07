@@ -67,9 +67,9 @@ def ctx():
         lk_tag = Tag(name="Stage", area_id=area.id, lookup_id=lookup.id)
         session.add_all([num_tag, lk_tag])
         session.flush()
-        num_tv = TagValue(tag_id=num_tag.id, timestamp=_TS, value=64.0)
+        num_tv = TagValue(tag_id=num_tag.id, observed_at=_TS, value=64.0)
         lk_tv = TagValue(
-            tag_id=lk_tag.id, timestamp=_TS, lookup_value_id=primary.id
+            tag_id=lk_tag.id, observed_at=_TS, lookup_value_id=primary.id
         )
         session.add_all([num_tv, lk_tv])
         session.flush()
@@ -95,19 +95,19 @@ def test_update_numeric_rejects_lookup_value(ctx):
         update_tag_value(session, ids["num_tv"], lookup_value="Primary")
 
 
-def test_update_timestamp(ctx):
+def test_update_observed_at(ctx):
     session, ids = ctx
     update_tag_value(
-        session, ids["num_tv"], timestamp="2026-06-02T09:30:00"
+        session, ids["num_tv"], observed_at="2026-06-02T09:30:00"
     )
     got = get_tag_value(session, ids["num_tv"])
-    assert got.timestamp == datetime.datetime(2026, 6, 2, 9, 30, 0)
+    assert got.observed_at == datetime.datetime(2026, 6, 2, 9, 30, 0)
 
 
-def test_update_bad_timestamp(ctx):
+def test_update_bad_observed_at(ctx):
     session, ids = ctx
     with pytest.raises(ValidationError):
-        update_tag_value(session, ids["num_tv"], timestamp="not-a-date")
+        update_tag_value(session, ids["num_tv"], observed_at="not-a-date")
 
 
 def test_update_lookup_reading(ctx):
