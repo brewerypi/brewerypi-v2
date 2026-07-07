@@ -14,6 +14,11 @@ All notable changes to this project are documented here. The format is based on
   `datetime.now(timezone.utc)` (UTC by design, not by server-clock luck).
 
 ### Added
+- Service-layer CRUD for sites (`services/sites.py`). Create/update validate
+  per-enterprise uniqueness of abbreviation and name; delete refuses when any
+  recorded reading exists under the site (Site -> areas -> tags -> tag_values
+  all cascade), so a structural delete can't silently destroy history. Covered
+  by `tests/test_services_sites.py`.
 - Operator MCP tools for correcting readings: `get_tag_value`,
   `update_tag_value` (value and/or observed_at), and `delete_tag_value`
   (`confirm=true`), on the operator tier so operators can fix their own
