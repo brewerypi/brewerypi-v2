@@ -14,6 +14,13 @@ All notable changes to this project are documented here. The format is based on
   `datetime.now(timezone.utc)` (UTC by design, not by server-clock luck).
 
 ### Added
+- `Element` model and create-table migration (`7b210831a436`): an instance of
+  an `element_template` (e.g. FV01/FV02 of a Fermenter). Columns: required
+  `element_template_id`, nullable `tag_area_id` (where its tags are stored),
+  nullable self-FK `parent_id`, `name`, `description`; unique `(parent_id,
+  name)`. `ElementTemplate` cascade-deletes its element instances, so a site
+  delete unwinds the whole tree (verified). Structural rules (A1 parent mirror,
+  same-site, root uniqueness) land with the service layer next.
 - Admin MCP tools for element templates: `list_element_templates`,
   `create_element_template`, `update_element_template`,
   `delete_element_template` (admin tier now 43 tools; admin owns `list_` since

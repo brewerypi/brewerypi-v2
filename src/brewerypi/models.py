@@ -11,8 +11,10 @@ Tag hierarchy:                  Area 1——* Tag 1——* TagValue.
   TagValue stores the measured float in the value column.
 
 ElementTemplate is a site-scoped, self-referential template tree
-(a top-level template has no parent). Element / ElementAttribute are
-not yet added; ElementAttribute will gain a tag_id FK when they are.
+(a top-level template has no parent). Element instances a template
+(FV01, FV02 of a Fermenter template); its own parent tree mirrors the
+template tree, and tag_area_id points at where its tags are stored.
+ElementAttribute is not yet added; it will gain a tag_id FK when added.
 """
 
 from __future__ import annotations
@@ -256,6 +258,49 @@ class ElementTemplate(Base):
         back_populates="parent",
         cascade="all, delete-orphan",
     )
+    elements: Mapped[list[Element]] = relationship(
+        back_populates="element_template",
+        cascade="all, delete-orphan",
+    )
 
     def __repr__(self) -> str:
         return f"<ElementTemplate {self.name!r}>"
+
+
+class Element(Base):
+    __tablename__ = "elements"
+    # Child names are unique within their parent element. Root elements
+    # (parent_id NULL) are kept unique within their element_template by the
+    # service layer, since a plain unique constraint can't span NULL parents.
+    __table_args__ = (UniqueConstraint("parent_id", "name"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    element_template_id: Mapped[int] = mapped_column(
+        ForeignKey("element_templates.id"), index=True
+    )
+    # Where this element's tags will be stored; assignable later.
+    tag_area_id: Mapped[int | None] = mapped_column(
+        ForeignKey("areas.id"), index=True
+    )
+    # Self-referential parent: NULL for a top-level element.
+    parent_id: Mapped[int | None] = mapped_column(
+        ForeignKey("elements.id"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(45))
+    description: Mapped[str | None] = mapped_column(String(255))
+
+    element_template: Mapped[ElementTemplate] = relationship(
+        back_populates="elements"
+    )
+    tag_area: Mapped[Area | None] = relationship()
+    parent: Mapped[Element | None] = relationship(
+        back_populates="children",
+        remote_side="Element.id",
+    )
+    children: Mapped[list[Element]] = relationship(
+        back_populates="parent",
+        cascade="all, delete-orphan",
+    )
+
+    def __repr__(self) -> str:
+        return f"<Element {self.name!r}>"

@@ -73,6 +73,14 @@ owns and has rights to. Keep the name `brewerypi` everywhere.
   Lauter Tun children), `name` (unique per site), `description`. `Site`
   cascade-deletes its templates. Service delete refuses if a template has
   children (leaf-upward).
+- `Element`: an instance of an `element_template` (e.g. FV01/FV02 of a
+  Fermenter). Required immutable `element_template_id`, nullable `tag_area_id`
+  (→ `areas`, where its tags get stored, assignable later), nullable self-FK
+  `parent_id`; `name`, `description`. Its parent tree mirrors the template tree
+  (A1: parent instances the template's parent template — service-enforced),
+  and tag_area/parent must be same-site. Unique `(parent_id, name)`; roots
+  unique within the template (service-level). `ElementTemplate` cascades its
+  elements (so a site delete unwinds cleanly). Operators read; admins write.
 - Derived from upstream BreweryPi's schema; tested in `tests/test_models.py`.
 
 ## OPEN DECISION — schema naming (parked; decide before renaming anything)
