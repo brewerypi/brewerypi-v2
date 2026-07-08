@@ -11,7 +11,7 @@ from __future__ import annotations
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from brewerypi.models import ElementTemplate, Site
+from brewerypi.models import Element, ElementTemplate, Site
 from brewerypi.services._validation import clean_str, optional_str
 from brewerypi.services.exceptions import (
     ConflictError,
@@ -105,7 +105,10 @@ def update_element_template(
 
 
 def delete_element_template(session: Session, template_id: int) -> None:
-    """Delete an element template, refusing if it has child templates."""
+    """Delete an element template.
+
+    Refuses if it has child templates or any element instances.
+    """
     template = get_element_template(session, template_id)
     children = session.scalar(
         select(func.count())
@@ -116,6 +119,16 @@ def delete_element_template(session: Session, template_id: int) -> None:
         raise ValidationError(
             f"cannot delete element template {template_id}: it has "
             f"{children} child template(s); delete or reparent them first"
+        )
+    instances = session.scalar(
+        select(func.count())
+        .select_from(Element)
+        .where(Element.element_template_id == template_id)
+    )
+    if instances:
+        raise ValidationError(
+            f"cannot delete element template {template_id}: it has "
+            f"{instances} element instance(s); delete them first"
         )
     session.delete(template)
     session.flush()

@@ -10,7 +10,7 @@ from __future__ import annotations
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from brewerypi.models import Area, Site, Tag, TagValue
+from brewerypi.models import Area, Element, Site, Tag, TagValue
 from brewerypi.services._validation import clean_str, optional_str
 from brewerypi.services.exceptions import (
     ConflictError,
@@ -105,6 +105,16 @@ def delete_area(session: Session, area_id: int) -> None:
         raise ValidationError(
             f"cannot delete area {area_id}: {readings} recorded "
             "reading(s) exist under its tags"
+        )
+    elements = session.scalar(
+        select(func.count())
+        .select_from(Element)
+        .where(Element.tag_area_id == area_id)
+    )
+    if elements:
+        raise ValidationError(
+            f"cannot delete area {area_id}: {elements} element(s) use it "
+            "as their tag area; reassign them first"
         )
     session.delete(area)
     session.flush()

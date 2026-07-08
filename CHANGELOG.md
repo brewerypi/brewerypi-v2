@@ -14,6 +14,20 @@ All notable changes to this project are documented here. The format is based on
   `datetime.now(timezone.utc)` (UTC by design, not by server-clock luck).
 
 ### Added
+- Service-layer CRUD for elements (`services/elements.py`):
+  list/get/create/update/delete. Enforces the A1 mirror rule (an element's
+  parent instances its template's parent template; a top-level template's
+  instances are top-level), same-site `tag_area`, and name uniqueness
+  (children within their parent, roots within the template).
+  `element_template_id` is immutable; update can re-parent among valid
+  instances, set/clear `tag_area`, or leave them unchanged. Delete refuses
+  when the element has children.
+
+### Changed
+- Extended two delete guards for the new elements: `delete_element_template`
+  now also refuses when the template has element instances, and `delete_area`
+  now also refuses when an element uses it as its tag area. Covered by
+  `tests/test_services_elements.py`.
 - `Element` model and create-table migration (`7b210831a436`): an instance of
   an `element_template` (e.g. FV01/FV02 of a Fermenter). Columns: required
   `element_template_id`, nullable `tag_area_id` (where its tags are stored),
