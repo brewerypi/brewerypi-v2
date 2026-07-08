@@ -14,6 +14,10 @@ All notable changes to this project are documented here. The format is based on
   `datetime.now(timezone.utc)` (UTC by design, not by server-clock luck).
 
 ### Added
+- `ElementTemplate` model and create-table migration (`223ac0a8de06`): a
+  site-scoped, self-referential template tree (`site_id`, nullable `parent_id`,
+  `name`, `description`; name unique within the site). `Site` cascade-deletes
+  its element templates. This is the first migration that creates a new table.
 - Admin MCP tools for enterprises: `get_enterprise`, `create_enterprise`,
   `update_enterprise`, `delete_enterprise` (admin tier now 39 tools). Listing
   reuses the operator `list_enterprises`. `delete_enterprise` previews the full

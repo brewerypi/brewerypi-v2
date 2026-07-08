@@ -10,9 +10,9 @@ Tag hierarchy:                  Area 1——* Tag 1——* TagValue.
   LookupValue that has recorded history is blocked).  For numeric tags,
   TagValue stores the measured float in the value column.
 
-Relationships to ElementTemplate / Element / ElementAttribute are
-intentionally omitted; ElementAttribute will gain a tag_id FK when those
-tables are added.
+ElementTemplate is a site-scoped, self-referential template tree
+(a top-level template has no parent). Element / ElementAttribute are
+not yet added; ElementAttribute will gain a tag_id FK when they are.
 """
 
 from __future__ import annotations
@@ -67,6 +67,10 @@ class Site(Base):
 
     enterprise: Mapped[Enterprise] = relationship(back_populates="sites")
     areas: Mapped[list[Area]] = relationship(
+        back_populates="site",
+        cascade="all, delete-orphan",
+    )
+    element_templates: Mapped[list[ElementTemplate]] = relationship(
         back_populates="site",
         cascade="all, delete-orphan",
     )
@@ -226,3 +230,32 @@ class TagValue(Base):
             f"<TagValue tag_id={self.tag_id!r}"
             f" observed_at={self.observed_at!r}>"
         )
+
+
+class ElementTemplate(Base):
+    __tablename__ = "element_templates"
+    __table_args__ = (UniqueConstraint("site_id", "name"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    site_id: Mapped[int] = mapped_column(
+        ForeignKey("sites.id"), index=True
+    )
+    # Self-referential parent: NULL for a top-level template.
+    parent_id: Mapped[int | None] = mapped_column(
+        ForeignKey("element_templates.id"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(45))
+    description: Mapped[str | None] = mapped_column(String(255))
+
+    site: Mapped[Site] = relationship(back_populates="element_templates")
+    parent: Mapped[ElementTemplate | None] = relationship(
+        back_populates="children",
+        remote_side="ElementTemplate.id",
+    )
+    children: Mapped[list[ElementTemplate]] = relationship(
+        back_populates="parent",
+        cascade="all, delete-orphan",
+    )
+
+    def __repr__(self) -> str:
+        return f"<ElementTemplate {self.name!r}>"

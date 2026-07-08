@@ -68,6 +68,11 @@ owns and has rights to. Keep the name `brewerypi` everywhere.
   historical readings can't be silently deleted. This is the high-volume table
   that motivates the
   eventual Postgres/Timescale move.
+- `ElementTemplate`: site-scoped, self-referential template tree — `site_id`,
+  nullable `parent_id` (NULL = top-level, e.g. a Brewhouse with Mash Tun /
+  Lauter Tun children), `name` (unique per site), `description`. `Site`
+  cascade-deletes its templates. Service delete refuses if a template has
+  children (leaf-upward).
 - Derived from upstream BreweryPi's schema; tested in `tests/test_models.py`.
 
 ## OPEN DECISION — schema naming (parked; decide before renaming anything)
