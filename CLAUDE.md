@@ -120,12 +120,15 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
   schema; `env.py` wired to `Base.metadata` + `DATABASE_URL`).
 - Service layer (`src/brewerypi/services/`): reusable CRUD/business logic
   shared by MCP tools and future consumers; raises a `ServiceError` hierarchy;
-  callers own the Session/transaction. Module per table (all done):
+  callers own the Session/transaction. Module per table:
   `measurement_units`, `lookups`, `lookup_values`, `tags`, `areas`, `sites`,
-  `enterprises` (shared `clean_str` / `optional_str` in `_validation.py`).
-  Admin MCP tools expose all seven config tables (39 tools) — config CRUD is
-  complete. Hierarchy deletes guard on readings in the subtree; hierarchy
-  tables' admin read reuses operator `list_<table>` + adds `get_<table>`.
+  `enterprises`, `element_templates` (shared `clean_str` / `optional_str` in
+  `_validation.py`). Admin MCP tools expose the seven original config tables
+  (39 tools); `element_templates` service done, its admin tools pending.
+  `element_templates` is a config table the operator tier doesn't browse, so
+  admin OWNS `list_element_templates` (reference-table pattern). Hierarchy
+  deletes guard on readings in the subtree; hierarchy tables' admin read
+  reuses operator `list_<table>` + adds `get_<table>`.
 - `tag_values` (historian data, not config): create = operator
   `record_tag_value`; read = operator `get_tag_values` (now includes reading
   `id`). Operators also get corrective `get_tag_value` / `update_tag_value` /

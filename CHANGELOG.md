@@ -14,6 +14,14 @@ All notable changes to this project are documented here. The format is based on
   `datetime.now(timezone.utc)` (UTC by design, not by server-clock luck).
 
 ### Added
+- Service-layer CRUD for element templates
+  (`services/element_templates.py`): list/get/create/update/delete.
+  Create/update validate name uniqueness within the site and that a parent
+  belongs to the same site; re-parenting enforces no cycles (a template can't
+  become its own ancestor). Update can re-parent (int), promote to top-level
+  (`None`), or leave the parent unchanged (omit). Delete refuses when the
+  template has children. Covered by
+  `tests/test_services_element_templates.py`.
 - `ElementTemplate` model and create-table migration (`223ac0a8de06`): a
   site-scoped, self-referential template tree (`site_id`, nullable `parent_id`,
   `name`, `description`; name unique within the site). `Site` cascade-deletes
