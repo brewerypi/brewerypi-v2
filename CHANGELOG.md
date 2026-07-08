@@ -14,6 +14,13 @@ All notable changes to this project are documented here. The format is based on
   `datetime.now(timezone.utc)` (UTC by design, not by server-clock luck).
 
 ### Added
+- Admin MCP tools for element templates: `list_element_templates`,
+  `create_element_template`, `update_element_template`,
+  `delete_element_template` (admin tier now 43 tools; admin owns `list_` since
+  the operator tier doesn't browse them). Update re-parents via `parent_id` or
+  promotes to top-level via `make_top_level=true`; delete previews the child
+  count, requires `confirm=true`, and is refused when children exist. Covered
+  by `tests/test_mcp_config_tools_element_templates.py`.
 - Service-layer CRUD for element templates
   (`services/element_templates.py`): list/get/create/update/delete.
   Create/update validate name uniqueness within the site and that a parent

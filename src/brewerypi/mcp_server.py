@@ -32,6 +32,7 @@ from brewerypi import services
 from brewerypi.config import DATABASE_URL
 from brewerypi.models import (
     Area,
+    ElementTemplate,
     Enterprise,
     Lookup,
     LookupValue,
@@ -1125,6 +1126,130 @@ def delete_enterprise(enterprise_id: int, confirm: bool = False) -> dict:
             return {"error": str(exc)}
 
 
+def _element_template_dict(t: ElementTemplate) -> dict:
+    return {
+        "id": t.id,
+        "site_id": t.site_id,
+        "parent_id": t.parent_id,
+        "name": t.name,
+        "description": t.description,
+    }
+
+
+def list_element_templates(site_id: int | None = None) -> list[dict]:
+    """List element templates, optionally filtered by site (admin).
+
+    Each row includes ``parent_id`` (null for a top-level template), so the
+    site's template tree can be reconstructed from the flat list.
+    """
+    with _Session() as session:
+        rows = services.list_element_templates(session, site_id)
+        return [_element_template_dict(t) for t in rows]
+
+
+def create_element_template(
+    site_id: int,
+    name: str,
+    description: str | None = None,
+    parent_id: int | None = None,
+) -> dict:
+    """Create an element template under a site (admin, write).
+
+    Pass ``parent_id`` to nest it under an existing template in the same
+    site; omit it for a top-level template. Name is unique within the site.
+    """
+    with _Session() as session:
+        try:
+            t = services.create_element_template(
+                session, site_id, name, description, parent_id
+            )
+            result = _element_template_dict(t)
+            session.commit()
+            return result
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
+def update_element_template(
+    template_id: int,
+    name: str | None = None,
+    description: str | None = None,
+    parent_id: int | None = None,
+    make_top_level: bool = False,
+) -> dict:
+    """Update an element template (admin, write).
+
+    Re-parenting: set ``parent_id`` to move the template under another
+    template (same site, no cycles), or set ``make_top_level=true`` to
+    promote it to a top-level template. Leave both unset to keep the current
+    parent. ``name``/``description`` change only when provided.
+    """
+    with _Session() as session:
+        try:
+            if make_top_level:
+                t = services.update_element_template(
+                    session, template_id, name, description, parent_id=None
+                )
+            elif parent_id is not None:
+                t = services.update_element_template(
+                    session,
+                    template_id,
+                    name,
+                    description,
+                    parent_id=parent_id,
+                )
+            else:
+                t = services.update_element_template(
+                    session, template_id, name, description
+                )
+            result = _element_template_dict(t)
+            session.commit()
+            return result
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
+def delete_element_template(
+    template_id: int, confirm: bool = False
+) -> dict:
+    """Delete an element template (admin, destructive).
+
+    Without ``confirm=true`` this previews and reports the child count.
+    Refuses if the template has child templates (delete or reparent those
+    first).
+    """
+    with _Session() as session:
+        try:
+            t = services.get_element_template(session, template_id)
+        except ServiceError as exc:
+            return {"error": str(exc)}
+        if not confirm:
+            child_count = session.scalar(
+                select(func.count())
+                .select_from(ElementTemplate)
+                .where(ElementTemplate.parent_id == template_id)
+            )
+            return {
+                "confirm_required": True,
+                "element_template": _element_template_dict(t),
+                "child_count": child_count,
+                "message": (
+                    f"Would delete element template {template_id} "
+                    f"({t.name}). Refused if it has children "
+                    f"({child_count}). Call again with confirm=true."
+                ),
+            }
+        try:
+            services.delete_element_template(session, template_id)
+            session.commit()
+            return {"deleted": template_id}
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
 def _register_config_tools(server: FastMCP) -> None:
     """Register the admin-only configuration CRUD tools on a server."""
     for tool in (
@@ -1156,6 +1281,10 @@ def _register_config_tools(server: FastMCP) -> None:
         create_enterprise,
         update_enterprise,
         delete_enterprise,
+        list_element_templates,
+        create_element_template,
+        update_element_template,
+        delete_element_template,
     ):
         server.tool(tool)
 
