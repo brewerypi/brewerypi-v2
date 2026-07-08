@@ -134,9 +134,10 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
   `optional_str` in `_validation.py`). `elements` enforces the A1 mirror rule +
   same-site tag_area; its guards also extended `delete_element_template`
   (refuse if instances) and `delete_area` (refuse if used as a tag area).
-  Operators read elements; admins write. Admin MCP tools expose all eight
-  config tables (43
-  tools). `element_templates` is a config table the operator tier doesn't
+  Operators read elements; admins write. MCP tools: operator tier 13
+  (adds `list_elements`/`get_element`), admin tier 48 (adds
+  `create`/`update`/`delete_element` + the eight config tables' CRUD).
+  `element_templates` is a config table the operator tier doesn't
   browse, so admin OWNS `list_element_templates` (reference-table pattern);
   its update re-parents via `parent_id` / promotes via `make_top_level`.
   Hierarchy deletes guard on readings in the subtree; hierarchy tables' admin

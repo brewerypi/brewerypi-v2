@@ -14,6 +14,12 @@ All notable changes to this project are documented here. The format is based on
   `datetime.now(timezone.utc)` (UTC by design, not by server-clock luck).
 
 ### Added
+- Element MCP tools with a reads-operator / writes-admin split: operator
+  `list_elements` (filter by template/site/parent) and `get_element`; admin
+  `create_element`, `update_element` (assign/clear `tag_area`, re-parent), and
+  `delete_element` (previews child count, `confirm=true`, refused with
+  children). Operator tier now 13 tools, admin 48. Completes element CRUD.
+  Covered by `tests/test_mcp_element_tools.py`.
 - Service-layer CRUD for elements (`services/elements.py`):
   list/get/create/update/delete. Enforces the A1 mirror rule (an element's
   parent instances its template's parent template; a top-level template's

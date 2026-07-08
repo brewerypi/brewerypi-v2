@@ -222,7 +222,8 @@ and what are the latest Mash Temp readings?"*
 
 The base (default) **operator** tier is read + record-value only. Configuration
 editing (full CRUD on measurement units, lookups, lookup values, tags, areas,
-sites, enterprises, and element templates) lives in
+sites, enterprises, and element templates; plus writing element instances,
+which operators can read) lives in
 a separate **admin tier**, gated by `MCP_ROLE=admin`, on its own port and its
 own secret path — so you hand the admin URL only to the handful of people who
 should edit configuration.

@@ -32,6 +32,7 @@ from brewerypi import services
 from brewerypi.config import DATABASE_URL
 from brewerypi.models import (
     Area,
+    Element,
     ElementTemplate,
     Enterprise,
     Lookup,
@@ -442,6 +443,46 @@ def delete_tag_value(value_id: int, confirm: bool = False) -> dict:
             return {"deleted": value_id}
         except ServiceError as exc:
             session.rollback()
+            return {"error": str(exc)}
+
+
+def _element_dict(e: Element) -> dict:
+    return {
+        "id": e.id,
+        "element_template_id": e.element_template_id,
+        "tag_area_id": e.tag_area_id,
+        "parent_id": e.parent_id,
+        "name": e.name,
+        "description": e.description,
+    }
+
+
+@mcp.tool
+def list_elements(
+    element_template_id: int | None = None,
+    site_id: int | None = None,
+    parent_id: int | None = None,
+) -> list[dict]:
+    """List elements (equipment instances), optionally filtered.
+
+    Filter by ``element_template_id`` for all instances of one template (e.g.
+    every Boiler), by ``site_id``, or by ``parent_id`` for one element's
+    children. Each row includes ``parent_id`` so the tree is reconstructable.
+    """
+    with _Session() as session:
+        rows = services.list_elements(
+            session, element_template_id, site_id, parent_id
+        )
+        return [_element_dict(e) for e in rows]
+
+
+@mcp.tool
+def get_element(element_id: int) -> dict:
+    """Return one element by id."""
+    with _Session() as session:
+        try:
+            return _element_dict(services.get_element(session, element_id))
+        except ServiceError as exc:
             return {"error": str(exc)}
 
 
@@ -1250,6 +1291,109 @@ def delete_element_template(
             return {"error": str(exc)}
 
 
+def create_element(
+    element_template_id: int,
+    name: str,
+    description: str | None = None,
+    tag_area_id: int | None = None,
+    parent_id: int | None = None,
+) -> dict:
+    """Create an element instancing a template (admin, write).
+
+    Pass ``parent_id`` when the template is a child template (its parent must
+    instance the template's parent template); omit it for a top-level
+    template. ``tag_area_id`` (optional) must be an area in the same site.
+    """
+    with _Session() as session:
+        try:
+            el = services.create_element(
+                session,
+                element_template_id,
+                name,
+                description,
+                tag_area_id,
+                parent_id,
+            )
+            result = _element_dict(el)
+            session.commit()
+            return result
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
+def update_element(
+    element_id: int,
+    name: str | None = None,
+    description: str | None = None,
+    tag_area_id: int | None = None,
+    clear_tag_area: bool = False,
+    parent_id: int | None = None,
+) -> dict:
+    """Update an element (admin, write).
+
+    ``name``/``description`` change when provided. Set ``tag_area_id`` to
+    assign a tag area (same site), or ``clear_tag_area=true`` to unassign it.
+    Set ``parent_id`` to move the element under another valid parent (one
+    instancing the template's parent template). The element's template can't
+    be changed.
+    """
+    kwargs: dict = {}
+    if clear_tag_area:
+        kwargs["tag_area_id"] = None
+    elif tag_area_id is not None:
+        kwargs["tag_area_id"] = tag_area_id
+    if parent_id is not None:
+        kwargs["parent_id"] = parent_id
+    with _Session() as session:
+        try:
+            el = services.update_element(
+                session, element_id, name, description, **kwargs
+            )
+            result = _element_dict(el)
+            session.commit()
+            return result
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
+def delete_element(element_id: int, confirm: bool = False) -> dict:
+    """Delete an element (admin, destructive).
+
+    Without ``confirm=true`` this previews and reports the child count.
+    Refuses if the element has child elements.
+    """
+    with _Session() as session:
+        try:
+            el = services.get_element(session, element_id)
+        except ServiceError as exc:
+            return {"error": str(exc)}
+        if not confirm:
+            child_count = session.scalar(
+                select(func.count())
+                .select_from(Element)
+                .where(Element.parent_id == element_id)
+            )
+            return {
+                "confirm_required": True,
+                "element": _element_dict(el),
+                "child_count": child_count,
+                "message": (
+                    f"Would delete element {element_id} ({el.name}). "
+                    f"Refused if it has children ({child_count}). Call "
+                    "again with confirm=true."
+                ),
+            }
+        try:
+            services.delete_element(session, element_id)
+            session.commit()
+            return {"deleted": element_id}
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
 def _register_config_tools(server: FastMCP) -> None:
     """Register the admin-only configuration CRUD tools on a server."""
     for tool in (
@@ -1285,6 +1429,9 @@ def _register_config_tools(server: FastMCP) -> None:
         create_element_template,
         update_element_template,
         delete_element_template,
+        create_element,
+        update_element,
+        delete_element,
     ):
         server.tool(tool)
 
