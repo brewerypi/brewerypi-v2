@@ -14,6 +14,13 @@ All notable changes to this project are documented here. The format is based on
   `datetime.now(timezone.utc)` (UTC by design, not by server-clock luck).
 
 ### Added
+- `ElementAttributeTemplate` model and create-table migration
+  (`c67d381354a0`): defines an attribute on an element template (name +
+  optional lookup or measurement unit, mutually exclusive like Tag). Columns:
+  required `element_template_id`, nullable `lookup_id`/`measurement_unit_id`,
+  `name`, `description`; unique `(element_template_id, name)`.
+  `ElementTemplate` cascade-deletes its attribute templates (site teardown
+  verified). Structural/type rules land with the service layer next.
 - Element MCP tools with a reads-operator / writes-admin split: operator
   `list_elements` (filter by template/site/parent) and `get_element`; admin
   `create_element`, `update_element` (assign/clear `tag_area`, re-parent), and

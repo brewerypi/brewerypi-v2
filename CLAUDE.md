@@ -81,6 +81,13 @@ owns and has rights to. Keep the name `brewerypi` everywhere.
   and tag_area/parent must be same-site. Unique `(parent_id, name)`; roots
   unique within the template (service-level). `ElementTemplate` cascades its
   elements (so a site delete unwinds cleanly). Operators read; admins write.
+- `ElementAttributeTemplate`: defines an attribute on an `element_template`
+  (e.g. Temperature/Pressure on a Fermenter). Required `element_template_id`,
+  `name` (unique per template), `description`, and nullable
+  `lookup_id`/`measurement_unit_id` — mutually exclusive (lookup/numeric/
+  neither, like Tag), same-enterprise (service-enforced). Flat (no parent).
+  `ElementTemplate` cascades its attribute templates. Admin-only config. A
+  future `ElementAttribute` instance will carry the tag_id link.
 - Derived from upstream BreweryPi's schema; tested in `tests/test_models.py`.
 
 ## OPEN DECISION — schema naming (parked; decide before renaming anything)

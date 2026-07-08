@@ -14,7 +14,9 @@ ElementTemplate is a site-scoped, self-referential template tree
 (a top-level template has no parent). Element instances a template
 (FV01, FV02 of a Fermenter template); its own parent tree mirrors the
 template tree, and tag_area_id points at where its tags are stored.
-ElementAttribute is not yet added; it will gain a tag_id FK when added.
+ElementAttributeTemplate defines an attribute on an element template
+(name + optional lookup or measurement unit, like Tag). ElementAttribute
+is not yet added; it will gain a tag_id FK when added.
 """
 
 from __future__ import annotations
@@ -262,6 +264,12 @@ class ElementTemplate(Base):
         back_populates="element_template",
         cascade="all, delete-orphan",
     )
+    attribute_templates: Mapped[list[ElementAttributeTemplate]] = (
+        relationship(
+            back_populates="element_template",
+            cascade="all, delete-orphan",
+        )
+    )
 
     def __repr__(self) -> str:
         return f"<ElementTemplate {self.name!r}>"
@@ -304,3 +312,33 @@ class Element(Base):
 
     def __repr__(self) -> str:
         return f"<Element {self.name!r}>"
+
+
+class ElementAttributeTemplate(Base):
+    __tablename__ = "element_attribute_templates"
+    __table_args__ = (UniqueConstraint("element_template_id", "name"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    element_template_id: Mapped[int] = mapped_column(
+        ForeignKey("element_templates.id"), index=True
+    )
+    # Type: lookup-typed (lookup_id) or numeric (measurement_unit_id) or
+    # neither -- mutually exclusive, mirroring Tag. Both must belong to the
+    # template's enterprise (enforced in the service layer).
+    lookup_id: Mapped[int | None] = mapped_column(
+        ForeignKey("lookups.id"), index=True
+    )
+    measurement_unit_id: Mapped[int | None] = mapped_column(
+        ForeignKey("measurement_units.id"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(45))
+    description: Mapped[str | None] = mapped_column(String(255))
+
+    element_template: Mapped[ElementTemplate] = relationship(
+        back_populates="attribute_templates"
+    )
+    lookup: Mapped[Lookup | None] = relationship()
+    measurement_unit: Mapped[MeasurementUnit | None] = relationship()
+
+    def __repr__(self) -> str:
+        return f"<ElementAttributeTemplate {self.name!r}>"
