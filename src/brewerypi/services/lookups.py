@@ -10,7 +10,14 @@ from __future__ import annotations
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from brewerypi.models import Enterprise, Lookup, LookupValue, Tag, TagValue
+from brewerypi.models import (
+    ElementAttributeTemplate,
+    Enterprise,
+    Lookup,
+    LookupValue,
+    Tag,
+    TagValue,
+)
 from brewerypi.services._validation import clean_str
 from brewerypi.services.exceptions import (
     ConflictError,
@@ -83,6 +90,16 @@ def delete_lookup(session: Session, lookup_id: int) -> None:
         raise ValidationError(
             f"cannot delete lookup {lookup_id}: "
             f"{tag_refs} tag(s) use it"
+        )
+    attr_refs = session.scalar(
+        select(func.count())
+        .select_from(ElementAttributeTemplate)
+        .where(ElementAttributeTemplate.lookup_id == lookup_id)
+    )
+    if attr_refs:
+        raise ValidationError(
+            f"cannot delete lookup {lookup_id}: "
+            f"{attr_refs} attribute template(s) use it"
         )
     value_refs = session.scalar(
         select(func.count())

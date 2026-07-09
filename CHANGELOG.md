@@ -14,6 +14,19 @@ All notable changes to this project are documented here. The format is based on
   `datetime.now(timezone.utc)` (UTC by design, not by server-clock luck).
 
 ### Added
+- Service-layer CRUD for element attribute templates
+  (`services/element_attribute_templates.py`): list/get/create/update/delete.
+  Reuses the `Tag` type-pattern — an attribute template is lookup-typed,
+  numeric, or neither (mutually exclusive), and any referenced lookup/unit
+  must belong to the template's enterprise (resolved element_template → site →
+  enterprise). Name unique within the element template; update covers
+  name/description only.
+
+### Changed
+- Extended two more delete guards: `delete_lookup` and
+  `delete_measurement_unit` now also refuse when an element attribute template
+  references them. Covered by
+  `tests/test_services_element_attribute_templates.py`.
 - `ElementAttributeTemplate` model and create-table migration
   (`c67d381354a0`): defines an attribute on an element template (name +
   optional lookup or measurement unit, mutually exclusive like Tag). Columns:

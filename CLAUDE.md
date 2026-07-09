@@ -137,10 +137,15 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
   shared by MCP tools and future consumers; raises a `ServiceError` hierarchy;
   callers own the Session/transaction. Module per table:
   `measurement_units`, `lookups`, `lookup_values`, `tags`, `areas`, `sites`,
-  `enterprises`, `element_templates`, `elements` (shared `clean_str` /
-  `optional_str` in `_validation.py`). `elements` enforces the A1 mirror rule +
+  `enterprises`, `element_templates`, `elements`,
+  `element_attribute_templates` (shared `clean_str` / `optional_str` in
+  `_validation.py`). `elements` enforces the A1 mirror rule +
   same-site tag_area; its guards also extended `delete_element_template`
   (refuse if instances) and `delete_area` (refuse if used as a tag area).
+  `element_attribute_templates` reuses the Tag type-pattern (lookup/numeric/
+  neither, same-enterprise) and extended `delete_lookup` /
+  `delete_measurement_unit` (refuse if an attribute template references them);
+  its admin tools are pending.
   Operators read elements; admins write. MCP tools: operator tier 13
   (adds `list_elements`/`get_element`), admin tier 48 (adds
   `create`/`update`/`delete_element` + the eight config tables' CRUD).

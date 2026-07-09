@@ -10,7 +10,12 @@ from __future__ import annotations
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from brewerypi.models import Enterprise, MeasurementUnit, Tag
+from brewerypi.models import (
+    ElementAttributeTemplate,
+    Enterprise,
+    MeasurementUnit,
+    Tag,
+)
 from brewerypi.services._validation import clean_str
 from brewerypi.services.exceptions import (
     ConflictError,
@@ -96,7 +101,10 @@ def update_measurement_unit(
 
 
 def delete_measurement_unit(session: Session, unit_id: int) -> None:
-    """Delete a measurement unit, refusing if any tag references it."""
+    """Delete a measurement unit.
+
+    Refuses if any tag or element attribute template references it.
+    """
     unit = get_measurement_unit(session, unit_id)
     referencing = session.scalar(
         select(func.count())
@@ -107,6 +115,16 @@ def delete_measurement_unit(session: Session, unit_id: int) -> None:
         raise ValidationError(
             f"cannot delete measurement unit {unit_id}: "
             f"{referencing} tag(s) reference it"
+        )
+    attr_refs = session.scalar(
+        select(func.count())
+        .select_from(ElementAttributeTemplate)
+        .where(ElementAttributeTemplate.measurement_unit_id == unit_id)
+    )
+    if attr_refs:
+        raise ValidationError(
+            f"cannot delete measurement unit {unit_id}: "
+            f"{attr_refs} attribute template(s) reference it"
         )
     session.delete(unit)
     session.flush()

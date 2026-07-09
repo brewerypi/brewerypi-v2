@@ -13,6 +13,13 @@ from brewerypi.services.areas import (
     list_areas,
     update_area,
 )
+from brewerypi.services.element_attribute_templates import (
+    create_element_attribute_template,
+    delete_element_attribute_template,
+    get_element_attribute_template,
+    list_element_attribute_templates,
+    update_element_attribute_template,
+)
 from brewerypi.services.element_templates import (
     create_element_template,
     delete_element_template,
@@ -88,6 +95,7 @@ __all__ = [
     "ValidationError",
     "create_area",
     "create_element",
+    "create_element_attribute_template",
     "create_element_template",
     "create_enterprise",
     "create_lookup",
@@ -97,6 +105,7 @@ __all__ = [
     "create_tag",
     "delete_area",
     "delete_element",
+    "delete_element_attribute_template",
     "delete_element_template",
     "delete_enterprise",
     "delete_lookup",
@@ -107,6 +116,7 @@ __all__ = [
     "delete_tag_value",
     "get_area",
     "get_element",
+    "get_element_attribute_template",
     "get_element_template",
     "get_enterprise",
     "get_lookup",
@@ -116,6 +126,7 @@ __all__ = [
     "get_tag",
     "get_tag_value",
     "list_areas",
+    "list_element_attribute_templates",
     "list_element_templates",
     "list_elements",
     "list_enterprises",
@@ -126,6 +137,7 @@ __all__ = [
     "list_tags",
     "update_area",
     "update_element",
+    "update_element_attribute_template",
     "update_element_template",
     "update_enterprise",
     "update_lookup",
