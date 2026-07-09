@@ -33,6 +33,7 @@ from brewerypi.config import DATABASE_URL
 from brewerypi.models import (
     Area,
     Element,
+    ElementAttributeTemplate,
     ElementTemplate,
     Enterprise,
     Lookup,
@@ -1394,6 +1395,120 @@ def delete_element(element_id: int, confirm: bool = False) -> dict:
             return {"error": str(exc)}
 
 
+def _attribute_template_dict(t: ElementAttributeTemplate) -> dict:
+    return {
+        "id": t.id,
+        "element_template_id": t.element_template_id,
+        "lookup_id": t.lookup_id,
+        "measurement_unit_id": t.measurement_unit_id,
+        "name": t.name,
+        "description": t.description,
+    }
+
+
+def list_element_attribute_templates(
+    element_template_id: int | None = None,
+) -> list[dict]:
+    """List element attribute templates, optionally filtered by template.
+
+    Each attribute template defines an attribute (name + optional lookup or
+    measurement unit) on an element template.
+    """
+    with _Session() as session:
+        rows = services.list_element_attribute_templates(
+            session, element_template_id
+        )
+        return [_attribute_template_dict(t) for t in rows]
+
+
+def create_element_attribute_template(
+    element_template_id: int,
+    name: str,
+    description: str | None = None,
+    lookup_id: int | None = None,
+    measurement_unit_id: int | None = None,
+) -> dict:
+    """Create an attribute template on an element template (admin, write).
+
+    An attribute is lookup-typed (``lookup_id``) or numeric
+    (``measurement_unit_id``) or neither -- not both. Any lookup/unit must
+    belong to the element template's enterprise.
+    """
+    with _Session() as session:
+        try:
+            t = services.create_element_attribute_template(
+                session,
+                element_template_id,
+                name,
+                description,
+                lookup_id,
+                measurement_unit_id,
+            )
+            result = _attribute_template_dict(t)
+            session.commit()
+            return result
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
+def update_element_attribute_template(
+    attribute_template_id: int,
+    name: str | None = None,
+    description: str | None = None,
+) -> dict:
+    """Update an attribute template's name and/or description (admin, write).
+
+    Changing its type (lookup vs numeric) is not supported here.
+    """
+    with _Session() as session:
+        try:
+            t = services.update_element_attribute_template(
+                session, attribute_template_id, name, description
+            )
+            result = _attribute_template_dict(t)
+            session.commit()
+            return result
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
+def delete_element_attribute_template(
+    attribute_template_id: int, confirm: bool = False
+) -> dict:
+    """Delete an attribute template (admin, destructive).
+
+    Without ``confirm=true`` this only previews.
+    """
+    with _Session() as session:
+        try:
+            t = services.get_element_attribute_template(
+                session, attribute_template_id
+            )
+        except ServiceError as exc:
+            return {"error": str(exc)}
+        if not confirm:
+            return {
+                "confirm_required": True,
+                "element_attribute_template": _attribute_template_dict(t),
+                "message": (
+                    f"Would delete attribute template "
+                    f"{attribute_template_id} ({t.name}). Call again with "
+                    "confirm=true."
+                ),
+            }
+        try:
+            services.delete_element_attribute_template(
+                session, attribute_template_id
+            )
+            session.commit()
+            return {"deleted": attribute_template_id}
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
 def _register_config_tools(server: FastMCP) -> None:
     """Register the admin-only configuration CRUD tools on a server."""
     for tool in (
@@ -1432,6 +1547,10 @@ def _register_config_tools(server: FastMCP) -> None:
         create_element,
         update_element,
         delete_element,
+        list_element_attribute_templates,
+        create_element_attribute_template,
+        update_element_attribute_template,
+        delete_element_attribute_template,
     ):
         server.tool(tool)
 

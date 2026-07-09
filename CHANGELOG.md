@@ -14,6 +14,13 @@ All notable changes to this project are documented here. The format is based on
   `datetime.now(timezone.utc)` (UTC by design, not by server-clock luck).
 
 ### Added
+- Admin MCP tools for element attribute templates:
+  `list_element_attribute_templates`, `create_element_attribute_template`,
+  `update_element_attribute_template`, `delete_element_attribute_template`
+  (admin tier now 52 tools; admin owns `list_`, reference-table pattern).
+  Create takes optional `lookup_id`/`measurement_unit_id`; delete is
+  `confirm=true`. Completes element attribute template CRUD. Covered by
+  `tests/test_mcp_config_tools_element_attribute_templates.py`.
 - Service-layer CRUD for element attribute templates
   (`services/element_attribute_templates.py`): list/get/create/update/delete.
   Reuses the `Tag` type-pattern — an attribute template is lookup-typed,

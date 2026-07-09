@@ -145,10 +145,11 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
   `element_attribute_templates` reuses the Tag type-pattern (lookup/numeric/
   neither, same-enterprise) and extended `delete_lookup` /
   `delete_measurement_unit` (refuse if an attribute template references them);
-  its admin tools are pending.
+  admin owns its `list_`/`create`/`update`/`delete` tools.
   Operators read elements; admins write. MCP tools: operator tier 13
-  (adds `list_elements`/`get_element`), admin tier 48 (adds
-  `create`/`update`/`delete_element` + the eight config tables' CRUD).
+  (adds `list_elements`/`get_element`), admin tier 52 (adds
+  `create`/`update`/`delete_element`, the config tables' CRUD, and the
+  element attribute template tools).
   `element_templates` is a config table the operator tier doesn't
   browse, so admin OWNS `list_element_templates` (reference-table pattern);
   its update re-parents via `parent_id` / promotes via `make_top_level`.

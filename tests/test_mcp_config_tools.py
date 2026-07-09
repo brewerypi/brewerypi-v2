@@ -127,5 +127,9 @@ def test_config_tools_registered_by_helper():
         "create_element",
         "update_element",
         "delete_element",
+        "list_element_attribute_templates",
+        "create_element_attribute_template",
+        "update_element_attribute_template",
+        "delete_element_attribute_template",
     }
     assert expected <= registered
