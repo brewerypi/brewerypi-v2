@@ -7,6 +7,16 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- `ElementAttribute` model and create-table migration (`b88bd0361d50`): an
+  attribute template realized on one element and wired to a tag
+  (`element_id`, `element_attribute_template_id`, `tag_id`; unique per
+  element+template). `owns_tag` records whether the app auto-created the tag
+  (removed with the attribute when it has no readings) or adopted an existing
+  one by name (only the link is removed). `tag_id` is `ON DELETE RESTRICT`, so
+  a wired tag can't be deleted out from under an attribute; deleting an
+  element unwires its attributes but leaves tags and readings intact
+  (verified). Wiring logic (tag-path builder, find-or-create, resync) lands
+  with the service layer next.
 - `clean_name_segment` validator (`services/_validation.py`) for names that
   become segments of a generated tag path: it trims, collapses internal
   whitespace runs to single spaces (so "Hot Liquor Tank" stays readable), and

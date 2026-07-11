@@ -90,6 +90,16 @@ owns and has rights to. Keep the name `brewerypi` everywhere.
   neither, like Tag), same-enterprise (service-enforced). Flat (no parent).
   `ElementTemplate` cascades its attribute templates. Admin-only config. A
   future `ElementAttribute` instance will carry the tag_id link.
+- `ElementAttribute`: an attribute template realized on one element and wired
+  to a `Tag` (required `element_id`, `element_attribute_template_id`, `tag_id`;
+  unique `(element_id, element_attribute_template_id)`). `owns_tag` (bool)
+  records provenance: True = the app auto-created the tag for this attribute
+  (removed with the attribute, if it has no readings); False = an existing tag
+  was adopted by name (only the link is removed). `tag_id` is `ON DELETE
+  RESTRICT` + `passive_deletes`, so a wired tag can't be deleted out from
+  under an attribute. `Element` and `ElementAttributeTemplate` cascade their
+  attributes; deleting an element unwires its attributes but leaves tags and
+  readings intact.
 - Derived from upstream BreweryPi's schema; tested in `tests/test_models.py`.
 
 ## OPEN DECISION — schema naming (parked; decide before renaming anything)

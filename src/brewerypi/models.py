@@ -204,6 +204,12 @@ class Tag(Base):
         back_populates="tag",
         cascade="all, delete-orphan",
     )
+    # No cascade: the FK is RESTRICT, so a wired tag can't be deleted while
+    # an element attribute points at it (the service layer unwires first).
+    element_attributes: Mapped[list[ElementAttribute]] = relationship(
+        back_populates="tag",
+        passive_deletes="all",
+    )
 
     def __repr__(self) -> str:
         return f"<Tag {self.name!r}>"
@@ -311,6 +317,10 @@ class Element(Base):
         back_populates="parent",
         cascade="all, delete-orphan",
     )
+    attributes: Mapped[list[ElementAttribute]] = relationship(
+        back_populates="element",
+        cascade="all, delete-orphan",
+    )
 
     def __repr__(self) -> str:
         return f"<Element {self.name!r}>"
@@ -339,8 +349,55 @@ class ElementAttributeTemplate(Base):
     element_template: Mapped[ElementTemplate] = relationship(
         back_populates="attribute_templates"
     )
+    element_attributes: Mapped[list[ElementAttribute]] = relationship(
+        back_populates="element_attribute_template",
+        cascade="all, delete-orphan",
+    )
     lookup: Mapped[Lookup | None] = relationship()
     measurement_unit: Mapped[MeasurementUnit | None] = relationship()
 
     def __repr__(self) -> str:
         return f"<ElementAttributeTemplate {self.name!r}>"
+
+
+class ElementAttribute(Base):
+    """An attribute template realized on one element, wired to a tag.
+
+    ``owns_tag`` records how the tag got here: True when the app auto-created
+    it for this attribute (so it is removed with the attribute, provided it
+    has no readings), False when an existing tag was adopted by name (the tag
+    predates this attribute and may be shared, so only the link is removed).
+    """
+
+    __tablename__ = "element_attributes"
+    __table_args__ = (
+        UniqueConstraint("element_id", "element_attribute_template_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    element_id: Mapped[int] = mapped_column(
+        ForeignKey("elements.id"), index=True
+    )
+    element_attribute_template_id: Mapped[int] = mapped_column(
+        ForeignKey("element_attribute_templates.id"), index=True
+    )
+    # RESTRICT: a tag can't be deleted out from under a wired attribute.
+    tag_id: Mapped[int] = mapped_column(
+        ForeignKey("tags.id", ondelete="RESTRICT"), index=True
+    )
+    owns_tag: Mapped[bool] = mapped_column(default=True)
+
+    element: Mapped[Element] = relationship(back_populates="attributes")
+    element_attribute_template: Mapped[ElementAttributeTemplate] = (
+        relationship(back_populates="element_attributes")
+    )
+    tag: Mapped[Tag] = relationship(
+        back_populates="element_attributes",
+        passive_deletes="all",
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<ElementAttribute element_id={self.element_id!r}"
+            f" tag_id={self.tag_id!r}>"
+        )
