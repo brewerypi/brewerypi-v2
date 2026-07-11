@@ -7,6 +7,19 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- Element attribute wiring (`services/element_attributes.py`): generates tag
+  names from the element's path plus the attribute name
+  (`Cellar.FV01.Temperature`), and wires attributes find-or-create — creating
+  the tag (`owns_tag=True`, typed from the attribute template) or adopting an
+  existing same-named tag when its type is compatible (`owns_tag=False`;
+  a type conflict is an error). Wiring runs at three moments: element
+  creation, tag-area assignment, and retroactively when an attribute template
+  is added to an element template. Renaming or re-parenting an element resyncs
+  owned tag names across its whole descendant subtree (adopted tags are left
+  alone). Unwiring removes an owned tag but refuses when it has readings;
+  adopted tags are only unlinked. `delete_element` and
+  `delete_element_attribute_template` unwire first, so neither can silently
+  destroy history. Covered by `tests/test_services_element_attributes.py`.
 - `ElementAttribute` model and create-table migration (`b88bd0361d50`): an
   attribute template realized on one element and wired to a tag
   (`element_id`, `element_attribute_template_id`, `tag_id`; unique per

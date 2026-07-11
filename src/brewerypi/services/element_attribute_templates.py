@@ -101,6 +101,11 @@ def create_element_attribute_template(
     )
     session.add(template)
     session.flush()
+    # Retroactively wire this attribute onto every existing instance of the
+    # element template (elements without a tag area are skipped).
+    from brewerypi.services.element_attributes import wire_attribute_template
+
+    wire_attribute_template(session, template)
     return template
 
 
@@ -136,10 +141,23 @@ def update_element_attribute_template(
 def delete_element_attribute_template(
     session: Session, attribute_template_id: int
 ) -> None:
-    """Delete an attribute template."""
+    """Delete an attribute template, unwiring it from every element first.
+
+    Owned tags go with their attributes (refused if such a tag has readings);
+    adopted tags are left in place.
+    """
     template = get_element_attribute_template(
         session, attribute_template_id
     )
+    from brewerypi.services.element_attributes import (
+        list_element_attributes,
+        unwire_element_attribute,
+    )
+
+    for attribute in list_element_attributes(
+        session, element_attribute_template_id=attribute_template_id
+    ):
+        unwire_element_attribute(session, attribute.id)
     session.delete(template)
     session.flush()
 

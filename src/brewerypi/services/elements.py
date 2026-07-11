@@ -88,6 +88,11 @@ def create_element(
     )
     session.add(element)
     session.flush()
+    # Wire the template's attributes (creates/adopts their tags). A no-op
+    # when the element has no tag area yet; wiring then happens on assign.
+    from brewerypi.services.element_attributes import wire_element
+
+    wire_element(session, element)
     return element
 
 
@@ -121,20 +126,41 @@ def update_element(
             new_name,
             exclude_id=element_id,
         )
+    renamed = new_name != element.name or new_parent != element.parent_id
     element.name = new_name
     element.parent_id = new_parent
     if description is not None:
         element.description = optional_str(description)
+    gained_tag_area = False
     if tag_area_id is not _UNSET:
         if tag_area_id is not None:
             _check_tag_area(session, tag_area_id, template.site_id)
+        gained_tag_area = (
+            tag_area_id is not None and element.tag_area_id is None
+        )
         element.tag_area_id = tag_area_id
     session.flush()
+    from brewerypi.services.element_attributes import (
+        resync_element_tag_names,
+        wire_element,
+    )
+
+    if gained_tag_area:
+        # Now that tags can be stored, wire the template's attributes.
+        wire_element(session, element)
+    if renamed:
+        # The tag name embeds the element's path, so a rename or re-parent
+        # must rename owned tags across the whole descendant subtree.
+        resync_element_tag_names(session, element)
     return element
 
 
 def delete_element(session: Session, element_id: int) -> None:
-    """Delete an element, refusing if it has child elements."""
+    """Delete an element, refusing if it has child elements.
+
+    Its element attributes are unwired first: owned tags go with them (and the
+    delete is refused if such a tag has readings), adopted tags are left.
+    """
     element = get_element(session, element_id)
     children = session.scalar(
         select(func.count())
@@ -146,6 +172,13 @@ def delete_element(session: Session, element_id: int) -> None:
             f"cannot delete element {element_id}: it has {children} child "
             "element(s); delete or reparent them first"
         )
+    from brewerypi.services.element_attributes import (
+        list_element_attributes,
+        unwire_element_attribute,
+    )
+
+    for attribute in list_element_attributes(session, element_id=element_id):
+        unwire_element_attribute(session, attribute.id)
     session.delete(element)
     session.flush()
 

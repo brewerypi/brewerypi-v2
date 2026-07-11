@@ -20,6 +20,13 @@ from brewerypi.services.element_attribute_templates import (
     list_element_attribute_templates,
     update_element_attribute_template,
 )
+from brewerypi.services.element_attributes import (
+    build_tag_name,
+    get_element_attribute,
+    list_element_attributes,
+    unwire_element_attribute,
+    wire_element_attribute,
+)
 from brewerypi.services.element_templates import (
     create_element_template,
     delete_element_template,
@@ -93,6 +100,7 @@ __all__ = [
     "NotFoundError",
     "ServiceError",
     "ValidationError",
+    "build_tag_name",
     "create_area",
     "create_element",
     "create_element_attribute_template",
@@ -116,6 +124,7 @@ __all__ = [
     "delete_tag_value",
     "get_area",
     "get_element",
+    "get_element_attribute",
     "get_element_attribute_template",
     "get_element_template",
     "get_enterprise",
@@ -127,6 +136,7 @@ __all__ = [
     "get_tag_value",
     "list_areas",
     "list_element_attribute_templates",
+    "list_element_attributes",
     "list_element_templates",
     "list_elements",
     "list_enterprises",
@@ -135,6 +145,7 @@ __all__ = [
     "list_measurement_units",
     "list_sites",
     "list_tags",
+    "unwire_element_attribute",
     "update_area",
     "update_element",
     "update_element_attribute_template",
@@ -146,4 +157,5 @@ __all__ = [
     "update_site",
     "update_tag",
     "update_tag_value",
+    "wire_element_attribute",
 ]

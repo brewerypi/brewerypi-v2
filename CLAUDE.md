@@ -100,6 +100,14 @@ owns and has rights to. Keep the name `brewerypi` everywhere.
   under an attribute. `Element` and `ElementAttributeTemplate` cascade their
   attributes; deleting an element unwires its attributes but leaves tags and
   readings intact.
+- Element attribute WIRING lives in `services/element_attributes.py`. Tag names
+  are the element path + attribute (`Cellar.FV01.Temperature`, separator from
+  `TAG_PATH_SEPARATOR`). Find-or-create: create the tag (`owns_tag=True`) or
+  adopt a same-named one if its type matches (`owns_tag=False`; mismatch =
+  error; shared adopted tags allowed). Wiring fires on element create, on
+  tag-area assignment, and retroactively when an attribute template is added.
+  Rename/re-parent resyncs owned tag names across the descendant subtree.
+  Unwire refuses when an owned tag has readings.
 - Derived from upstream BreweryPi's schema; tested in `tests/test_models.py`.
 
 ## OPEN DECISION — schema naming (parked; decide before renaming anything)
