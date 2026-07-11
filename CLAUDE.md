@@ -170,10 +170,13 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
   neither, same-enterprise) and extended `delete_lookup` /
   `delete_measurement_unit` (refuse if an attribute template references them);
   admin owns its `list_`/`create`/`update`/`delete` tools.
-  Operators read elements; admins write. MCP tools: operator tier 13
-  (adds `list_elements`/`get_element`), admin tier 52 (adds
-  `create`/`update`/`delete_element`, the config tables' CRUD, and the
-  element attribute template tools).
+  Operators read elements; admins write. MCP tools: operator tier 15
+  (adds `list_elements`/`get_element` and `list_element_attributes`/
+  `get_element_attribute` — the latter carry the attribute name + wired
+  tag_id/tag_name, so an operator can navigate FV01 → Temperature → readings),
+  admin tier 56 (adds `create`/`update`/`delete_element`, the config tables'
+  CRUD, the element attribute template tools, and `wire_element_attribute` /
+  `unwire_element_attribute`).
   `element_templates` is a config table the operator tier doesn't
   browse, so admin OWNS `list_element_templates` (reference-table pattern);
   its update re-parents via `parent_id` / promotes via `make_top_level`.

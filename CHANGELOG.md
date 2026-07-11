@@ -7,6 +7,14 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- Element attribute MCP tools, reads-operator / writes-admin: operator
+  `list_element_attributes` (filter by element; each row carries the attribute
+  name plus the `tag_id`/`tag_name` holding its data) and
+  `get_element_attribute`; admin `wire_element_attribute` (manual wiring, incl.
+  linking an existing tag) and `unwire_element_attribute` (previews, then
+  `confirm=true`; refused when an owned tag has readings). Operator tier now 15
+  tools, admin 56. Completes the element attribute feature. Covered by
+  `tests/test_mcp_element_attribute_tools.py`.
 - Element attribute wiring (`services/element_attributes.py`): generates tag
   names from the element's path plus the attribute name
   (`Cellar.FV01.Temperature`), and wires attributes find-or-create — creating

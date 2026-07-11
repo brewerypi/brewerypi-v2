@@ -33,6 +33,7 @@ from brewerypi.config import DATABASE_URL
 from brewerypi.models import (
     Area,
     Element,
+    ElementAttribute,
     ElementAttributeTemplate,
     ElementTemplate,
     Enterprise,
@@ -485,6 +486,61 @@ def get_element(element_id: int) -> dict:
             return _element_dict(services.get_element(session, element_id))
         except ServiceError as exc:
             return {"error": str(exc)}
+
+
+def _element_attribute_dict(
+    session: Session, ea: ElementAttribute
+) -> dict:
+    """Attribute rows carry the template's name and the wired tag's name.
+
+    An element attribute has no name of its own -- it inherits the attribute
+    template's -- so both are resolved here for a usable view.
+    """
+    template = session.get(
+        ElementAttributeTemplate, ea.element_attribute_template_id
+    )
+    tag = session.get(Tag, ea.tag_id)
+    return {
+        "id": ea.id,
+        "element_id": ea.element_id,
+        "element_attribute_template_id": ea.element_attribute_template_id,
+        "name": template.name if template is not None else None,
+        "tag_id": ea.tag_id,
+        "tag_name": tag.name if tag is not None else None,
+        "owns_tag": ea.owns_tag,
+    }
+
+
+@mcp.tool
+def list_element_attributes(
+    element_id: int | None = None,
+    element_attribute_template_id: int | None = None,
+) -> list[dict]:
+    """List element attributes, optionally filtered.
+
+    Filter by ``element_id`` to see one element's attributes (e.g. FV01's
+    Temperature) -- each row gives the attribute name and the ``tag_id`` /
+    ``tag_name`` holding its data, which you can then read with
+    `get_tag_values` or write with `record_tag_value`.
+    """
+    with _Session() as session:
+        rows = services.list_element_attributes(
+            session, element_id, element_attribute_template_id
+        )
+        return [_element_attribute_dict(session, ea) for ea in rows]
+
+
+@mcp.tool
+def get_element_attribute(element_attribute_id: int) -> dict:
+    """Return one element attribute (with its name and wired tag)."""
+    with _Session() as session:
+        try:
+            ea = services.get_element_attribute(
+                session, element_attribute_id
+            )
+        except ServiceError as exc:
+            return {"error": str(exc)}
+        return _element_attribute_dict(session, ea)
 
 
 def _unit_dict(unit: MeasurementUnit) -> dict:
@@ -1509,6 +1565,85 @@ def delete_element_attribute_template(
             return {"error": str(exc)}
 
 
+def wire_element_attribute(
+    element_id: int,
+    element_attribute_template_id: int,
+    tag_id: int | None = None,
+) -> dict:
+    """Wire an attribute template onto an element (admin, write).
+
+    Attributes are normally wired automatically when an element is created (or
+    gains a tag area, or when a new attribute template is added), so this is
+    for the manual case -- in particular, passing ``tag_id`` links an existing
+    tag instead of auto-creating one. Without ``tag_id``, the tag is found or
+    created by generated name (e.g. ``Cellar.FV01.Temperature``).
+    """
+    with _Session() as session:
+        try:
+            element = services.get_element(session, element_id)
+            template = services.get_element_attribute_template(
+                session, element_attribute_template_id
+            )
+            ea = services.wire_element_attribute(
+                session, element, template, tag_id
+            )
+            result = _element_attribute_dict(session, ea)
+            session.commit()
+            return result
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
+def unwire_element_attribute(
+    element_attribute_id: int, confirm: bool = False
+) -> dict:
+    """Remove an element attribute (admin, destructive).
+
+    An auto-created tag is deleted with it -- refused if that tag has recorded
+    readings. An adopted tag is left in place; only the link is removed.
+    Without ``confirm=true`` this only previews.
+    """
+    with _Session() as session:
+        try:
+            ea = services.get_element_attribute(
+                session, element_attribute_id
+            )
+        except ServiceError as exc:
+            return {"error": str(exc)}
+        if not confirm:
+            readings = session.scalar(
+                select(func.count())
+                .select_from(TagValue)
+                .where(TagValue.tag_id == ea.tag_id)
+            )
+            fate = (
+                "its tag would be deleted too"
+                if ea.owns_tag
+                else "its tag was adopted and will be left in place"
+            )
+            return {
+                "confirm_required": True,
+                "element_attribute": _element_attribute_dict(session, ea),
+                "tag_reading_count": readings,
+                "message": (
+                    f"Would remove element attribute "
+                    f"{element_attribute_id}; {fate}. Refused if an owned "
+                    f"tag has readings (it has {readings}). Call again with "
+                    "confirm=true."
+                ),
+            }
+        try:
+            services.unwire_element_attribute(
+                session, element_attribute_id
+            )
+            session.commit()
+            return {"removed": element_attribute_id}
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
 def _register_config_tools(server: FastMCP) -> None:
     """Register the admin-only configuration CRUD tools on a server."""
     for tool in (
@@ -1551,6 +1686,8 @@ def _register_config_tools(server: FastMCP) -> None:
         create_element_attribute_template,
         update_element_attribute_template,
         delete_element_attribute_template,
+        wire_element_attribute,
+        unwire_element_attribute,
     ):
         server.tool(tool)
 

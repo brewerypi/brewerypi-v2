@@ -131,5 +131,7 @@ def test_config_tools_registered_by_helper():
         "create_element_attribute_template",
         "update_element_attribute_template",
         "delete_element_attribute_template",
+        "wire_element_attribute",
+        "unwire_element_attribute",
     }
     assert expected <= registered
