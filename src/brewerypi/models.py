@@ -190,7 +190,9 @@ class Tag(Base):
     measurement_unit_id: Mapped[int | None] = mapped_column(
         ForeignKey("measurement_units.id"), index=True
     )
-    name: Mapped[str] = mapped_column(String(45))
+    # 255 (not 45) to hold generated element attribute tag paths, e.g.
+    # "Cellar.FV01.Temperature".
+    name: Mapped[str] = mapped_column(String(255))
     description: Mapped[str | None] = mapped_column(String(255))
 
     area: Mapped[Area] = relationship(back_populates="tags")

@@ -7,6 +7,10 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Changed
+- Widened `tags.name` from 45 to 255 characters (model + migration
+  `cf79f49e4ee9` + service validation), so it can hold generated
+  element-attribute tag paths like `Cellar.FV01.Temperature`. Data-preserving
+  batch `alter_column`.
 - Renamed `tag_values.timestamp` to `observed_at` (avoids the reserved word
   and follows the `_at` convention) via a data-preserving Alembic migration
   (`ba9dc47dbd8c`, batch column rename). MCP tool inputs and outputs use

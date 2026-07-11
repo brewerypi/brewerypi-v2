@@ -54,7 +54,9 @@ owns and has rights to. Keep the name `brewerypi` everywhere.
 ## Current models (src/brewerypi/models.py)
 - Equipment hierarchy: `Enterprise` 1—* `Site` 1—* `Area` 1—* `Tag` 1—*
   `TagValue` (ISA-95 style). `Enterprise` also owns `Lookup` (1—*
-  `LookupValue`) and `MeasurementUnit`.
+  `LookupValue`) and `MeasurementUnit`. `Tag.name` is `String(255)` (unlike the
+  45-char names elsewhere) so it can hold generated element-attribute tag
+  paths like `Cellar.FV01.Temperature`; unique within its area.
 - `Enterprise`/`Site`/`Area` each have `id`, `abbreviation` (10), `name` (45),
   `description` (255, nullable), a parent FK with `index=True`, and composite
   unique constraints (name/abbreviation unique within the parent). Cascade.

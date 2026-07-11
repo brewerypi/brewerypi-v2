@@ -62,7 +62,7 @@ def create_tag(
     the tag is not both lookup-typed and numeric, and that any referenced
     lookup or measurement unit belongs to the area's enterprise.
     """
-    name = clean_str(name, "name", 45)
+    name = clean_str(name, "name", 255)
     enterprise_id = _area_enterprise_id(session, area_id)
     if lookup_id is not None and measurement_unit_id is not None:
         raise ValidationError(
@@ -98,7 +98,7 @@ def update_tag(
     """
     tag = get_tag(session, tag_id)
     if name is not None:
-        new_name = clean_str(name, "name", 45)
+        new_name = clean_str(name, "name", 255)
         _check_unique(session, tag.area_id, new_name, exclude_id=tag_id)
         tag.name = new_name
     if description is not None:
