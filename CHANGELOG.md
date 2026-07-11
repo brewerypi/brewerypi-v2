@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+- `clean_name_segment` validator (`services/_validation.py`) for names that
+  become segments of a generated tag path: it trims, collapses internal
+  whitespace runs to single spaces (so "Hot Liquor Tank" stays readable), and
+  rejects the `.` tag-path separator, which would make a generated path
+  ambiguous. Applied to element names and element attribute template names on
+  create and update. Existing names are untouched; the rule applies going
+  forward. Covered by `tests/test_services_name_segments.py`.
+
 ### Changed
 - Widened `tags.name` from 45 to 255 characters (model + migration
   `cf79f49e4ee9` + service validation), so it can hold generated

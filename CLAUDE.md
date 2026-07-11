@@ -140,8 +140,12 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
   callers own the Session/transaction. Module per table:
   `measurement_units`, `lookups`, `lookup_values`, `tags`, `areas`, `sites`,
   `enterprises`, `element_templates`, `elements`,
-  `element_attribute_templates` (shared `clean_str` / `optional_str` in
-  `_validation.py`). `elements` enforces the A1 mirror rule +
+  `element_attribute_templates` (shared `clean_str` / `optional_str` /
+  `clean_name_segment` in `_validation.py`; `clean_name_segment` is used for
+  element and attribute-template names — trims, collapses internal whitespace,
+  rejects the `.` tag-path separator — since they become segments of generated
+  tag names like `Cellar.FV01.Temperature`).
+  `elements` enforces the A1 mirror rule +
   same-site tag_area; its guards also extended `delete_element_template`
   (refuse if instances) and `delete_area` (refuse if used as a tag area).
   `element_attribute_templates` reuses the Tag type-pattern (lookup/numeric/

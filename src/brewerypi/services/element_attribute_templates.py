@@ -23,7 +23,10 @@ from brewerypi.models import (
     MeasurementUnit,
     Site,
 )
-from brewerypi.services._validation import clean_str, optional_str
+from brewerypi.services._validation import (
+    clean_name_segment,
+    optional_str,
+)
 from brewerypi.services.exceptions import (
     ConflictError,
     NotFoundError,
@@ -74,7 +77,7 @@ def create_element_attribute_template(
     the attribute is not both lookup-typed and numeric, and that any lookup or
     unit belongs to the element template's enterprise.
     """
-    name = clean_str(name, "name", 45)
+    name = clean_name_segment(name, "name", 45)
     element_template = session.get(ElementTemplate, element_template_id)
     if element_template is None:
         raise NotFoundError(
@@ -116,7 +119,7 @@ def update_element_attribute_template(
         session, attribute_template_id
     )
     if name is not None:
-        new_name = clean_str(name, "name", 45)
+        new_name = clean_name_segment(name, "name", 45)
         _check_unique(
             session,
             template.element_template_id,

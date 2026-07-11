@@ -18,7 +18,10 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from brewerypi.models import Area, Element, ElementTemplate
-from brewerypi.services._validation import clean_str, optional_str
+from brewerypi.services._validation import (
+    clean_name_segment,
+    optional_str,
+)
 from brewerypi.services.exceptions import (
     ConflictError,
     NotFoundError,
@@ -66,7 +69,7 @@ def create_element(
     parent_id: int | None = None,
 ) -> Element:
     """Create an element instancing a template (see module docstring)."""
-    name = clean_str(name, "name", 45)
+    name = clean_name_segment(name, "name", 45)
     template = session.get(ElementTemplate, element_template_id)
     if template is None:
         raise NotFoundError(
@@ -106,7 +109,7 @@ def update_element(
     new_name = element.name
     new_parent = element.parent_id
     if name is not None:
-        new_name = clean_str(name, "name", 45)
+        new_name = clean_name_segment(name, "name", 45)
     if parent_id is not _UNSET:
         _check_parent(session, template, parent_id)
         new_parent = parent_id
