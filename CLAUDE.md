@@ -70,6 +70,12 @@ owns and has rights to. Keep the name `brewerypi` everywhere.
   historical readings can't be silently deleted. This is the high-volume table
   that motivates the
   eventual Postgres/Timescale move.
+- Timezones: readings are stored UTC; `Site.timezone` (IANA) is the display/
+  entry zone. `brewerypi/timezones.py` converts at the tool boundary
+  (`to_utc`/`from_utc`, DST-aware via `zoneinfo`); `resolve_timezone(session,
+  site)` is the seam that returns the site's zone now and the authenticated
+  user's once OAuth lands (driving both entry and display). The model never
+  does timezone math.
 - `ElementTemplate`: site-scoped, self-referential template tree — `site_id`,
   nullable `parent_id` (NULL = top-level, e.g. a Brewhouse with Mash Tun /
   Lauter Tun children), `name` (unique per site), `description`. `Site`

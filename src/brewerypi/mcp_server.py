@@ -994,6 +994,7 @@ def _site_dict(site: Site) -> dict:
         "abbreviation": site.abbreviation,
         "name": site.name,
         "description": site.description,
+        "timezone": site.timezone,
     }
 
 
@@ -1014,12 +1015,22 @@ def create_site(
     abbreviation: str,
     name: str,
     description: str | None = None,
+    timezone: str = "UTC",
 ) -> dict:
-    """Create a site under an enterprise (admin, write)."""
+    """Create a site under an enterprise (admin, write).
+
+    ``timezone`` is an IANA name (e.g. "America/New_York"); readings at this
+    site are entered and displayed in it. Defaults to "UTC".
+    """
     with _Session() as session:
         try:
             site = services.create_site(
-                session, enterprise_id, abbreviation, name, description
+                session,
+                enterprise_id,
+                abbreviation,
+                name,
+                description,
+                timezone,
             )
             result = _site_dict(site)
             session.commit()
@@ -1034,12 +1045,21 @@ def update_site(
     abbreviation: str | None = None,
     name: str | None = None,
     description: str | None = None,
+    timezone: str | None = None,
 ) -> dict:
-    """Update a site; only provided fields change (admin, write)."""
+    """Update a site; only provided fields change (admin, write).
+
+    ``timezone`` is an IANA name (e.g. "America/New_York").
+    """
     with _Session() as session:
         try:
             site = services.update_site(
-                session, site_id, abbreviation, name, description
+                session,
+                site_id,
+                abbreviation,
+                name,
+                description,
+                timezone,
             )
             result = _site_dict(site)
             session.commit()

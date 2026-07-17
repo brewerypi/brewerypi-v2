@@ -43,10 +43,12 @@ def create_site(
     abbreviation: str,
     name: str,
     description: str | None = None,
+    timezone: str = "UTC",
 ) -> Site:
     """Create a site under an enterprise (abbreviation/name unique per it)."""
     abbreviation = clean_str(abbreviation, "abbreviation", 10)
     name = clean_str(name, "name", 45)
+    timezone = _clean_timezone(timezone)
     if session.get(Enterprise, enterprise_id) is None:
         raise NotFoundError(f"no enterprise with id {enterprise_id}")
     _check_unique(session, enterprise_id, abbreviation, name)
@@ -55,6 +57,7 @@ def create_site(
         abbreviation=abbreviation,
         name=name,
         description=optional_str(description),
+        timezone=timezone,
     )
     session.add(site)
     session.flush()
@@ -67,6 +70,7 @@ def update_site(
     abbreviation: str | None = None,
     name: str | None = None,
     description: str | None = None,
+    timezone: str | None = None,
 ) -> Site:
     """Update a site; only provided fields change."""
     site = get_site(session, site_id)
@@ -83,8 +87,23 @@ def update_site(
     site.name = new_name
     if description is not None:
         site.description = optional_str(description)
+    if timezone is not None:
+        site.timezone = _clean_timezone(timezone)
     session.flush()
     return site
+
+
+def _clean_timezone(value: str) -> str:
+    """Validate an IANA timezone name."""
+    from brewerypi.timezones import is_valid_timezone
+
+    value = clean_str(value, "timezone", 64)
+    if not is_valid_timezone(value):
+        raise ValidationError(
+            f"{value!r} is not a valid IANA timezone (e.g. "
+            '"America/New_York" or "UTC")'
+        )
+    return value
 
 
 def delete_site(session: Session, site_id: int) -> None:

@@ -68,6 +68,11 @@ class Site(Base):
     abbreviation: Mapped[str] = mapped_column(String(10))
     name: Mapped[str] = mapped_column(String(45))
     description: Mapped[str | None] = mapped_column(String(255))
+    # IANA zone (e.g. "America/New_York"); readings are stored UTC and
+    # converted at the tool boundary. Backfilled to "UTC" for existing rows.
+    timezone: Mapped[str] = mapped_column(
+        String(64), default="UTC", server_default="UTC"
+    )
 
     enterprise: Mapped[Enterprise] = relationship(back_populates="sites")
     areas: Mapped[list[Area]] = relationship(

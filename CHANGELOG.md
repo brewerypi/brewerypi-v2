@@ -7,6 +7,15 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- Timezone foundation. `sites` gain an IANA `timezone` column (migration
+  `4408e06fe84b`, backfilled to "UTC"), validated on create/update against
+  `zoneinfo`. New `brewerypi/timezones.py` holds the deterministic,
+  DST-aware conversion shell — `to_utc`/`from_utc` (readings stay UTC; local
+  times convert at the boundary) and `resolve_timezone`, the single seam that
+  today returns the site's zone and will prefer the authenticated user's once
+  OAuth lands (driving both entry and display). Site admin tools take a
+  `timezone` argument. Reading tools are wired to it in a follow-up. Covered by
+  `tests/test_timezones.py`.
 - Element attribute MCP tools, reads-operator / writes-admin: operator
   `list_element_attributes` (filter by element; each row carries the attribute
   name plus the `tag_id`/`tag_name` holding its data) and
