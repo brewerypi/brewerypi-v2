@@ -7,6 +7,13 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- `EventFrameTemplate` model and create-table migration (`76ca67faa837`): a
+  type of event frame (batch window) defined for an element template
+  (`element_template_id`), self-referential (`parent_id`) so a "Brew" template
+  on a Brewhouse can nest a "Mashing" child on the Brewhouse's Mash Mixer
+  child. Name unique per element template. `ElementTemplate` cascades its
+  event frame templates (site teardown of the whole tree verified). The A1
+  nesting mirror rule lands with the service layer next.
 - `element_templates.exclusive` flag (bool, migration `324d3d5cb416`,
   backfilled to True): marks elements of the template as single-occupancy for
   event frames — when True, event frames on such an element may not overlap in

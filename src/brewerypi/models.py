@@ -295,6 +295,10 @@ class ElementTemplate(Base):
             cascade="all, delete-orphan",
         )
     )
+    event_frame_templates: Mapped[list[EventFrameTemplate]] = relationship(
+        back_populates="element_template",
+        cascade="all, delete-orphan",
+    )
 
     def __repr__(self) -> str:
         return f"<ElementTemplate {self.name!r}>"
@@ -418,3 +422,41 @@ class ElementAttribute(Base):
             f"<ElementAttribute element_id={self.element_id!r}"
             f" tag_id={self.tag_id!r}>"
         )
+
+
+class EventFrameTemplate(Base):
+    """A type of event frame (batch window) defined for an element template.
+
+    Self-referential like ElementTemplate: a "Brew" template on a Brewhouse
+    can have a "Mashing" child template on the Brewhouse's Mash Mixer child
+    (the A1 mirror rule is enforced in the service layer). Name is unique per
+    element template.
+    """
+
+    __tablename__ = "event_frame_templates"
+    __table_args__ = (UniqueConstraint("element_template_id", "name"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    element_template_id: Mapped[int] = mapped_column(
+        ForeignKey("element_templates.id"), index=True
+    )
+    parent_id: Mapped[int | None] = mapped_column(
+        ForeignKey("event_frame_templates.id"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(45))
+    description: Mapped[str | None] = mapped_column(String(255))
+
+    element_template: Mapped[ElementTemplate] = relationship(
+        back_populates="event_frame_templates"
+    )
+    parent: Mapped[EventFrameTemplate | None] = relationship(
+        back_populates="children",
+        remote_side="EventFrameTemplate.id",
+    )
+    children: Mapped[list[EventFrameTemplate]] = relationship(
+        back_populates="parent",
+        cascade="all, delete-orphan",
+    )
+
+    def __repr__(self) -> str:
+        return f"<EventFrameTemplate {self.name!r}>"

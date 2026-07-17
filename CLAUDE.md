@@ -116,6 +116,13 @@ owns and has rights to. Keep the name `brewerypi` everywhere.
   tag-area assignment, and retroactively when an attribute template is added.
   Rename/re-parent resyncs owned tag names across the descendant subtree.
   Unwire refuses when an owned tag has readings.
+- `EventFrameTemplate` (event frames, in progress): a batch-window type defined
+  for an `element_template` (`element_template_id`), self-referential
+  (`parent_id`) so a "Brew" on a Brewhouse nests a "Mashing" on the Mash Mixer
+  child. Name unique per element template. `ElementTemplate` cascades them. A1
+  nesting mirror + `default_start/end` attribute values + the instance side
+  (overlap guard via `element_template.exclusive`, containment, open/close/
+  reopen, tag wiring reuse) are being built table-by-table.
 - Derived from upstream BreweryPi's schema; tested in `tests/test_models.py`.
 
 ## OPEN DECISION — schema naming (parked; decide before renaming anything)
