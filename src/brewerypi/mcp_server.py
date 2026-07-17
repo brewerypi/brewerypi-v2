@@ -1295,6 +1295,7 @@ def _element_template_dict(t: ElementTemplate) -> dict:
         "parent_id": t.parent_id,
         "name": t.name,
         "description": t.description,
+        "exclusive": t.exclusive,
     }
 
 
@@ -1314,16 +1315,20 @@ def create_element_template(
     name: str,
     description: str | None = None,
     parent_id: int | None = None,
+    exclusive: bool = True,
 ) -> dict:
     """Create an element template under a site (admin, write).
 
     Pass ``parent_id`` to nest it under an existing template in the same
     site; omit it for a top-level template. Name is unique within the site.
+    ``exclusive`` (default true) means event frames on elements of this
+    template can't overlap in time; set false for umbrella equipment (e.g. a
+    brewhouse) that hosts concurrent frames.
     """
     with _Session() as session:
         try:
             t = services.create_element_template(
-                session, site_id, name, description, parent_id
+                session, site_id, name, description, parent_id, exclusive
             )
             result = _element_template_dict(t)
             session.commit()
@@ -1339,19 +1344,25 @@ def update_element_template(
     description: str | None = None,
     parent_id: int | None = None,
     make_top_level: bool = False,
+    exclusive: bool | None = None,
 ) -> dict:
     """Update an element template (admin, write).
 
     Re-parenting: set ``parent_id`` to move the template under another
     template (same site, no cycles), or set ``make_top_level=true`` to
     promote it to a top-level template. Leave both unset to keep the current
-    parent. ``name``/``description`` change only when provided.
+    parent. ``name``/``description``/``exclusive`` change only when provided.
     """
     with _Session() as session:
         try:
             if make_top_level:
                 t = services.update_element_template(
-                    session, template_id, name, description, parent_id=None
+                    session,
+                    template_id,
+                    name,
+                    description,
+                    parent_id=None,
+                    exclusive=exclusive,
                 )
             elif parent_id is not None:
                 t = services.update_element_template(
@@ -1360,10 +1371,15 @@ def update_element_template(
                     name,
                     description,
                     parent_id=parent_id,
+                    exclusive=exclusive,
                 )
             else:
                 t = services.update_element_template(
-                    session, template_id, name, description
+                    session,
+                    template_id,
+                    name,
+                    description,
+                    exclusive=exclusive,
                 )
             result = _element_template_dict(t)
             session.commit()

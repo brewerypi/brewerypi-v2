@@ -78,9 +78,11 @@ owns and has rights to. Keep the name `brewerypi` everywhere.
   does timezone math.
 - `ElementTemplate`: site-scoped, self-referential template tree — `site_id`,
   nullable `parent_id` (NULL = top-level, e.g. a Brewhouse with Mash Tun /
-  Lauter Tun children), `name` (unique per site), `description`. `Site`
-  cascade-deletes its templates. Service delete refuses if a template has
-  children (leaf-upward).
+  Lauter Tun children), `name` (unique per site), `description`, and
+  `exclusive` (bool, default True) marking its elements single-occupancy for
+  event frames (True = no overlapping frames; False = umbrella like a
+  brewhouse). `Site` cascade-deletes its templates. Service delete refuses if
+  a template has children (leaf-upward).
 - `Element`: an instance of an `element_template` (e.g. FV01/FV02 of a
   Fermenter). Required immutable `element_template_id`, nullable `tag_area_id`
   (→ `areas`, where its tags get stored, assignable later), nullable self-FK

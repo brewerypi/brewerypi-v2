@@ -50,11 +50,14 @@ def create_element_template(
     name: str,
     description: str | None = None,
     parent_id: int | None = None,
+    exclusive: bool = True,
 ) -> ElementTemplate:
     """Create an element template under a site.
 
     Validates the site exists, the name is unique within the site, and (if a
     parent is given) that the parent exists and belongs to the same site.
+    ``exclusive`` (default True) marks elements of this template as
+    single-occupancy for event frames.
     """
     name = clean_str(name, "name", 45)
     if session.get(Site, site_id) is None:
@@ -67,6 +70,7 @@ def create_element_template(
         name=name,
         description=optional_str(description),
         parent_id=parent_id,
+        exclusive=exclusive,
     )
     session.add(template)
     session.flush()
@@ -79,12 +83,13 @@ def update_element_template(
     name: str | None = None,
     description: str | None = None,
     parent_id: int | None = _UNSET,  # type: ignore[assignment]
+    exclusive: bool | None = None,
 ) -> ElementTemplate:
     """Update an element template; only provided fields change.
 
     Pass ``parent_id`` to re-parent: an int moves the template under that
     parent (same site, no cycles), ``None`` makes it top-level. Omit it to
-    leave the parent unchanged.
+    leave the parent unchanged. ``exclusive`` toggles single-occupancy.
     """
     template = get_element_template(session, template_id)
     if name is not None:
@@ -95,6 +100,8 @@ def update_element_template(
         template.name = new_name
     if description is not None:
         template.description = optional_str(description)
+    if exclusive is not None:
+        template.exclusive = exclusive
     if parent_id is not _UNSET:
         if parent_id is not None:
             _check_parent(session, parent_id, template.site_id)

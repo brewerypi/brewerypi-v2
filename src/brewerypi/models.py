@@ -23,7 +23,13 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, ForeignKey, String, UniqueConstraint
+from sqlalchemy import (
+    CheckConstraint,
+    ForeignKey,
+    String,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from brewerypi.database import Base
@@ -263,6 +269,12 @@ class ElementTemplate(Base):
     )
     name: Mapped[str] = mapped_column(String(45))
     description: Mapped[str | None] = mapped_column(String(255))
+    # Single-occupancy: when True, event frames on an element of this template
+    # may not overlap in time (across any template). False = unlimited
+    # concurrency (an umbrella like a brewhouse). Backfilled True.
+    exclusive: Mapped[bool] = mapped_column(
+        default=True, server_default=text("1")
+    )
 
     site: Mapped[Site] = relationship(back_populates="element_templates")
     parent: Mapped[ElementTemplate | None] = relationship(

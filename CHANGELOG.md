@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+- `element_templates.exclusive` flag (bool, migration `324d3d5cb416`,
+  backfilled to True): marks elements of the template as single-occupancy for
+  event frames — when True, event frames on such an element may not overlap in
+  time (across any template); False allows unlimited concurrency (umbrella
+  equipment like a brewhouse). Settable via the element-template service and
+  admin tools. Foundation for the event-frame overlap guard. Covered by
+  `tests/test_services_element_templates.py`.
+
 ### Changed
 - Reading tools now convert at the timezone boundary. `record_tag_value` and
   `update_tag_value` interpret an incoming `observed_at` as the site's local

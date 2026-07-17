@@ -175,3 +175,27 @@ def test_delete_refused_with_children(ctx):
     create_element_template(session, s1, "Mash Tun", parent_id=bh.id)
     with pytest.raises(ValidationError):
         delete_element_template(session, bh.id)
+
+
+def test_exclusive_defaults_true(ctx):
+    session, s1, _ = ctx
+    bh = create_element_template(session, s1, "Brewhouse")
+    assert bh.exclusive is True
+
+
+def test_create_non_exclusive(ctx):
+    session, s1, _ = ctx
+    bh = create_element_template(
+        session, s1, "Brewhouse", exclusive=False
+    )
+    assert bh.exclusive is False
+
+
+def test_update_toggles_exclusive(ctx):
+    session, s1, _ = ctx
+    bh = create_element_template(session, s1, "Brewhouse")
+    update_element_template(session, bh.id, exclusive=False)
+    assert get_element_template(session, bh.id).exclusive is False
+    # a plain rename leaves exclusive untouched
+    update_element_template(session, bh.id, name="Brew House")
+    assert get_element_template(session, bh.id).exclusive is False
