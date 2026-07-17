@@ -10,7 +10,12 @@ from __future__ import annotations
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from brewerypi.models import Lookup, LookupValue, TagValue
+from brewerypi.models import (
+    EventFrameAttributeTemplate,
+    Lookup,
+    LookupValue,
+    TagValue,
+)
 from brewerypi.services._validation import clean_str
 from brewerypi.services.exceptions import (
     ConflictError,
@@ -90,6 +95,26 @@ def delete_lookup_value(session: Session, value_id: int) -> None:
         raise ValidationError(
             f"cannot delete lookup value {value_id}: "
             f"{refs} recorded reading(s) reference it"
+        )
+    default_refs = session.scalar(
+        select(func.count())
+        .select_from(EventFrameAttributeTemplate)
+        .where(
+            (
+                EventFrameAttributeTemplate.default_start_lookup_value_id
+                == value_id
+            )
+            | (
+                EventFrameAttributeTemplate.default_end_lookup_value_id
+                == value_id
+            )
+        )
+    )
+    if default_refs:
+        raise ValidationError(
+            f"cannot delete lookup value {value_id}: "
+            f"{default_refs} event frame attribute template default(s) "
+            "reference it"
         )
     session.delete(value)
     session.flush()

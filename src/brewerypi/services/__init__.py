@@ -48,6 +48,13 @@ from brewerypi.services.enterprises import (
     list_enterprises,
     update_enterprise,
 )
+from brewerypi.services.event_frame_attribute_templates import (
+    create_event_frame_attribute_template,
+    delete_event_frame_attribute_template,
+    get_event_frame_attribute_template,
+    list_event_frame_attribute_templates,
+    update_event_frame_attribute_template,
+)
 from brewerypi.services.event_frame_templates import (
     create_event_frame_template,
     delete_event_frame_template,
@@ -113,6 +120,7 @@ __all__ = [
     "create_element_attribute_template",
     "create_element_template",
     "create_enterprise",
+    "create_event_frame_attribute_template",
     "create_event_frame_template",
     "create_lookup",
     "create_lookup_value",
@@ -124,6 +132,7 @@ __all__ = [
     "delete_element_attribute_template",
     "delete_element_template",
     "delete_enterprise",
+    "delete_event_frame_attribute_template",
     "delete_event_frame_template",
     "delete_lookup",
     "delete_lookup_value",
@@ -137,6 +146,7 @@ __all__ = [
     "get_element_attribute_template",
     "get_element_template",
     "get_enterprise",
+    "get_event_frame_attribute_template",
     "get_event_frame_template",
     "get_lookup",
     "get_lookup_value",
@@ -150,6 +160,7 @@ __all__ = [
     "list_element_templates",
     "list_elements",
     "list_enterprises",
+    "list_event_frame_attribute_templates",
     "list_event_frame_templates",
     "list_lookup_values",
     "list_lookups",
@@ -162,6 +173,7 @@ __all__ = [
     "update_element_attribute_template",
     "update_element_template",
     "update_enterprise",
+    "update_event_frame_attribute_template",
     "update_event_frame_template",
     "update_lookup",
     "update_lookup_value",

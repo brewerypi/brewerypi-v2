@@ -7,6 +7,21 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- Service-layer CRUD for event frame attribute templates
+  (`services/event_frame_attribute_templates.py`): the element-attribute-
+  template validation (lookup/numeric/neither, mutually exclusive, same-
+  enterprise, name unique per template — names use `clean_name_segment` since
+  they feed tag paths) plus default-value rules — a lookup-typed attribute's
+  defaults must be selectable lookup values belonging to its lookup, a numeric
+  attribute's must be floats, never crossed. Update edits name/description and
+  the defaults (re-validated against the type); type changes aren't supported.
+
+### Changed
+- Extended three delete guards for event frame attribute templates:
+  `delete_lookup` and `delete_measurement_unit` refuse when one references
+  them, and `delete_lookup_value` refuses when one uses it as a default start
+  or end value. Covered by
+  `tests/test_services_event_frame_attribute_templates.py`.
 - `EventFrameAttributeTemplate` model and create-table migration
   (`9a8b0337489e`): an attribute on an event frame template, same type pattern
   as an element attribute template (mutually-exclusive `lookup_id`/

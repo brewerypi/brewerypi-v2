@@ -180,8 +180,8 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
   callers own the Session/transaction. Module per table:
   `measurement_units`, `lookups`, `lookup_values`, `tags`, `areas`, `sites`,
   `enterprises`, `element_templates`, `elements`,
-  `element_attribute_templates`, `event_frame_templates` (shared `clean_str` /
-  `optional_str` /
+  `element_attribute_templates`, `event_frame_templates`,
+  `event_frame_attribute_templates` (shared `clean_str` / `optional_str` /
   `clean_name_segment` in `_validation.py`; `clean_name_segment` is used for
   element and attribute-template names — trims, collapses internal whitespace,
   rejects the `.` tag-path separator — since they become segments of generated

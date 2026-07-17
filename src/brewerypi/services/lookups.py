@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from brewerypi.models import (
     ElementAttributeTemplate,
     Enterprise,
+    EventFrameAttributeTemplate,
     Lookup,
     LookupValue,
     Tag,
@@ -100,6 +101,16 @@ def delete_lookup(session: Session, lookup_id: int) -> None:
         raise ValidationError(
             f"cannot delete lookup {lookup_id}: "
             f"{attr_refs} attribute template(s) use it"
+        )
+    ef_attr_refs = session.scalar(
+        select(func.count())
+        .select_from(EventFrameAttributeTemplate)
+        .where(EventFrameAttributeTemplate.lookup_id == lookup_id)
+    )
+    if ef_attr_refs:
+        raise ValidationError(
+            f"cannot delete lookup {lookup_id}: "
+            f"{ef_attr_refs} event frame attribute template(s) use it"
         )
     value_refs = session.scalar(
         select(func.count())

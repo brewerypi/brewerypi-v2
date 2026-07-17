@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from brewerypi.models import (
     ElementAttributeTemplate,
     Enterprise,
+    EventFrameAttributeTemplate,
     MeasurementUnit,
     Tag,
 )
@@ -125,6 +126,16 @@ def delete_measurement_unit(session: Session, unit_id: int) -> None:
         raise ValidationError(
             f"cannot delete measurement unit {unit_id}: "
             f"{attr_refs} attribute template(s) reference it"
+        )
+    ef_attr_refs = session.scalar(
+        select(func.count())
+        .select_from(EventFrameAttributeTemplate)
+        .where(EventFrameAttributeTemplate.measurement_unit_id == unit_id)
+    )
+    if ef_attr_refs:
+        raise ValidationError(
+            f"cannot delete measurement unit {unit_id}: "
+            f"{ef_attr_refs} event frame attribute template(s) reference it"
         )
     session.delete(unit)
     session.flush()
