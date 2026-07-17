@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Changed
+- Reading tools now convert at the timezone boundary. `record_tag_value` and
+  `update_tag_value` interpret an incoming `observed_at` as the site's local
+  time and store UTC; `get_tag_values` and `tag_value_stats` interpret their
+  `start`/`end` filters as local, and reads return `observed_at` in local time
+  with the resolved `timezone`. The zone is resolved per reading via
+  tag → area → site → `resolve_timezone`, the same seam OAuth will later point
+  at the user. The service layer stays pure UTC; all conversion is
+  deterministic (`zoneinfo`) at the tool boundary. Covered by
+  `tests/test_mcp_reading_timezone.py`.
+
 ### Added
 - Timezone foundation. `sites` gain an IANA `timezone` column (migration
   `4408e06fe84b`, backfilled to "UTC"), validated on create/update against

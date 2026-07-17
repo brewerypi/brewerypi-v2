@@ -45,6 +45,12 @@ from brewerypi.models import (
     TagValue,
 )
 from brewerypi.services import ServiceError
+from brewerypi.timezones import (
+    DEFAULT_TIMEZONE,
+    from_utc,
+    resolve_timezone,
+    to_utc,
+)
 
 _engine = create_engine(DATABASE_URL)
 _Session = sessionmaker(_engine)
@@ -62,9 +68,15 @@ if _engine.dialect.name == "sqlite":
 mcp = FastMCP("BreweryPi")
 
 
-def _parse_dt(value: str | None) -> datetime | None:
-    """Parse an ISO 8601 string into a datetime, or None if not given."""
-    return datetime.fromisoformat(value) if value else None
+def _zone_for_tag(session: Session, tag: Tag) -> str:
+    """Resolve the IANA timezone for a tag's readings (via its site)."""
+    area = session.get(Area, tag.area_id)
+    if area is None:
+        return DEFAULT_TIMEZONE
+    site = session.get(Site, area.site_id)
+    if site is None:
+        return DEFAULT_TIMEZONE
+    return resolve_timezone(session, site)
 
 
 @mcp.tool
@@ -165,18 +177,23 @@ def get_tag_values(
 ) -> dict:
     """Return recorded values for a tag, newest first.
 
-    ``start`` and ``end`` are optional ISO 8601 timestamps that bound the
-    time range. ``limit`` caps the number of readings (1-1000). Each reading
-    has a ``observed_at`` and a ``value`` that is a number for numeric tags or
-    the selected lookup value's name for lookup-typed tags.
+    ``start`` and ``end`` are optional ISO 8601 times in the site's local
+    timezone that bound the range. ``limit`` caps the number of readings
+    (1-1000). Each reading has an ``observed_at`` (local time) and a ``value``
+    that is a number for numeric tags or the selected lookup value's name for
+    lookup-typed tags.
     """
-    start_dt = _parse_dt(start)
-    end_dt = _parse_dt(end)
     limit = max(1, min(limit, 1000))
     with _Session() as session:
         tag = session.get(Tag, tag_id)
         if tag is None:
             return {"error": f"no tag with id {tag_id}"}
+        zone = _zone_for_tag(session, tag)
+        try:
+            start_dt = to_utc(start, zone) if start is not None else None
+            end_dt = to_utc(end, zone) if end is not None else None
+        except ServiceError as exc:
+            return {"error": str(exc)}
         stmt = select(TagValue).where(TagValue.tag_id == tag_id)
         if start_dt is not None:
             stmt = stmt.where(TagValue.observed_at >= start_dt)
@@ -195,7 +212,7 @@ def get_tag_values(
             readings.append(
                 {
                     "id": tv.id,
-                    "observed_at": tv.observed_at.isoformat(),
+                    "observed_at": from_utc(tv.observed_at, zone),
                     "value": value,
                     "type": vtype,
                 }
@@ -203,6 +220,7 @@ def get_tag_values(
         return {
             "tag_id": tag_id,
             "tag_name": tag.name,
+            "timezone": zone,
             "count": len(readings),
             "readings": readings,
         }
@@ -217,15 +235,19 @@ def tag_value_stats(
     """Summary statistics for a numeric tag over an optional time range.
 
     Returns count, min, max, and average of the numeric readings. Lookup
-    readings are ignored. ``start`` and ``end`` are optional ISO 8601
-    timestamps.
+    readings are ignored. ``start`` and ``end`` are optional ISO 8601 times in
+    the site's local timezone.
     """
-    start_dt = _parse_dt(start)
-    end_dt = _parse_dt(end)
     with _Session() as session:
         tag = session.get(Tag, tag_id)
         if tag is None:
             return {"error": f"no tag with id {tag_id}"}
+        zone = _zone_for_tag(session, tag)
+        try:
+            start_dt = to_utc(start, zone) if start is not None else None
+            end_dt = to_utc(end, zone) if end is not None else None
+        except ServiceError as exc:
+            return {"error": str(exc)}
         stmt = select(
             func.count(TagValue.id),
             func.min(TagValue.value),
@@ -286,15 +308,23 @@ def record_tag_value(
     For a numeric tag, pass ``value``. For a lookup-typed tag, pass
     ``lookup_value`` as the name of an allowed, selectable lookup value.
     Provide exactly one of the two. ``observed_at`` is an optional ISO 8601
-    time and defaults to now. Returns the created reading, or an ``error``
-    describing what was wrong (unknown tag, wrong value kind for the tag's
-    type, or a lookup value that isn't selectable).
+    time in the site's local timezone and defaults to now. Returns the created
+    reading, or an ``error`` describing what was wrong (unknown tag, wrong
+    value kind for the tag's type, or a lookup value that isn't selectable).
     """
-    when = _parse_dt(observed_at) or datetime.now(timezone.utc)
     with _Session() as session:
         tag = session.get(Tag, tag_id)
         if tag is None:
             return {"error": f"no tag with id {tag_id}"}
+        zone = _zone_for_tag(session, tag)
+        try:
+            when = (
+                to_utc(observed_at, zone)
+                if observed_at is not None
+                else datetime.now(timezone.utc).replace(tzinfo=None)
+            )
+        except ServiceError as exc:
+            return {"error": str(exc)}
 
         if tag.lookup_id is not None:
             if lookup_value is None or value is not None:
@@ -353,7 +383,8 @@ def record_tag_value(
             "id": reading.id,
             "tag_id": tag_id,
             "tag_name": tag.name,
-            "observed_at": reading.observed_at.isoformat(),
+            "observed_at": from_utc(reading.observed_at, zone),
+            "timezone": zone,
             "value": stored,
             "type": vtype,
         }
@@ -367,10 +398,13 @@ def _reading_dict(session: Session, tv: TagValue) -> dict:
     else:
         value = tv.value
         vtype = "numeric"
+    tag = session.get(Tag, tv.tag_id)
+    zone = _zone_for_tag(session, tag) if tag is not None else DEFAULT_TIMEZONE
     return {
         "id": tv.id,
         "tag_id": tv.tag_id,
-        "observed_at": tv.observed_at.isoformat(),
+        "observed_at": from_utc(tv.observed_at, zone),
+        "timezone": zone,
         "value": value,
         "type": vtype,
     }
@@ -402,11 +436,21 @@ def update_tag_value(
 
     For a numeric tag pass ``value``; for a lookup-typed tag pass
     ``lookup_value`` (the name of a selectable value). ``observed_at`` is an
-    optional ISO 8601 time. A reading's type cannot be switched; to move a
-    reading to a different tag, delete it and record it again.
+    optional ISO 8601 time in the site's local timezone. A reading's type
+    cannot be switched; to move a reading to a different tag, delete it and
+    record it again.
     """
     with _Session() as session:
         try:
+            if observed_at is not None:
+                existing = services.get_tag_value(session, value_id)
+                tag = session.get(Tag, existing.tag_id)
+                zone = (
+                    _zone_for_tag(session, tag)
+                    if tag is not None
+                    else DEFAULT_TIMEZONE
+                )
+                observed_at = to_utc(observed_at, zone).isoformat()
             tv = services.update_tag_value(
                 session, value_id, value, lookup_value, observed_at
             )

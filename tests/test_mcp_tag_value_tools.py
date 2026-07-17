@@ -91,7 +91,9 @@ def test_update_observed_at(seeded):
     updated = mcp_server.update_tag_value(
         seeded["num_tv"], observed_at="2026-06-02T09:30:00"
     )
-    assert updated["observed_at"] == "2026-06-02T09:30:00"
+    # the seeded site is UTC, so local output carries a +00:00 offset
+    assert updated["observed_at"] == "2026-06-02T09:30:00+00:00"
+    assert updated["timezone"] == "UTC"
 
 
 def test_update_wrong_kind_error(seeded):
