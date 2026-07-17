@@ -7,6 +7,14 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- Service-layer CRUD for event frame templates
+  (`services/event_frame_templates.py`): list/get/create/update/delete with
+  the A1 nesting mirror — a child template's element template must be a direct
+  child of the parent template's element template (a top-level template may sit
+  on any element template). `element_template_id` immutable; name unique per
+  element template; delete refuses if the template has children. The A1 rule
+  makes nesting cycles structurally impossible. Covered by
+  `tests/test_services_event_frame_templates.py`.
 - `EventFrameTemplate` model and create-table migration (`76ca67faa837`): a
   type of event frame (batch window) defined for an element template
   (`element_template_id`), self-referential (`parent_id`) so a "Brew" template
