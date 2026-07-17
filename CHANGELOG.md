@@ -7,6 +7,16 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- `EventFrameAttributeTemplate` model and create-table migration
+  (`9a8b0337489e`): an attribute on an event frame template, same type pattern
+  as an element attribute template (mutually-exclusive `lookup_id`/
+  `measurement_unit_id`, same-enterprise, name unique per template) plus
+  `default_start_value`/`default_end_value` and
+  `default_start_lookup_value_id`/`default_end_lookup_value_id` — the boundary
+  defaults, mirroring TagValue's float-or-lookup-value storage (numeric attrs
+  use the floats, lookup-typed use the lookup-value FKs). `EventFrameTemplate`
+  cascades its attribute templates (verified; lookup values survive). Type and
+  default validation lands with the service layer next.
 - Event frame template MCP tools, reads-operator / writes-admin: operator
   `list_event_frame_templates` (filter by element template / parent) and
   `get_event_frame_template` — so an operator can see which batch types exist

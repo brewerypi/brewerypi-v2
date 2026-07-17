@@ -457,6 +457,61 @@ class EventFrameTemplate(Base):
         back_populates="parent",
         cascade="all, delete-orphan",
     )
+    attribute_templates: Mapped[list[EventFrameAttributeTemplate]] = (
+        relationship(
+            back_populates="event_frame_template",
+            cascade="all, delete-orphan",
+        )
+    )
 
     def __repr__(self) -> str:
         return f"<EventFrameTemplate {self.name!r}>"
+
+
+class EventFrameAttributeTemplate(Base):
+    """An attribute defined on an event frame template.
+
+    Same type pattern as an element attribute template (lookup-typed / numeric
+    / neither, mutually exclusive, same-enterprise). Additionally carries a
+    default start value and a default end value, which are written as readings
+    on the wired tag at the frame's ``started_at`` and ``ended_at``. The
+    defaults mirror TagValue's storage: a float (numeric) or a lookup value
+    (lookup-typed); the lookup-value defaults must belong to ``lookup_id``.
+    """
+
+    __tablename__ = "event_frame_attribute_templates"
+    __table_args__ = (
+        UniqueConstraint("event_frame_template_id", "name"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    event_frame_template_id: Mapped[int] = mapped_column(
+        ForeignKey("event_frame_templates.id"), index=True
+    )
+    lookup_id: Mapped[int | None] = mapped_column(
+        ForeignKey("lookups.id"), index=True
+    )
+    measurement_unit_id: Mapped[int | None] = mapped_column(
+        ForeignKey("measurement_units.id"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(45))
+    description: Mapped[str | None] = mapped_column(String(255))
+    # Defaults written as readings at started_at / ended_at. Numeric attrs use
+    # the float columns; lookup-typed attrs use the lookup-value FKs.
+    default_start_value: Mapped[float | None] = mapped_column()
+    default_end_value: Mapped[float | None] = mapped_column()
+    default_start_lookup_value_id: Mapped[int | None] = mapped_column(
+        ForeignKey("lookup_values.id"), index=True
+    )
+    default_end_lookup_value_id: Mapped[int | None] = mapped_column(
+        ForeignKey("lookup_values.id"), index=True
+    )
+
+    event_frame_template: Mapped[EventFrameTemplate] = relationship(
+        back_populates="attribute_templates"
+    )
+    lookup: Mapped[Lookup | None] = relationship()
+    measurement_unit: Mapped[MeasurementUnit | None] = relationship()
+
+    def __repr__(self) -> str:
+        return f"<EventFrameAttributeTemplate {self.name!r}>"

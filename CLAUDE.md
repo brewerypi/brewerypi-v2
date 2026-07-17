@@ -123,6 +123,13 @@ owns and has rights to. Keep the name `brewerypi` everywhere.
   nesting mirror + `default_start/end` attribute values + the instance side
   (overlap guard via `element_template.exclusive`, containment, open/close/
   reopen, tag wiring reuse) are being built table-by-table.
+- `EventFrameAttributeTemplate`: an attribute on an `event_frame_template` —
+  same type pattern as `ElementAttributeTemplate` (lookup/numeric/neither,
+  same-enterprise, unique per template) plus `default_start_value`/
+  `default_end_value` and `default_start_lookup_value_id`/
+  `default_end_lookup_value_id` (the "Ready to fill"/"Empty" boundary defaults,
+  mirroring TagValue's float-or-lookup storage). `EventFrameTemplate` cascades
+  them.
 - Derived from upstream BreweryPi's schema; tested in `tests/test_models.py`.
 
 ## OPEN DECISION — schema naming (parked; decide before renaming anything)
