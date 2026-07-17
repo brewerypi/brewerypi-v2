@@ -37,6 +37,7 @@ from brewerypi.models import (
     ElementAttributeTemplate,
     ElementTemplate,
     Enterprise,
+    EventFrameTemplate,
     Lookup,
     LookupValue,
     MeasurementUnit,
@@ -585,6 +586,47 @@ def get_element_attribute(element_attribute_id: int) -> dict:
         except ServiceError as exc:
             return {"error": str(exc)}
         return _element_attribute_dict(session, ea)
+
+
+def _event_frame_template_dict(t: EventFrameTemplate) -> dict:
+    return {
+        "id": t.id,
+        "element_template_id": t.element_template_id,
+        "parent_id": t.parent_id,
+        "name": t.name,
+        "description": t.description,
+    }
+
+
+@mcp.tool
+def list_event_frame_templates(
+    element_template_id: int | None = None,
+    parent_id: int | None = None,
+) -> list[dict]:
+    """List event frame templates (batch-window types), optionally filtered.
+
+    These are the batch types an operator can start on an element (e.g. a
+    "Brew" on a Brewhouse, a "Fermentation" on a Fermenter). Filter by
+    ``element_template_id`` or by ``parent_id`` for a nested template's
+    children.
+    """
+    with _Session() as session:
+        rows = services.list_event_frame_templates(
+            session, element_template_id, parent_id
+        )
+        return [_event_frame_template_dict(t) for t in rows]
+
+
+@mcp.tool
+def get_event_frame_template(template_id: int) -> dict:
+    """Return one event frame template by id."""
+    with _Session() as session:
+        try:
+            return _event_frame_template_dict(
+                services.get_event_frame_template(session, template_id)
+            )
+        except ServiceError as exc:
+            return {"error": str(exc)}
 
 
 def _unit_dict(unit: MeasurementUnit) -> dict:
@@ -1724,6 +1766,108 @@ def unwire_element_attribute(
             return {"error": str(exc)}
 
 
+def create_event_frame_template(
+    element_template_id: int,
+    name: str,
+    description: str | None = None,
+    parent_id: int | None = None,
+) -> dict:
+    """Create an event frame template on an element template (admin, write).
+
+    Pass ``parent_id`` to nest it (A1 mirror: this template's element template
+    must be a direct child of the parent template's element template); omit it
+    for a top-level template. Name is unique per element template.
+    """
+    with _Session() as session:
+        try:
+            t = services.create_event_frame_template(
+                session, element_template_id, name, description, parent_id
+            )
+            result = _event_frame_template_dict(t)
+            session.commit()
+            return result
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
+def update_event_frame_template(
+    template_id: int,
+    name: str | None = None,
+    description: str | None = None,
+    parent_id: int | None = None,
+    make_top_level: bool = False,
+) -> dict:
+    """Update an event frame template (admin, write).
+
+    Re-parent by setting ``parent_id`` (A1 mirror still applies) or
+    ``make_top_level=true``; leave both unset to keep the current parent.
+    ``name``/``description`` change only when provided.
+    """
+    with _Session() as session:
+        try:
+            if make_top_level:
+                t = services.update_event_frame_template(
+                    session, template_id, name, description, parent_id=None
+                )
+            elif parent_id is not None:
+                t = services.update_event_frame_template(
+                    session,
+                    template_id,
+                    name,
+                    description,
+                    parent_id=parent_id,
+                )
+            else:
+                t = services.update_event_frame_template(
+                    session, template_id, name, description
+                )
+            result = _event_frame_template_dict(t)
+            session.commit()
+            return result
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
+def delete_event_frame_template(
+    template_id: int, confirm: bool = False
+) -> dict:
+    """Delete an event frame template (admin, destructive).
+
+    Without ``confirm=true`` this previews and reports the child count.
+    Refuses if the template has child templates.
+    """
+    with _Session() as session:
+        try:
+            t = services.get_event_frame_template(session, template_id)
+        except ServiceError as exc:
+            return {"error": str(exc)}
+        if not confirm:
+            child_count = session.scalar(
+                select(func.count())
+                .select_from(EventFrameTemplate)
+                .where(EventFrameTemplate.parent_id == template_id)
+            )
+            return {
+                "confirm_required": True,
+                "event_frame_template": _event_frame_template_dict(t),
+                "child_count": child_count,
+                "message": (
+                    f"Would delete event frame template {template_id} "
+                    f"({t.name}). Refused if it has children "
+                    f"({child_count}). Call again with confirm=true."
+                ),
+            }
+        try:
+            services.delete_event_frame_template(session, template_id)
+            session.commit()
+            return {"deleted": template_id}
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
 def _register_config_tools(server: FastMCP) -> None:
     """Register the admin-only configuration CRUD tools on a server."""
     for tool in (
@@ -1768,6 +1912,9 @@ def _register_config_tools(server: FastMCP) -> None:
         delete_element_attribute_template,
         wire_element_attribute,
         unwire_element_attribute,
+        create_event_frame_template,
+        update_event_frame_template,
+        delete_event_frame_template,
     ):
         server.tool(tool)
 

@@ -7,6 +7,16 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- Event frame template MCP tools, reads-operator / writes-admin: operator
+  `list_event_frame_templates` (filter by element template / parent) and
+  `get_event_frame_template` — so an operator can see which batch types exist
+  to start — and admin `create`/`update`/`delete_event_frame_template` (nesting
+  via `parent_id`/`make_top_level`, A1 mirror enforced; delete previews the
+  child count, `confirm=true`, refused with children). Unlike element
+  templates (admin-only), the reads are on the operator tier because operators
+  start event frame instances and need to browse batch types. Operator tier now
+  17 tools, admin 61. Covered by
+  `tests/test_mcp_event_frame_template_tools.py`.
 - Service-layer CRUD for event frame templates
   (`services/event_frame_templates.py`): list/get/create/update/delete with
   the A1 nesting mirror — a child template's element template must be a direct
