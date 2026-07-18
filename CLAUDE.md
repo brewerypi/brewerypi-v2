@@ -195,10 +195,11 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
   admin owns its `list_`/`create`/`update`/`delete` tools.
   Operators read elements; admins write. MCP tools: operator tier 17
   (element reads, element-attribute reads, and event-frame-template reads —
-  operators browse batch types to start instances), admin tier 61 (adds
+  operators browse batch types to start instances), admin tier 65 (adds
   `create`/`update`/`delete_element`, the config tables' CRUD, the element
-  attribute template tools, `wire`/`unwire_element_attribute`, and
-  `create`/`update`/`delete_event_frame_template`).
+  attribute template tools, `wire`/`unwire_element_attribute`,
+  `create`/`update`/`delete_event_frame_template`, and the event frame
+  attribute template tools).
   `element_templates` is a config table the operator tier doesn't
   browse, so admin OWNS `list_element_templates` (reference-table pattern);
   its update re-parents via `parent_id` / promotes via `make_top_level`.

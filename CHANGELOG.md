@@ -7,6 +7,12 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- Event frame attribute template admin tools (admin owns
+  list/create/update/delete, reference-table pattern; admin tier now 65):
+  `create` takes the type (`lookup_id`/`measurement_unit_id`) and the default
+  start/end values (floats or lookup-value ids per the type); `update` edits
+  name/description and defaults. Completes the event-frame config side. Covered
+  by `tests/test_mcp_event_frame_attribute_template_tools.py`.
 - Service-layer CRUD for event frame attribute templates
   (`services/event_frame_attribute_templates.py`): the element-attribute-
   template validation (lookup/numeric/neither, mutually exclusive, same-

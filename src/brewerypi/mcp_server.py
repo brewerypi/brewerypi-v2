@@ -37,6 +37,7 @@ from brewerypi.models import (
     ElementAttributeTemplate,
     ElementTemplate,
     Enterprise,
+    EventFrameAttributeTemplate,
     EventFrameTemplate,
     Lookup,
     LookupValue,
@@ -1868,6 +1869,160 @@ def delete_event_frame_template(
             return {"error": str(exc)}
 
 
+def _event_frame_attribute_template_dict(
+    t: EventFrameAttributeTemplate,
+) -> dict:
+    return {
+        "id": t.id,
+        "event_frame_template_id": t.event_frame_template_id,
+        "lookup_id": t.lookup_id,
+        "measurement_unit_id": t.measurement_unit_id,
+        "name": t.name,
+        "description": t.description,
+        "default_start_value": t.default_start_value,
+        "default_end_value": t.default_end_value,
+        "default_start_lookup_value_id": t.default_start_lookup_value_id,
+        "default_end_lookup_value_id": t.default_end_lookup_value_id,
+    }
+
+
+def list_event_frame_attribute_templates(
+    event_frame_template_id: int | None = None,
+) -> list[dict]:
+    """List event frame attribute templates (admin, read).
+
+    Each defines an attribute (name + optional lookup or unit) on an event
+    frame template, with default start/end values applied at the frame's
+    boundaries.
+    """
+    with _Session() as session:
+        rows = services.list_event_frame_attribute_templates(
+            session, event_frame_template_id
+        )
+        return [
+            _event_frame_attribute_template_dict(t) for t in rows
+        ]
+
+
+def create_event_frame_attribute_template(
+    event_frame_template_id: int,
+    name: str,
+    description: str | None = None,
+    lookup_id: int | None = None,
+    measurement_unit_id: int | None = None,
+    default_start_value: float | None = None,
+    default_end_value: float | None = None,
+    default_start_lookup_value_id: int | None = None,
+    default_end_lookup_value_id: int | None = None,
+) -> dict:
+    """Create an event frame attribute template (admin, write).
+
+    Lookup-typed (``lookup_id``) or numeric (``measurement_unit_id``), not
+    both. Numeric attributes take float defaults
+    (``default_start_value``/``default_end_value``); lookup-typed attributes
+    take lookup-value defaults (``default_start_lookup_value_id``/
+    ``default_end_lookup_value_id``, which must be selectable values of the
+    attribute's lookup). Defaults are written as readings at the frame's
+    started_at/ended_at.
+    """
+    with _Session() as session:
+        try:
+            t = services.create_event_frame_attribute_template(
+                session,
+                event_frame_template_id,
+                name,
+                description,
+                lookup_id,
+                measurement_unit_id,
+                default_start_value,
+                default_end_value,
+                default_start_lookup_value_id,
+                default_end_lookup_value_id,
+            )
+            result = _event_frame_attribute_template_dict(t)
+            session.commit()
+            return result
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
+def update_event_frame_attribute_template(
+    attribute_template_id: int,
+    name: str | None = None,
+    description: str | None = None,
+    default_start_value: float | None = None,
+    default_end_value: float | None = None,
+    default_start_lookup_value_id: int | None = None,
+    default_end_lookup_value_id: int | None = None,
+) -> dict:
+    """Update an event frame attribute template (admin, write).
+
+    Edits name/description and/or the default values (a provided default is
+    set, re-validated against the attribute's type). Changing the type is not
+    supported here.
+    """
+    kwargs: dict = {}
+    if default_start_value is not None:
+        kwargs["default_start_value"] = default_start_value
+    if default_end_value is not None:
+        kwargs["default_end_value"] = default_end_value
+    if default_start_lookup_value_id is not None:
+        kwargs["default_start_lookup_value_id"] = (
+            default_start_lookup_value_id
+        )
+    if default_end_lookup_value_id is not None:
+        kwargs["default_end_lookup_value_id"] = default_end_lookup_value_id
+    with _Session() as session:
+        try:
+            t = services.update_event_frame_attribute_template(
+                session, attribute_template_id, name, description, **kwargs
+            )
+            result = _event_frame_attribute_template_dict(t)
+            session.commit()
+            return result
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
+def delete_event_frame_attribute_template(
+    attribute_template_id: int, confirm: bool = False
+) -> dict:
+    """Delete an event frame attribute template (admin, destructive).
+
+    Without ``confirm=true`` this only previews.
+    """
+    with _Session() as session:
+        try:
+            t = services.get_event_frame_attribute_template(
+                session, attribute_template_id
+            )
+        except ServiceError as exc:
+            return {"error": str(exc)}
+        if not confirm:
+            return {
+                "confirm_required": True,
+                "event_frame_attribute_template": (
+                    _event_frame_attribute_template_dict(t)
+                ),
+                "message": (
+                    f"Would delete event frame attribute template "
+                    f"{attribute_template_id} ({t.name}). Call again with "
+                    "confirm=true."
+                ),
+            }
+        try:
+            services.delete_event_frame_attribute_template(
+                session, attribute_template_id
+            )
+            session.commit()
+            return {"deleted": attribute_template_id}
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
 def _register_config_tools(server: FastMCP) -> None:
     """Register the admin-only configuration CRUD tools on a server."""
     for tool in (
@@ -1915,6 +2070,10 @@ def _register_config_tools(server: FastMCP) -> None:
         create_event_frame_template,
         update_event_frame_template,
         delete_event_frame_template,
+        list_event_frame_attribute_templates,
+        create_event_frame_attribute_template,
+        update_event_frame_attribute_template,
+        delete_event_frame_attribute_template,
     ):
         server.tool(tool)
 
