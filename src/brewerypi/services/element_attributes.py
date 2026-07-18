@@ -35,6 +35,30 @@ from brewerypi.services.exceptions import (
 )
 
 
+def tag_is_referenced(session: Session, tag_id: int) -> bool:
+    """True if any element OR event frame attribute still points at the tag.
+
+    Mirrors upstream BreweryPi's ``Tag.isReferenced``. Both kinds must be
+    consulted before removing an orphaned tag, because adopt-by-name means a
+    tag is routinely shared between an element attribute and an event frame
+    attribute (e.g. FV01's status tag).
+    """
+    from brewerypi.models import EventFrameAttribute
+
+    if session.scalars(
+        select(ElementAttribute).where(ElementAttribute.tag_id == tag_id)
+    ).first() is not None:
+        return True
+    return (
+        session.scalars(
+            select(EventFrameAttribute).where(
+                EventFrameAttribute.tag_id == tag_id
+            )
+        ).first()
+        is not None
+    )
+
+
 def build_tag_name(
     session: Session,
     element: Element,
@@ -216,7 +240,44 @@ def resync_element_tag_names(
             )
             tag.name = new_name
             renamed.append(tag)
+        renamed.extend(
+            _resync_event_frame_tag_names(session, descendant)
+        )
     session.flush()
+    return renamed
+
+
+def _resync_event_frame_tag_names(
+    session: Session, element: Element
+) -> list[Tag]:
+    """Rename owned event frame attribute tags for one element."""
+    from brewerypi.models import (
+        EventFrameAttribute,
+        EventFrameAttributeTemplate,
+    )
+
+    renamed: list[Tag] = []
+    attributes = session.scalars(
+        select(EventFrameAttribute).where(
+            EventFrameAttribute.element_id == element.id
+        )
+    ).all()
+    for attribute in attributes:
+        if not attribute.owns_tag:
+            continue
+        tag = session.get(Tag, attribute.tag_id)
+        template = session.get(
+            EventFrameAttributeTemplate,
+            attribute.event_frame_attribute_template_id,
+        )
+        new_name = build_tag_name(session, element, template)
+        if tag.name == new_name:
+            continue
+        _check_tag_name_free(
+            session, tag.area_id, new_name, exclude_id=tag.id
+        )
+        tag.name = new_name
+        renamed.append(tag)
     return renamed
 
 
@@ -247,7 +308,7 @@ def unwire_element_attribute(
     session.flush()
     if owns:
         tag = session.get(Tag, tag_id)
-        if tag is not None and not tag.element_attributes:
+        if tag is not None and not tag_is_referenced(session, tag_id):
             session.delete(tag)
             session.flush()
 

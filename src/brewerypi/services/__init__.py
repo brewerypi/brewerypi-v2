@@ -24,6 +24,7 @@ from brewerypi.services.element_attributes import (
     build_tag_name,
     get_element_attribute,
     list_element_attributes,
+    tag_is_referenced,
     unwire_element_attribute,
     wire_element_attribute,
 )
@@ -54,6 +55,12 @@ from brewerypi.services.event_frame_attribute_templates import (
     get_event_frame_attribute_template,
     list_event_frame_attribute_templates,
     update_event_frame_attribute_template,
+)
+from brewerypi.services.event_frame_attributes import (
+    get_event_frame_attribute,
+    list_event_frame_attributes,
+    unwire_event_frame_attribute,
+    wire_event_frame_attribute,
 )
 from brewerypi.services.event_frame_templates import (
     create_event_frame_template,
@@ -146,6 +153,7 @@ __all__ = [
     "get_element_attribute_template",
     "get_element_template",
     "get_enterprise",
+    "get_event_frame_attribute",
     "get_event_frame_attribute_template",
     "get_event_frame_template",
     "get_lookup",
@@ -161,13 +169,16 @@ __all__ = [
     "list_elements",
     "list_enterprises",
     "list_event_frame_attribute_templates",
+    "list_event_frame_attributes",
     "list_event_frame_templates",
     "list_lookup_values",
     "list_lookups",
     "list_measurement_units",
     "list_sites",
     "list_tags",
+    "tag_is_referenced",
     "unwire_element_attribute",
+    "unwire_event_frame_attribute",
     "update_area",
     "update_element",
     "update_element_attribute_template",
@@ -182,4 +193,5 @@ __all__ = [
     "update_tag",
     "update_tag_value",
     "wire_element_attribute",
+    "wire_event_frame_attribute",
 ]

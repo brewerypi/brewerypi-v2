@@ -91,8 +91,12 @@ def create_element(
     # Wire the template's attributes (creates/adopts their tags). A no-op
     # when the element has no tag area yet; wiring then happens on assign.
     from brewerypi.services.element_attributes import wire_element
+    from brewerypi.services.event_frame_attributes import (
+        wire_element_event_frame_attributes,
+    )
 
     wire_element(session, element)
+    wire_element_event_frame_attributes(session, element)
     return element
 
 
@@ -147,7 +151,12 @@ def update_element(
 
     if gained_tag_area:
         # Now that tags can be stored, wire the template's attributes.
+        from brewerypi.services.event_frame_attributes import (
+            wire_element_event_frame_attributes,
+        )
+
         wire_element(session, element)
+        wire_element_event_frame_attributes(session, element)
     if renamed:
         # The tag name embeds the element's path, so a rename or re-parent
         # must rename owned tags across the whole descendant subtree.
@@ -176,9 +185,17 @@ def delete_element(session: Session, element_id: int) -> None:
         list_element_attributes,
         unwire_element_attribute,
     )
+    from brewerypi.services.event_frame_attributes import (
+        list_event_frame_attributes,
+        unwire_event_frame_attribute,
+    )
 
     for attribute in list_element_attributes(session, element_id=element_id):
         unwire_element_attribute(session, attribute.id)
+    for attribute in list_event_frame_attributes(
+        session, element_id=element_id
+    ):
+        unwire_event_frame_attribute(session, attribute.id)
     session.delete(element)
     session.flush()
 

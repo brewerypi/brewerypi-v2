@@ -114,8 +114,17 @@ owns and has rights to. Keep the name `brewerypi` everywhere.
   adopt a same-named one if its type matches (`owns_tag=False`; mismatch =
   error; shared adopted tags allowed). Wiring fires on element create, on
   tag-area assignment, and retroactively when an attribute template is added.
-  Rename/re-parent resyncs owned tag names across the descendant subtree.
-  Unwire refuses when an owned tag has readings.
+  Rename/re-parent resyncs owned tag names across the descendant subtree
+  (element AND event frame attribute tags). Unwire refuses when an owned tag
+  has readings, and only removes an orphaned tag when `tag_is_referenced`
+  (which checks BOTH attribute kinds, mirroring upstream `Tag.isReferenced`)
+  is false — adopt-by-name routinely shares a tag between an element attribute
+  and an event frame attribute.
+- Event frame attribute WIRING lives in `services/event_frame_attributes.py`
+  and is ELEMENT-scoped: one row per element+template, shared by every frame on
+  that element. Same naming/find-or-create/adopt rules as element attributes.
+  Fires on element create, tag-area assignment, and retroactively when an event
+  frame attribute template is added.
 - `EventFrameTemplate` (event frames, in progress): a batch-window type defined
   for an `element_template` (`element_template_id`), self-referential
   (`parent_id`) so a "Brew" on a Brewhouse nests a "Mashing" on the Mash Mixer

@@ -120,6 +120,13 @@ def create_event_frame_attribute_template(
     )
     session.add(template)
     session.flush()
+    # Retroactively wire onto every element instancing the event frame
+    # template's element template (elements without a tag area are skipped).
+    from brewerypi.services.event_frame_attributes import (
+        wire_event_frame_attribute_template,
+    )
+
+    wire_event_frame_attribute_template(session, template)
     return template
 
 
@@ -188,6 +195,15 @@ def delete_event_frame_attribute_template(
     template = get_event_frame_attribute_template(
         session, attribute_template_id
     )
+    from brewerypi.services.event_frame_attributes import (
+        list_event_frame_attributes,
+        unwire_event_frame_attribute,
+    )
+
+    for attribute in list_event_frame_attributes(
+        session, event_frame_attribute_template_id=attribute_template_id
+    ):
+        unwire_event_frame_attribute(session, attribute.id)
     session.delete(template)
     session.flush()
 

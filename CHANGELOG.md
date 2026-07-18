@@ -7,6 +7,27 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- Event frame attribute wiring (`services/event_frame_attributes.py`),
+  element-scoped: wires each element to the tags its frames write through,
+  reusing the element-attribute naming and find-or-create rule (create the tag
+  `owns_tag=True`, or adopt a compatible same-named one `owns_tag=False`; type
+  conflicts error). Wiring runs on element creation, on tag-area assignment,
+  and retroactively when an event frame attribute template is added. Unwiring
+  removes an owned tag only when nothing else references it and it has no
+  readings; `delete_element` and `delete_event_frame_attribute_template`
+  unwire first.
+
+### Fixed
+- Orphan-tag cleanup now consults **both** element and event frame attributes
+  via a new `tag_is_referenced` helper (mirroring upstream BreweryPi's
+  `Tag.isReferenced`). Previously `unwire_element_attribute` checked only
+  element attributes, so once event frame wiring existed it could try to
+  delete a tag an event frame attribute still used — the `RESTRICT` FK would
+  have caught it, but noisily. Adopt-by-name makes such sharing routine (a
+  vessel's status tag backs both its element attribute and its event frame
+  attribute).
+- Renaming or re-parenting an element now also resyncs its owned **event
+  frame** attribute tag names, not just its element attribute tags.
 - `EventFrameAttribute` model and create-table migration (`75ae90dc029d`):
   wiring from an element to the tag backing one event frame attribute
   (`element_id`, `event_frame_attribute_template_id`, `tag_id`, `owns_tag`;
