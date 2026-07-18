@@ -7,6 +7,15 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- `EventFrame` model and create-table migration (`ad94e98ab812`): one batch
+  window on an element — `element_id`, `event_frame_template_id`, self-FK
+  `parent_id` (nesting), `name`, `started_at`, nullable `ended_at` (NULL =
+  open/running). Half-open interval; a `CHECK` enforces `ended_at > started_at`
+  when set. Times stored UTC (naive), converted at the tool boundary. `Element`
+  cascades its event frames and a parent frame cascades its children; site
+  teardown of nested frames verified. Name is a free label (not
+  uniqueness-constrained). Overlap/containment/wiring/open-close-reopen land in
+  the service layer next.
 - Event frame attribute template admin tools (admin owns
   list/create/update/delete, reference-table pattern; admin tier now 65):
   `create` takes the type (`lookup_id`/`measurement_unit_id`) and the default

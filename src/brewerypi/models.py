@@ -342,6 +342,10 @@ class Element(Base):
         back_populates="element",
         cascade="all, delete-orphan",
     )
+    event_frames: Mapped[list[EventFrame]] = relationship(
+        back_populates="element",
+        cascade="all, delete-orphan",
+    )
 
     def __repr__(self) -> str:
         return f"<Element {self.name!r}>"
@@ -515,3 +519,50 @@ class EventFrameAttributeTemplate(Base):
 
     def __repr__(self) -> str:
         return f"<EventFrameAttributeTemplate {self.name!r}>"
+
+
+class EventFrame(Base):
+    """An instance of an event frame template: one batch window on an element.
+
+    Half-open interval [started_at, ended_at); a NULL ended_at means the frame
+    is open (running). Times are stored UTC (naive) and converted at the tool
+    boundary. Nests like the element/template trees (the A1 mirror and the
+    overlap/containment guards live in the service layer). The name is a free
+    label (not uniqueness-constrained).
+    """
+
+    __tablename__ = "event_frames"
+    __table_args__ = (
+        CheckConstraint(
+            "ended_at IS NULL OR ended_at > started_at",
+            name="ended_after_started",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    element_id: Mapped[int] = mapped_column(
+        ForeignKey("elements.id"), index=True
+    )
+    event_frame_template_id: Mapped[int] = mapped_column(
+        ForeignKey("event_frame_templates.id"), index=True
+    )
+    parent_id: Mapped[int | None] = mapped_column(
+        ForeignKey("event_frames.id"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(45))
+    started_at: Mapped[datetime] = mapped_column()
+    ended_at: Mapped[datetime | None] = mapped_column()
+
+    element: Mapped[Element] = relationship(back_populates="event_frames")
+    event_frame_template: Mapped[EventFrameTemplate] = relationship()
+    parent: Mapped[EventFrame | None] = relationship(
+        back_populates="children",
+        remote_side="EventFrame.id",
+    )
+    children: Mapped[list[EventFrame]] = relationship(
+        back_populates="parent",
+        cascade="all, delete-orphan",
+    )
+
+    def __repr__(self) -> str:
+        return f"<EventFrame {self.name!r}>"

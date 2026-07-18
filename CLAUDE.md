@@ -130,6 +130,13 @@ owns and has rights to. Keep the name `brewerypi` everywhere.
   `default_end_lookup_value_id` (the "Ready to fill"/"Empty" boundary defaults,
   mirroring TagValue's float-or-lookup storage). `EventFrameTemplate` cascades
   them.
+- `EventFrame`: one batch window on an element (`element_id`,
+  `event_frame_template_id`, self-FK `parent_id`, `name`, `started_at`,
+  nullable `ended_at` = open). Half-open `[started_at, ended_at)`; CHECK
+  enforces `ended_at > started_at`. Times UTC, converted at the boundary.
+  `Element` cascades its frames, a parent frame cascades children. Name is a
+  free label. The overlap guard (via `element_template.exclusive`),
+  containment, tag wiring, and open/close/reopen are service-layer work.
 - Derived from upstream BreweryPi's schema; tested in `tests/test_models.py`.
 
 ## OPEN DECISION — schema naming (parked; decide before renaming anything)
