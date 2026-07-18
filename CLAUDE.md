@@ -137,6 +137,15 @@ owns and has rights to. Keep the name `brewerypi` everywhere.
   `Element` cascades its frames, a parent frame cascades children. Name is a
   free label. The overlap guard (via `element_template.exclusive`),
   containment, tag wiring, and open/close/reopen are service-layer work.
+- `EventFrameAttribute`: wiring from an **element** to the tag backing one
+  event frame attribute (`element_id`, `event_frame_attribute_template_id`,
+  `tag_id`, `owns_tag`; unique per element+template). Element-scoped, NOT
+  frame-scoped (matches upstream): one row per element+template, shared by
+  every frame run on that element — avoids per-batch row duplication and
+  ambiguous tag ownership. Holds no value; boundary defaults are written as
+  readings on the linked tag at the frame's `started_at`/`ended_at`. `tag_id`
+  is `ON DELETE RESTRICT`; `Element` and `EventFrameAttributeTemplate` cascade
+  the wiring, while deleting an event *frame* touches nothing.
 - Derived from upstream BreweryPi's schema; tested in `tests/test_models.py`.
 
 ## OPEN DECISION — schema naming (parked; decide before renaming anything)

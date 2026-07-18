@@ -221,6 +221,11 @@ class Tag(Base):
         back_populates="tag",
         passive_deletes="all",
     )
+    # Same for event frame attributes.
+    event_frame_attributes: Mapped[list[EventFrameAttribute]] = relationship(
+        back_populates="tag",
+        passive_deletes="all",
+    )
 
     def __repr__(self) -> str:
         return f"<Tag {self.name!r}>"
@@ -343,6 +348,10 @@ class Element(Base):
         cascade="all, delete-orphan",
     )
     event_frames: Mapped[list[EventFrame]] = relationship(
+        back_populates="element",
+        cascade="all, delete-orphan",
+    )
+    event_frame_attributes: Mapped[list[EventFrameAttribute]] = relationship(
         back_populates="element",
         cascade="all, delete-orphan",
     )
@@ -514,6 +523,10 @@ class EventFrameAttributeTemplate(Base):
     event_frame_template: Mapped[EventFrameTemplate] = relationship(
         back_populates="attribute_templates"
     )
+    event_frame_attributes: Mapped[list[EventFrameAttribute]] = relationship(
+        back_populates="event_frame_attribute_template",
+        cascade="all, delete-orphan",
+    )
     lookup: Mapped[Lookup | None] = relationship()
     measurement_unit: Mapped[MeasurementUnit | None] = relationship()
 
@@ -566,3 +579,54 @@ class EventFrame(Base):
 
     def __repr__(self) -> str:
         return f"<EventFrame {self.name!r}>"
+
+
+class EventFrameAttribute(Base):
+    """Wiring from an element to the tag backing one event frame attribute.
+
+    Scoped to the ELEMENT, not to an individual frame (matching upstream
+    BreweryPi): FV01 has one "Status" wiring, and every fermentation ever run
+    on FV01 writes through it. That keeps one row per element+template instead
+    of one per batch, and makes tag ownership unambiguous.
+
+    It holds no value -- a frame's boundary defaults are written as readings
+    (TagValues) on the linked tag at the frame's ``started_at``/``ended_at``.
+    ``owns_tag`` records provenance: True when the app auto-created the tag
+    (removed with the wiring, provided it has no readings), False when an
+    existing tag was adopted by name (shared, so only the link is removed).
+    """
+
+    __tablename__ = "event_frame_attributes"
+    __table_args__ = (
+        UniqueConstraint("element_id", "event_frame_attribute_template_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    element_id: Mapped[int] = mapped_column(
+        ForeignKey("elements.id"), index=True
+    )
+    event_frame_attribute_template_id: Mapped[int] = mapped_column(
+        ForeignKey("event_frame_attribute_templates.id"), index=True
+    )
+    # RESTRICT: a tag can't be deleted out from under a wired attribute.
+    tag_id: Mapped[int] = mapped_column(
+        ForeignKey("tags.id", ondelete="RESTRICT"), index=True
+    )
+    owns_tag: Mapped[bool] = mapped_column(default=True)
+
+    element: Mapped[Element] = relationship(
+        back_populates="event_frame_attributes"
+    )
+    event_frame_attribute_template: Mapped[EventFrameAttributeTemplate] = (
+        relationship(back_populates="event_frame_attributes")
+    )
+    tag: Mapped[Tag] = relationship(
+        back_populates="event_frame_attributes",
+        passive_deletes="all",
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<EventFrameAttribute element_id={self.element_id!r}"
+            f" tag_id={self.tag_id!r}>"
+        )

@@ -7,6 +7,18 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- `EventFrameAttribute` model and create-table migration (`75ae90dc029d`):
+  wiring from an element to the tag backing one event frame attribute
+  (`element_id`, `event_frame_attribute_template_id`, `tag_id`, `owns_tag`;
+  unique per element+template). Scoped to the **element**, not to individual
+  frames (matching upstream BreweryPi): FV01 has one "Status" wiring and every
+  fermentation run on it writes through the same tag — one row per
+  element+template instead of one per batch, with unambiguous tag ownership.
+  Holds no value; a frame's boundary defaults are written as readings on the
+  linked tag. `tag_id` is `ON DELETE RESTRICT`. `Element` and
+  `EventFrameAttributeTemplate` cascade the wiring; deleting an event *frame*
+  touches neither the wiring nor tags nor readings (verified). Completes the
+  event-frame schema.
 - `EventFrame` model and create-table migration (`ad94e98ab812`): one batch
   window on an element — `element_id`, `event_frame_template_id`, self-FK
   `parent_id` (nesting), `name`, `started_at`, nullable `ended_at` (NULL =
