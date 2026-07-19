@@ -125,6 +125,15 @@ owns and has rights to. Keep the name `brewerypi` everywhere.
   that element. Same naming/find-or-create/adopt rules as element attributes.
   Fires on element create, tag-area assignment, and retroactively when an event
   frame attribute template is added.
+- Event frame LIFECYCLE lives in `services/event_frames.py`: create (open),
+  close, reopen, update, delete. Guards: element instances the template; A1
+  instance mirror for nesting; child window within parent's; and overlap —
+  refused on an `exclusive` element (across ALL templates), unlimited on a
+  non-exclusive one. Half-open intervals (touching allowed; open = +infinity).
+  Open writes default START values as readings at `started_at`; close writes
+  END values at `ended_at` and closes open descendants too. Reopen re-runs the
+  guards and leaves readings alone. Boundary moves never touch readings — a
+  frame is a lens over data it doesn't own.
 - `EventFrameTemplate` (event frames, in progress): a batch-window type defined
   for an `element_template` (`element_template_id`), self-referential
   (`parent_id`) so a "Brew" on a Brewhouse nests a "Mashing" on the Mash Mixer
@@ -206,7 +215,8 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
   `measurement_units`, `lookups`, `lookup_values`, `tags`, `areas`, `sites`,
   `enterprises`, `element_templates`, `elements`,
   `element_attribute_templates`, `event_frame_templates`,
-  `event_frame_attribute_templates` (shared `clean_str` / `optional_str` /
+  `event_frame_attribute_templates`, `event_frames` (shared `clean_str` /
+  `optional_str` /
   `clean_name_segment` in `_validation.py`; `clean_name_segment` is used for
   element and attribute-template names — trims, collapses internal whitespace,
   rejects the `.` tag-path separator — since they become segments of generated

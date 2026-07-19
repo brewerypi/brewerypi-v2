@@ -7,6 +7,22 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- Event frame lifecycle service (`services/event_frames.py`):
+  list/get/create/close/reopen/update/delete. Enforces the element-instances-
+  the-template rule, the A1 instance mirror (a child frame needs a parent frame
+  instancing the template's parent template, whose element is the child
+  element's parent), child-within-parent containment, and the overlap guard —
+  on an `exclusive` element no two frames may overlap across any template,
+  while a non-exclusive element (a brewhouse) allows unlimited concurrency.
+  Half-open intervals, so back-to-back frames may touch; an open frame extends
+  to +infinity. Opening writes each attribute's default start value as a
+  reading at `started_at`; `close_event_frame` writes the end values and also
+  closes still-open descendants at the same instant (matching upstream).
+  `reopen_event_frame` clears `ended_at` and re-runs the overlap/containment
+  guards, leaving already-written readings alone. Moving a boundary
+  re-validates (including that children still fit) but never touches readings.
+  Deleting a frame cascades its children and leaves tags, readings, and wiring
+  untouched. Covered by `tests/test_services_event_frames.py`.
 - Event frame attribute wiring (`services/event_frame_attributes.py`),
   element-scoped: wires each element to the tags its frames write through,
   reusing the element-attribute naming and find-or-create rule (create the tag
