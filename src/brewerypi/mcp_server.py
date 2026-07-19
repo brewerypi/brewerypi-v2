@@ -1243,10 +1243,12 @@ def update_tag(
 
 
 def delete_tag(tag_id: int, confirm: bool = False) -> dict:
-    """Delete a tag (admin, destructive).
+    """Delete a tag and all of its recorded readings (admin, destructive).
 
-    Without ``confirm=true`` this only previews. Refuses if the tag has any
-    recorded readings, which would otherwise be destroyed with it.
+    Readings cannot outlive their tag, so they go with it. Without
+    ``confirm=true`` this previews how many readings would be destroyed and
+    over what period. Refused while an element or event frame attribute is
+    still wired to the tag.
     """
     with _Session() as session:
         try:
@@ -1254,12 +1256,33 @@ def delete_tag(tag_id: int, confirm: bool = False) -> dict:
         except ServiceError as exc:
             return {"error": str(exc)}
         if not confirm:
+            count, first, last = session.execute(
+                select(
+                    func.count(TagValue.id),
+                    func.min(TagValue.observed_at),
+                    func.max(TagValue.observed_at),
+                ).where(TagValue.tag_id == tag_id)
+            ).one()
+            zone = _zone_for_tag(session, tag)
+            span = (
+                f" recorded between {from_utc(first, zone)} and "
+                f"{from_utc(last, zone)}"
+                if count
+                else ""
+            )
             return {
                 "confirm_required": True,
                 "tag": _tag_dict(tag),
+                "reading_count": count,
+                "first_reading": (
+                    from_utc(first, zone) if count else None
+                ),
+                "last_reading": from_utc(last, zone) if count else None,
+                "timezone": zone,
                 "message": (
-                    f"Would delete tag {tag_id} ({tag.name}). Call again "
-                    "with confirm=true (refused if it has readings)."
+                    f"Would delete tag {tag_id} ({tag.name}) and its "
+                    f"{count} reading(s){span}. This cannot be undone. "
+                    "Call again with confirm=true."
                 ),
             }
         try:
@@ -2018,9 +2041,9 @@ def unwire_element_attribute(
 ) -> dict:
     """Remove an element attribute (admin, destructive).
 
-    An auto-created tag is deleted with it -- refused if that tag has recorded
-    readings. An adopted tag is left in place; only the link is removed.
-    Without ``confirm=true`` this only previews.
+    An auto-created tag is deleted with it only when it is disposable (no
+    readings, nothing else wired to it); a tag carrying history or an adopted
+    tag is left standing. Without ``confirm=true`` this only previews.
     """
     with _Session() as session:
         try:
@@ -2035,19 +2058,22 @@ def unwire_element_attribute(
                 .select_from(TagValue)
                 .where(TagValue.tag_id == ea.tag_id)
             )
-            fate = (
-                "its tag would be deleted too"
-                if ea.owns_tag
-                else "its tag was adopted and will be left in place"
-            )
+            if not ea.owns_tag:
+                fate = "its tag was adopted and will be left in place"
+            elif readings:
+                fate = (
+                    f"its tag has {readings} reading(s) and will be left "
+                    "standing"
+                )
+            else:
+                fate = "its tag would be deleted too (if unused elsewhere)"
             return {
                 "confirm_required": True,
                 "element_attribute": _element_attribute_dict(session, ea),
                 "tag_reading_count": readings,
                 "message": (
                     f"Would remove element attribute "
-                    f"{element_attribute_id}; {fate}. Refused if an owned "
-                    f"tag has readings (it has {readings}). Call again with "
+                    f"{element_attribute_id}; {fate}. Call again with "
                     "confirm=true."
                 ),
             }
@@ -2352,8 +2378,8 @@ def unwire_event_frame_attribute(
 ) -> dict:
     """Remove an event frame attribute wiring (admin, destructive).
 
-    An auto-created tag is deleted with it -- refused if that tag has readings
-    or is still used elsewhere. An adopted tag is left in place.
+    An auto-created tag is deleted with it only when it is disposable (no
+    readings, nothing else wired to it); otherwise it is left standing.
     """
     with _Session() as session:
         try:
@@ -2368,11 +2394,15 @@ def unwire_event_frame_attribute(
                 .select_from(TagValue)
                 .where(TagValue.tag_id == a.tag_id)
             )
-            fate = (
-                "its tag would be deleted too (if unused elsewhere)"
-                if a.owns_tag
-                else "its tag was adopted and will be left in place"
-            )
+            if not a.owns_tag:
+                fate = "its tag was adopted and will be left in place"
+            elif readings:
+                fate = (
+                    f"its tag has {readings} reading(s) and will be left "
+                    "standing"
+                )
+            else:
+                fate = "its tag would be deleted too (if unused elsewhere)"
             return {
                 "confirm_required": True,
                 "event_frame_attribute": _event_frame_attribute_dict(
@@ -2381,9 +2411,8 @@ def unwire_event_frame_attribute(
                 "tag_reading_count": readings,
                 "message": (
                     f"Would remove event frame attribute "
-                    f"{event_frame_attribute_id}; {fate}. Refused if an "
-                    f"owned tag has readings (it has {readings}). Call "
-                    "again with confirm=true."
+                    f"{event_frame_attribute_id}; {fate}. Call again with "
+                    "confirm=true."
                 ),
             }
         try:

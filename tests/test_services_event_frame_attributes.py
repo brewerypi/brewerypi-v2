@@ -184,7 +184,7 @@ def test_unwire_removes_owned_tag(ctx):
     assert _tag_names(session) == set()
 
 
-def test_unwire_refuses_when_owned_tag_has_readings(ctx):
+def test_unwire_leaves_owned_tag_that_has_readings(ctx):
     session, ids = ctx
     create_event_frame_attribute_template(session, ids["ef_t"], "Status")
     fv = create_element(
@@ -195,8 +195,8 @@ def test_unwire_refuses_when_owned_tag_has_readings(ctx):
         TagValue(tag_id=wiring.tag_id, observed_at=_TS, value=1.0)
     )
     session.flush()
-    with pytest.raises(ValidationError):
-        unwire_event_frame_attribute(session, wiring.id)
+    unwire_event_frame_attribute(session, wiring.id)
+    assert session.get(Tag, wiring.tag_id) is not None
 
 
 def test_delete_element_unwires_event_frame_attributes(ctx):

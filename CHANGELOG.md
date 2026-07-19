@@ -6,6 +6,32 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Changed
+- `delete_tag` now deletes the tag's readings with it, behind a
+  `confirm=true` preview stating the reading count and date range.
+  `tag_values.tag_id` is NOT NULL and the relationship already cascaded, so
+  keeping readings was never possible -- the old guard merely refused, which
+  made any tag with history permanently undeletable and, through the
+  reading-based guards above it, its area, site and enterprise too.
+- Unwiring no longer refuses over history. `unwire_element_attribute`,
+  `unwire_event_frame_attribute` and `delete_element` always succeed at the
+  unwiring; an owned tag is removed only when disposable (no readings, no
+  other referrer) and is otherwise left standing.
+
+### Fixed
+- `delete_event_frame_template` gained the missing guard against existing
+  event frames (previously a raw `IntegrityError` under the FK enforcement
+  the MCP server enables), matching `delete_element_template`.
+- `delete_event_frame_template` no longer orphans tags: it unwires its
+  attribute templates' wiring instead of letting the ORM cascade bypass the
+  cleanup.
+- `delete_tag` refuses with a clear message while an attribute is still wired
+  to it, rather than surfacing a raw foreign-key error.
+- `delete_area` refuses when any tag in the area is wired to an element or
+  event frame attribute. The previous check only asked whether an element
+  used the area as its *tag area*, so manual cross-area wiring slipped past
+  it into a raw foreign-key error.
+
 ### Added
 - Event frame MCP tools. The full batch lifecycle is **operator**-tier —
   `list_event_frames` (with `open_only`), `get_event_frame`,

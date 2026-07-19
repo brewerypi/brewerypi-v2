@@ -115,11 +115,14 @@ owns and has rights to. Keep the name `brewerypi` everywhere.
   error; shared adopted tags allowed). Wiring fires on element create, on
   tag-area assignment, and retroactively when an attribute template is added.
   Rename/re-parent resyncs owned tag names across the descendant subtree
-  (element AND event frame attribute tags). Unwire refuses when an owned tag
-  has readings, and only removes an orphaned tag when `tag_is_referenced`
-  (which checks BOTH attribute kinds, mirroring upstream `Tag.isReferenced`)
-  is false — adopt-by-name routinely shares a tag between an element attribute
-  and an event frame attribute.
+  (element AND event frame attribute tags). Unwiring ALWAYS succeeds; an owned
+  tag is removed only when disposable (no readings, and `tag_is_referenced`
+  false — that checks BOTH attribute kinds, mirroring upstream
+  `Tag.isReferenced`, since adopt-by-name routinely shares a tag between an
+  element attribute and an event frame attribute). `delete_tag` deletes a tag
+  WITH its readings (`tag_values.tag_id` is NOT NULL, so they can't outlive
+  it) behind a confirm preview naming the count and date range, and refuses
+  only while something is still wired to it.
 - Event frame attribute WIRING lives in `services/event_frame_attributes.py`
   and is ELEMENT-scoped: one row per element+template, shared by every frame on
   that element. Same naming/find-or-create/adopt rules as element attributes.

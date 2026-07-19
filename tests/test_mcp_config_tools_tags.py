@@ -82,20 +82,36 @@ def test_delete_tag_requires_confirm(seeded):
     assert "error" in mcp_server.get_tag(tag["id"])
 
 
-def test_delete_tag_refused_with_readings(seeded):
+def test_delete_tag_previews_then_cascades_readings(seeded):
     tag = mcp_server.create_tag(
         seeded["area_id"], "Mash Temp",
         measurement_unit_id=seeded["unit_id"],
     )
     factory = mcp_server._Session
     with factory() as session:
-        session.add(
-            TagValue(
-                tag_id=tag["id"],
-                observed_at=datetime.datetime(2026, 6, 1, 8, 0, 0),
-                value=64.0,
-            )
+        session.add_all(
+            [
+                TagValue(
+                    tag_id=tag["id"],
+                    observed_at=datetime.datetime(2026, 6, 1, 8, 0, 0),
+                    value=64.0,
+                ),
+                TagValue(
+                    tag_id=tag["id"],
+                    observed_at=datetime.datetime(2026, 6, 2, 8, 0, 0),
+                    value=65.0,
+                ),
+            ]
         )
         session.commit()
-    result = mcp_server.delete_tag(tag["id"], confirm=True)
-    assert "error" in result
+    # the preview states what would be destroyed
+    preview = mcp_server.delete_tag(tag["id"])
+    assert preview["confirm_required"] is True
+    assert preview["reading_count"] == 2
+    assert preview["first_reading"].startswith("2026-06-01")
+    assert preview["last_reading"].startswith("2026-06-02")
+    # confirming removes the tag and its readings
+    assert mcp_server.delete_tag(tag["id"], confirm=True) == {
+        "deleted": tag["id"]
+    }
+    assert "error" in mcp_server.get_tag_values(tag["id"])

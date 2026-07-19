@@ -116,8 +116,39 @@ def delete_area(session: Session, area_id: int) -> None:
             f"cannot delete area {area_id}: {elements} element(s) use it "
             "as their tag area; reassign them first"
         )
+    wired = _wired_tag_count(session, area_id)
+    if wired:
+        raise ValidationError(
+            f"cannot delete area {area_id}: {wired} of its tag(s) are "
+            "wired to an element or event frame attribute; unwire them "
+            "first"
+        )
     session.delete(area)
     session.flush()
+
+
+def _wired_tag_count(session: Session, area_id: int) -> int:
+    """Tags in this area that an attribute still points at.
+
+    Manual wiring can link an attribute to a tag outside its element's own
+    tag area, so the element-based check above does not catch every case;
+    without this the RESTRICT foreign key would surface as a raw error.
+    """
+    from brewerypi.models import ElementAttribute, EventFrameAttribute
+
+    element_wired = session.scalar(
+        select(func.count())
+        .select_from(ElementAttribute)
+        .join(Tag, ElementAttribute.tag_id == Tag.id)
+        .where(Tag.area_id == area_id)
+    )
+    frame_wired = session.scalar(
+        select(func.count())
+        .select_from(EventFrameAttribute)
+        .join(Tag, EventFrameAttribute.tag_id == Tag.id)
+        .where(Tag.area_id == area_id)
+    )
+    return (element_wired or 0) + (frame_wired or 0)
 
 
 def _check_unique(

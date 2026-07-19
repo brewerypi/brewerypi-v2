@@ -11,7 +11,7 @@ never commit.
 
 from __future__ import annotations
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from brewerypi.models import (
@@ -20,7 +20,6 @@ from brewerypi.models import (
     MeasurementUnit,
     Site,
     Tag,
-    TagValue,
 )
 from brewerypi.services._validation import clean_str
 from brewerypi.services.exceptions import (
@@ -108,17 +107,24 @@ def update_tag(
 
 
 def delete_tag(session: Session, tag_id: int) -> None:
-    """Delete a tag, refusing if it has any recorded readings."""
+    """Delete a tag and its recorded readings.
+
+    Readings go with the tag: ``tag_values.tag_id`` is NOT NULL, so they
+    cannot outlive it, and the relationship cascades. Callers that expose this
+    should confirm first -- the MCP tool previews the reading count and date
+    range and requires ``confirm=true``.
+
+    Refuses while an element or event frame attribute is still wired to the
+    tag; unwire those first (the foreign key is RESTRICT, so this turns what
+    would be a raw integrity error into a clear message).
+    """
     tag = get_tag(session, tag_id)
-    refs = session.scalar(
-        select(func.count())
-        .select_from(TagValue)
-        .where(TagValue.tag_id == tag_id)
-    )
-    if refs:
+    from brewerypi.services.element_attributes import tag_is_referenced
+
+    if tag_is_referenced(session, tag_id):
         raise ValidationError(
-            f"cannot delete tag {tag_id}: {refs} recorded reading(s) "
-            "exist; deleting would destroy that history"
+            f"cannot delete tag {tag_id}: an element or event frame "
+            "attribute is still wired to it; unwire it first"
         )
     session.delete(tag)
     session.flush()

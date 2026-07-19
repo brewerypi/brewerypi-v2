@@ -241,7 +241,7 @@ def test_unwire_removes_owned_tag(ctx):
     assert _tag_names(session) == set()
 
 
-def test_unwire_refuses_when_owned_tag_has_readings(ctx):
+def test_unwire_leaves_owned_tag_that_has_readings(ctx):
     session, ids = ctx
     create_element_attribute_template(
         session, ids["cellar_t"], "Temperature"
@@ -254,8 +254,9 @@ def test_unwire_refuses_when_owned_tag_has_readings(ctx):
         TagValue(tag_id=attr.tag_id, observed_at=_TS, value=64.0)
     )
     session.flush()
-    with pytest.raises(ValidationError):
-        unwire_element_attribute(session, attr.id)
+    # unwiring succeeds; the history-bearing tag is left standing
+    unwire_element_attribute(session, attr.id)
+    assert session.get(Tag, attr.tag_id) is not None
 
 
 def test_unwire_keeps_adopted_tag(ctx):
@@ -272,7 +273,7 @@ def test_unwire_keeps_adopted_tag(ctx):
     assert session.get(Tag, existing.id) is not None
 
 
-def test_delete_element_unwires_and_refuses_on_readings(ctx):
+def test_delete_element_leaves_tags_with_readings(ctx):
     session, ids = ctx
     create_element_attribute_template(
         session, ids["cellar_t"], "Temperature"
@@ -285,8 +286,9 @@ def test_delete_element_unwires_and_refuses_on_readings(ctx):
         TagValue(tag_id=attr.tag_id, observed_at=_TS, value=64.0)
     )
     session.flush()
-    with pytest.raises(ValidationError):
-        delete_element(session, cellar.id)
+    # the element goes; its history-bearing tag stays
+    delete_element(session, cellar.id)
+    assert "Cellar.Temperature" in _tag_names(session)
 
 
 def test_delete_element_removes_owned_tags_when_clean(ctx):

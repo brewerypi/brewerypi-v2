@@ -284,33 +284,37 @@ def _resync_event_frame_tag_names(
 def unwire_element_attribute(
     session: Session, element_attribute_id: int
 ) -> None:
-    """Remove an element attribute, and its tag if we own it.
+    """Remove an element attribute, tidying up a tag we own.
 
-    Refuses when an owned tag has recorded readings (deleting it would
-    destroy history). An adopted tag is left in place; only the link goes.
+    Always succeeds: you asked to remove a link, not to destroy data. An
+    owned tag is deleted only when it is genuinely disposable -- no readings
+    and nothing else wired to it. A tag carrying history, an adopted tag, or
+    one still referenced elsewhere is simply left standing (delete_tag can
+    remove it deliberately later).
     """
     attribute = get_element_attribute(session, element_attribute_id)
     tag_id = attribute.tag_id
     owns = attribute.owns_tag
-    if owns:
-        readings = session.scalar(
-            select(func.count())
-            .select_from(TagValue)
-            .where(TagValue.tag_id == tag_id)
-        )
-        if readings:
-            raise ValidationError(
-                f"cannot remove element attribute {element_attribute_id}: "
-                f"its tag has {readings} recorded reading(s); deleting "
-                "would destroy that history"
-            )
     session.delete(attribute)
     session.flush()
     if owns:
-        tag = session.get(Tag, tag_id)
-        if tag is not None and not tag_is_referenced(session, tag_id):
-            session.delete(tag)
-            session.flush()
+        _remove_tag_if_disposable(session, tag_id)
+
+
+def _remove_tag_if_disposable(session: Session, tag_id: int) -> None:
+    """Delete an owned tag only if it has no readings and no referrers."""
+    tag = session.get(Tag, tag_id)
+    if tag is None or tag_is_referenced(session, tag_id):
+        return
+    readings = session.scalar(
+        select(func.count())
+        .select_from(TagValue)
+        .where(TagValue.tag_id == tag_id)
+    )
+    if readings:
+        return
+    session.delete(tag)
+    session.flush()
 
 
 def _subtree(session: Session, element: Element) -> list[Element]:

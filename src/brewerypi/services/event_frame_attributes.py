@@ -16,7 +16,7 @@ commit.
 
 from __future__ import annotations
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from brewerypi.models import (
@@ -25,11 +25,10 @@ from brewerypi.models import (
     EventFrameAttributeTemplate,
     EventFrameTemplate,
     Tag,
-    TagValue,
 )
 from brewerypi.services.element_attributes import (
+    _remove_tag_if_disposable,
     build_tag_name,
-    tag_is_referenced,
 )
 from brewerypi.services.exceptions import (
     ConflictError,
@@ -174,35 +173,20 @@ def wire_event_frame_attribute_template(
 def unwire_event_frame_attribute(
     session: Session, event_frame_attribute_id: int
 ) -> None:
-    """Remove a wiring, and its tag if we own it and nothing else uses it.
+    """Remove a wiring, tidying up a tag we own.
 
-    Refuses when an owned tag has recorded readings. An adopted tag (or one
-    still referenced by another attribute) is left in place.
+    Always succeeds. An owned tag is deleted only when it is disposable --
+    no readings and nothing else wired to it; otherwise it is left standing.
     """
     attribute = get_event_frame_attribute(
         session, event_frame_attribute_id
     )
     tag_id = attribute.tag_id
     owns = attribute.owns_tag
-    if owns:
-        readings = session.scalar(
-            select(func.count())
-            .select_from(TagValue)
-            .where(TagValue.tag_id == tag_id)
-        )
-        if readings:
-            raise ValidationError(
-                "cannot remove event frame attribute "
-                f"{event_frame_attribute_id}: its tag has {readings} "
-                "recorded reading(s); deleting would destroy that history"
-            )
     session.delete(attribute)
     session.flush()
     if owns:
-        tag = session.get(Tag, tag_id)
-        if tag is not None and not tag_is_referenced(session, tag_id):
-            session.delete(tag)
-            session.flush()
+        _remove_tag_if_disposable(session, tag_id)
 
 
 def _find_or_create_tag(

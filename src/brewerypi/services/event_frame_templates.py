@@ -18,7 +18,12 @@ from __future__ import annotations
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from brewerypi.models import ElementTemplate, EventFrameTemplate
+from brewerypi.models import (
+    ElementTemplate,
+    EventFrame,
+    EventFrameAttributeTemplate,
+    EventFrameTemplate,
+)
 from brewerypi.services._validation import clean_str, optional_str
 from brewerypi.services.exceptions import (
     ConflictError,
@@ -126,7 +131,13 @@ def update_event_frame_template(
 def delete_event_frame_template(
     session: Session, template_id: int
 ) -> None:
-    """Delete an event frame template, refusing if it has child templates."""
+    """Delete an event frame template.
+
+    Refuses if it has child templates or any event frame instances (the
+    latter previously surfaced as a raw foreign-key error). Its attribute
+    templates are unwired from every element first, so an owned tag is
+    cleaned up rather than orphaned.
+    """
     template = get_event_frame_template(session, template_id)
     children = session.scalar(
         select(func.count())
@@ -138,6 +149,33 @@ def delete_event_frame_template(
             f"cannot delete event frame template {template_id}: it has "
             f"{children} child template(s); delete them first"
         )
+    instances = session.scalar(
+        select(func.count())
+        .select_from(EventFrame)
+        .where(EventFrame.event_frame_template_id == template_id)
+    )
+    if instances:
+        raise ValidationError(
+            f"cannot delete event frame template {template_id}: it has "
+            f"{instances} event frame(s); delete them first"
+        )
+    from brewerypi.services.event_frame_attributes import (
+        list_event_frame_attributes,
+        unwire_event_frame_attribute,
+    )
+
+    attribute_templates = session.scalars(
+        select(EventFrameAttributeTemplate).where(
+            EventFrameAttributeTemplate.event_frame_template_id
+            == template_id
+        )
+    ).all()
+    for attribute_template in attribute_templates:
+        for wiring in list_event_frame_attributes(
+            session,
+            event_frame_attribute_template_id=attribute_template.id,
+        ):
+            unwire_event_frame_attribute(session, wiring.id)
     session.delete(template)
     session.flush()
 

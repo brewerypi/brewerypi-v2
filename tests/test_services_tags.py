@@ -3,7 +3,7 @@
 import datetime
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 
 from brewerypi.database import Base
@@ -168,7 +168,7 @@ def test_delete_tag_success(ctx):
         get_tag(session, tag.id)
 
 
-def test_delete_tag_refused_with_readings(ctx):
+def test_delete_tag_cascades_readings(ctx):
     session, ids = ctx
     tag = create_tag(
         session, ids["area_id"], "Mash Temp",
@@ -182,5 +182,11 @@ def test_delete_tag_refused_with_readings(ctx):
         )
     )
     session.flush()
-    with pytest.raises(ValidationError):
-        delete_tag(session, tag.id)
+    # readings go with the tag (tag_values.tag_id is NOT NULL)
+    delete_tag(session, tag.id)
+    with pytest.raises(NotFoundError):
+        get_tag(session, tag.id)
+    remaining = session.scalar(
+        select(func.count()).select_from(TagValue)
+    )
+    assert remaining == 0

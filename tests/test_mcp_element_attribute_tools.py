@@ -104,7 +104,7 @@ def test_unwire_preview_and_confirm(seeded):
     assert {r["name"] for r in remaining} == {"Temperature"}
 
 
-def test_unwire_refused_when_owned_tag_has_readings(seeded):
+def test_unwire_leaves_owned_tag_with_readings(seeded):
     rows = mcp_server.list_element_attributes(element_id=seeded["fv01"])
     temp = next(r for r in rows if r["name"] == "Temperature")
     factory = mcp_server._Session
@@ -113,10 +113,12 @@ def test_unwire_refused_when_owned_tag_has_readings(seeded):
             TagValue(tag_id=temp["tag_id"], observed_at=_TS, value=64.0)
         )
         session.commit()
+    # unwiring succeeds; the tag keeps its history
     result = mcp_server.unwire_element_attribute(
         temp["id"], confirm=True
     )
-    assert "error" in result
+    assert result == {"removed": temp["id"]}
+    assert mcp_server.get_tag_values(temp["tag_id"])["count"] == 1
 
 
 def test_wire_to_existing_tag_is_adopted(seeded):
