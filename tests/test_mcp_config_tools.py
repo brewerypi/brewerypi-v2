@@ -140,5 +140,7 @@ def test_config_tools_registered_by_helper():
         "create_event_frame_attribute_template",
         "update_event_frame_attribute_template",
         "delete_event_frame_attribute_template",
+        "wire_event_frame_attribute",
+        "unwire_event_frame_attribute",
     }
     assert expected <= registered

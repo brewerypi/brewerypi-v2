@@ -7,6 +7,19 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- Event frame MCP tools. The full batch lifecycle is **operator**-tier —
+  `list_event_frames` (with `open_only`), `get_event_frame`,
+  `create_event_frame`, `close_event_frame`, `reopen_event_frame`,
+  `update_event_frame`, `delete_event_frame` (previews nested count,
+  `confirm=true`) — plus `list_event_frame_attributes` /
+  `get_event_frame_attribute` so an operator can see which tag a batch writes
+  through. Admin keeps the wiring writes (`wire`/`unwire_event_frame_
+  attribute`). Frame times convert at the tool boundary like readings, via the
+  element's site and `resolve_timezone`. Operator tier now 26 tools, admin 76.
+  Completes the event frame feature. Covered by
+  `tests/test_mcp_event_frame_tools.py`.
+
+### Added
 - Event frame lifecycle service (`services/event_frames.py`):
   list/get/create/close/reopen/update/delete. Enforces the element-instances-
   the-template rule, the A1 instance mirror (a child frame needs a parent frame

@@ -207,8 +207,26 @@ intentional: it tracks a real difference in the tables' roles (browse tree vs
 reference data), not an accident. Prefer this over blanket `admin_`-prefixing,
 which is more verbose and would force renaming already-shipped tools.
 
+- **Instance tables split by consumer.** For tables an operator *navigates*
+  during normal work but doesn't configure — `elements`, `element_attributes`,
+  `event_frame_templates` — the **reads live on the operator tier** and the
+  writes stay admin. The test is who consumes the data during operations: an
+  operator has to walk FV01 → Temperature → readings, and to pick a batch type
+  before starting one, so those `list_`/`get_` tools are decorated
+  `@mcp.tool`. Defining the asset model remains admin-only.
+- **Operational writes belong to the operator.** `event_frames` are the
+  exception to "writes are uniform and admin-only": starting, closing,
+  reopening, correcting, and deleting a batch is operational work, not
+  configuration, so the whole `create`/`close`/`reopen`/`update`/
+  `delete_event_frame` lifecycle is operator-tier (alongside
+  `record_tag_value` and the reading corrections). Their *wiring*
+  (`wire`/`unwire_event_frame_attribute`) stays admin, since that shapes the
+  model. Note this widens the operator write surface, which a shared-secret
+  connector cannot scope further — per-user identity is the eventual fix.
+
 Destructive admin tools (`delete_*`) take a `confirm: bool = False` and only
-preview until called again with `confirm=true`.
+preview until called again with `confirm=true`. Operator-tier destructive
+tools (`delete_event_frame`, `delete_tag_value`) follow the same rule.
 
 ## When to deviate
 

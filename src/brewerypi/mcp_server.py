@@ -37,6 +37,8 @@ from brewerypi.models import (
     ElementAttributeTemplate,
     ElementTemplate,
     Enterprise,
+    EventFrame,
+    EventFrameAttribute,
     EventFrameAttributeTemplate,
     EventFrameTemplate,
     Lookup,
@@ -628,6 +630,299 @@ def get_event_frame_template(template_id: int) -> dict:
             )
         except ServiceError as exc:
             return {"error": str(exc)}
+
+
+def _zone_for_element(session: Session, element: Element) -> str:
+    """Resolve the IANA timezone for an element (via its template's site)."""
+    template = session.get(ElementTemplate, element.element_template_id)
+    if template is None:
+        return DEFAULT_TIMEZONE
+    site = session.get(Site, template.site_id)
+    if site is None:
+        return DEFAULT_TIMEZONE
+    return resolve_timezone(session, site)
+
+
+def _zone_for_frame(session: Session, frame: EventFrame) -> str:
+    element = session.get(Element, frame.element_id)
+    if element is None:
+        return DEFAULT_TIMEZONE
+    return _zone_for_element(session, element)
+
+
+def _event_frame_dict(session: Session, f: EventFrame) -> dict:
+    zone = _zone_for_frame(session, f)
+    return {
+        "id": f.id,
+        "element_id": f.element_id,
+        "event_frame_template_id": f.event_frame_template_id,
+        "parent_id": f.parent_id,
+        "name": f.name,
+        "started_at": from_utc(f.started_at, zone),
+        "ended_at": (
+            from_utc(f.ended_at, zone) if f.ended_at is not None else None
+        ),
+        "open": f.ended_at is None,
+        "timezone": zone,
+    }
+
+
+@mcp.tool
+def list_event_frames(
+    element_id: int | None = None,
+    event_frame_template_id: int | None = None,
+    parent_id: int | None = None,
+    open_only: bool = False,
+) -> list[dict]:
+    """List event frames (batches), newest first, optionally filtered.
+
+    An event frame is a named time window on a piece of equipment -- a brew, a
+    fermentation, a cleaning. ``open_only=true`` returns just the ones still
+    running. Times are in the site's local timezone. Use the window with
+    `get_tag_values` to see what a tag did during that batch.
+    """
+    with _Session() as session:
+        rows = services.list_event_frames(
+            session,
+            element_id,
+            event_frame_template_id,
+            parent_id,
+            open_only,
+        )
+        return [_event_frame_dict(session, f) for f in rows]
+
+
+@mcp.tool
+def get_event_frame(event_frame_id: int) -> dict:
+    """Return one event frame (batch) by id."""
+    with _Session() as session:
+        try:
+            frame = services.get_event_frame(session, event_frame_id)
+        except ServiceError as exc:
+            return {"error": str(exc)}
+        return _event_frame_dict(session, frame)
+
+
+@mcp.tool
+def create_event_frame(
+    element_id: int,
+    event_frame_template_id: int,
+    name: str,
+    started_at: str | None = None,
+    ended_at: str | None = None,
+    parent_id: int | None = None,
+) -> dict:
+    """Start an event frame (batch) on a piece of equipment.
+
+    ``started_at``/``ended_at`` are ISO 8601 times in the site's local
+    timezone; ``started_at`` defaults to now and leaving ``ended_at`` unset
+    starts a running batch. Nested batches (e.g. a Mashing inside a Brew) need
+    ``parent_id``. Writes each attribute's default start value at the start
+    time. Refused if the equipment is single-occupancy and already busy.
+    """
+    with _Session() as session:
+        element = session.get(Element, element_id)
+        if element is None:
+            return {"error": f"no element with id {element_id}"}
+        zone = _zone_for_element(session, element)
+        try:
+            start_dt = (
+                to_utc(started_at, zone) if started_at is not None else None
+            )
+            end_dt = to_utc(ended_at, zone) if ended_at is not None else None
+            frame = services.create_event_frame(
+                session,
+                element_id,
+                event_frame_template_id,
+                name,
+                start_dt,
+                end_dt,
+                parent_id,
+            )
+            result = _event_frame_dict(session, frame)
+            session.commit()
+            return result
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
+@mcp.tool
+def close_event_frame(
+    event_frame_id: int, ended_at: str | None = None
+) -> dict:
+    """Close (end) a running event frame.
+
+    ``ended_at`` is an ISO 8601 local time, defaulting to now. Writes each
+    attribute's default end value at that time, and closes any still-running
+    nested batches at the same instant.
+    """
+    with _Session() as session:
+        try:
+            frame = services.get_event_frame(session, event_frame_id)
+        except ServiceError as exc:
+            return {"error": str(exc)}
+        zone = _zone_for_frame(session, frame)
+        try:
+            end_dt = to_utc(ended_at, zone) if ended_at is not None else None
+            frame = services.close_event_frame(
+                session, event_frame_id, end_dt
+            )
+            result = _event_frame_dict(session, frame)
+            session.commit()
+            return result
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
+@mcp.tool
+def reopen_event_frame(event_frame_id: int) -> dict:
+    """Reopen a closed event frame, making it running again.
+
+    Use this when a batch was closed by mistake. If instead the end time was
+    simply wrong, prefer `update_event_frame` with the corrected ``ended_at``.
+    Values written at the old end time stay put -- correct them yourself if
+    needed. Refused if reopening would overlap another batch on
+    single-occupancy equipment.
+    """
+    with _Session() as session:
+        try:
+            frame = services.reopen_event_frame(session, event_frame_id)
+            result = _event_frame_dict(session, frame)
+            session.commit()
+            return result
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
+@mcp.tool
+def update_event_frame(
+    event_frame_id: int,
+    name: str | None = None,
+    started_at: str | None = None,
+    ended_at: str | None = None,
+) -> dict:
+    """Rename an event frame or correct its start/end times.
+
+    Times are ISO 8601 in the site's local timezone. Moving a boundary
+    re-checks overlap and that nested batches still fit; readings already
+    recorded are left where they are.
+    """
+    with _Session() as session:
+        try:
+            frame = services.get_event_frame(session, event_frame_id)
+        except ServiceError as exc:
+            return {"error": str(exc)}
+        zone = _zone_for_frame(session, frame)
+        kwargs: dict = {}
+        try:
+            if started_at is not None:
+                kwargs["started_at"] = to_utc(started_at, zone)
+            if ended_at is not None:
+                kwargs["ended_at"] = to_utc(ended_at, zone)
+            frame = services.update_event_frame(
+                session, event_frame_id, name, **kwargs
+            )
+            result = _event_frame_dict(session, frame)
+            session.commit()
+            return result
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
+@mcp.tool
+def delete_event_frame(
+    event_frame_id: int, confirm: bool = False
+) -> dict:
+    """Delete an event frame and any nested batches inside it (destructive).
+
+    Recorded readings and tags are NOT deleted -- a batch is only a window over
+    them. Without ``confirm=true`` this previews.
+    """
+    with _Session() as session:
+        try:
+            frame = services.get_event_frame(session, event_frame_id)
+        except ServiceError as exc:
+            return {"error": str(exc)}
+        if not confirm:
+            child_count = session.scalar(
+                select(func.count())
+                .select_from(EventFrame)
+                .where(EventFrame.parent_id == event_frame_id)
+            )
+            return {
+                "confirm_required": True,
+                "event_frame": _event_frame_dict(session, frame),
+                "nested_count": child_count,
+                "message": (
+                    f"Would delete event frame {event_frame_id} "
+                    f"({frame.name}) and {child_count} nested batch(es). "
+                    "Readings and tags are kept. Call again with "
+                    "confirm=true."
+                ),
+            }
+        try:
+            services.delete_event_frame(session, event_frame_id)
+            session.commit()
+            return {"deleted": event_frame_id}
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
+def _event_frame_attribute_dict(
+    session: Session, a: EventFrameAttribute
+) -> dict:
+    template = session.get(
+        EventFrameAttributeTemplate,
+        a.event_frame_attribute_template_id,
+    )
+    tag = session.get(Tag, a.tag_id)
+    return {
+        "id": a.id,
+        "element_id": a.element_id,
+        "event_frame_attribute_template_id": (
+            a.event_frame_attribute_template_id
+        ),
+        "name": template.name if template is not None else None,
+        "tag_id": a.tag_id,
+        "tag_name": tag.name if tag is not None else None,
+        "owns_tag": a.owns_tag,
+    }
+
+
+@mcp.tool
+def list_event_frame_attributes(
+    element_id: int | None = None,
+    event_frame_attribute_template_id: int | None = None,
+) -> list[dict]:
+    """List the tags a piece of equipment's batches write through.
+
+    Wiring is per equipment (not per batch): every batch on this element
+    records its attribute values on these tags. Each row gives the attribute
+    name and the ``tag_id``/``tag_name`` holding the data.
+    """
+    with _Session() as session:
+        rows = services.list_event_frame_attributes(
+            session, element_id, event_frame_attribute_template_id
+        )
+        return [_event_frame_attribute_dict(session, a) for a in rows]
+
+
+@mcp.tool
+def get_event_frame_attribute(event_frame_attribute_id: int) -> dict:
+    """Return one event frame attribute wiring (with its name and tag)."""
+    with _Session() as session:
+        try:
+            a = services.get_event_frame_attribute(
+                session, event_frame_attribute_id
+            )
+        except ServiceError as exc:
+            return {"error": str(exc)}
+        return _event_frame_attribute_dict(session, a)
 
 
 def _unit_dict(unit: MeasurementUnit) -> dict:
@@ -2023,6 +2318,85 @@ def delete_event_frame_attribute_template(
             return {"error": str(exc)}
 
 
+def wire_event_frame_attribute(
+    element_id: int,
+    event_frame_attribute_template_id: int,
+    tag_id: int | None = None,
+) -> dict:
+    """Wire an event frame attribute template onto an element (admin, write).
+
+    Normally automatic (on element creation, tag-area assignment, or when a
+    new attribute template is added), so this is for the manual case --
+    notably passing ``tag_id`` to link an existing tag instead of
+    auto-creating one.
+    """
+    with _Session() as session:
+        try:
+            element = services.get_element(session, element_id)
+            template = services.get_event_frame_attribute_template(
+                session, event_frame_attribute_template_id
+            )
+            a = services.wire_event_frame_attribute(
+                session, element, template, tag_id
+            )
+            result = _event_frame_attribute_dict(session, a)
+            session.commit()
+            return result
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
+def unwire_event_frame_attribute(
+    event_frame_attribute_id: int, confirm: bool = False
+) -> dict:
+    """Remove an event frame attribute wiring (admin, destructive).
+
+    An auto-created tag is deleted with it -- refused if that tag has readings
+    or is still used elsewhere. An adopted tag is left in place.
+    """
+    with _Session() as session:
+        try:
+            a = services.get_event_frame_attribute(
+                session, event_frame_attribute_id
+            )
+        except ServiceError as exc:
+            return {"error": str(exc)}
+        if not confirm:
+            readings = session.scalar(
+                select(func.count())
+                .select_from(TagValue)
+                .where(TagValue.tag_id == a.tag_id)
+            )
+            fate = (
+                "its tag would be deleted too (if unused elsewhere)"
+                if a.owns_tag
+                else "its tag was adopted and will be left in place"
+            )
+            return {
+                "confirm_required": True,
+                "event_frame_attribute": _event_frame_attribute_dict(
+                    session, a
+                ),
+                "tag_reading_count": readings,
+                "message": (
+                    f"Would remove event frame attribute "
+                    f"{event_frame_attribute_id}; {fate}. Refused if an "
+                    f"owned tag has readings (it has {readings}). Call "
+                    "again with confirm=true."
+                ),
+            }
+        try:
+            services.unwire_event_frame_attribute(
+                session, event_frame_attribute_id
+            )
+            session.commit()
+            return {"removed": event_frame_attribute_id}
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
 def _register_config_tools(server: FastMCP) -> None:
     """Register the admin-only configuration CRUD tools on a server."""
     for tool in (
@@ -2074,6 +2448,8 @@ def _register_config_tools(server: FastMCP) -> None:
         create_event_frame_attribute_template,
         update_event_frame_attribute_template,
         delete_event_frame_attribute_template,
+        wire_event_frame_attribute,
+        unwire_event_frame_attribute,
     ):
         server.tool(tool)
 
