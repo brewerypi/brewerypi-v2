@@ -5,6 +5,11 @@ breweries (originally Raspberry Pi-based). This repo modernizes the existing
 BreweryPi project (github.com/brewerypi/brewerypi, MIT), which the maintainer
 owns and has rights to. Keep the name `brewerypi` everywhere.
 
+Design decisions that are NOT visible in the code — the transfer/lineage
+model (decided, not built), the vocabulary layer, the OAuth seam, and the
+delete philosophy — live in `docs/design-decisions.md`. Read it before
+extending event frames or adding delete guards.
+
 ## Stack & layout
 - Python 3.10+, `src/` layout, import package `brewerypi`.
 - SQLAlchemy 2.0 ORM style (`DeclarativeBase`, `Mapped`, `mapped_column`).

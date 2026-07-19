@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+- `docs/design-decisions.md`, recording decisions that shape the schema and
+  services but are not visible in the code, each marked built or decided-not-
+  built. Covers the transfer-frame / batch-lineage model (transfers are event
+  frames carrying `source_event_frame_id` and `destination_event_frame_id`;
+  multiplicity lives in the number of transfer frames, so blending and
+  splitting need no join table; the flow graph legitimately cycles when beer
+  returns to its original fermentation, making visited-set traversal
+  mandatory), the vocabulary layer, the OAuth timezone seam, and the delete
+  philosophy behind the non-uniform guards. Linked from README and CLAUDE.md.
+
 ### Changed
 - `delete_tag` now deletes the tag's readings with it, behind a
   `confirm=true` preview stating the reading count and date range.

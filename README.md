@@ -29,7 +29,9 @@ brewerypi/
 │   ├── __init__.py
 │   └── test_models.py          # pytest discovers test_*.py automatically
 ├── docs/
-│   └── getting-started.md      # lowercase kebab-case docs
+│   ├── getting-started.md      # lowercase kebab-case docs
+│   ├── design-decisions.md     # decisions not visible in the code
+│   └── deploy-mcp-hetzner.md   # MCP server deployment
 └── scripts/
     └── seed_sample_data.py     # dev helper scripts
 ```
