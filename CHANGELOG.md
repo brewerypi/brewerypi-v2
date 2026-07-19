@@ -7,6 +7,25 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- Brewery vocabulary glossary. The MCP server now ships an `instructions`
+  block, tier-aware: both tiers get the entity mapping (equipment, batch,
+  measurement, list), the three shapes of data, and the tone rules -- lead
+  with brewery words but mirror schema terms back when the user uses them,
+  follow the brewery's units, read lists rather than assuming their options,
+  ask which kind of packaging run, answer first then flag, confirm writes.
+  The admin tier additionally gets a setup order for configuring a brewery
+  from nothing. Because it ships with the connector, every user inherits it
+  with no setup.
+- Configuration and batch tool descriptions rewritten in brewery language
+  (`create_element_template` defines a KIND of equipment, `create_element`
+  creates an actual vessel, `create_event_frame` starts a batch, and so on),
+  so the mapping is taught at the point of use.
+- `docs/claude-project-starter.md`: a Project template for house-specific
+  context -- units, process outline, what normal looks like, house terms --
+  which can be edited without a deploy, plus a table for logging what the
+  agent got wrong during testing.
+
+### Added
 - `docs/design-decisions.md`, recording decisions that shape the schema and
   services but are not visible in the code, each marked built or decided-not-
   built. Covers the transfer-frame / batch-lineage model (transfers are event

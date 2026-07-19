@@ -69,7 +69,108 @@ if _engine.dialect.name == "sqlite":
         cur.execute("PRAGMA busy_timeout=5000")
         cur.close()
 
-mcp = FastMCP("BreweryPi")
+_SHARED_INSTRUCTIONS = """
+Brewery Pi is a process-data historian for breweries. You are talking to
+brewery staff -- a brewmaster, cellar operator, QA technician, packaging
+operator, or COO -- not to database users. Speak their language.
+
+WHAT THE PIECES ARE CALLED
+- enterprise = the company. site = a location, usually called by its place
+  name ("Atlanta") or house name ("Brew 1"). area = a physical zone within a
+  site (brewhouse, cellar, packaging) or a virtual grouping (utilities).
+- element = a piece of equipment that carries more than one measurement: a
+  fermenter, kettle, mash mixer, centrifuge, canning line.
+- tag = one measurement or data point. element attribute = a measurement
+  belonging to a piece of equipment.
+- event frame = a batch: a window of time on one piece of equipment. Call it
+  what the equipment makes -- a brew (brewhouse), a fermentation (FV), a
+  centrifugation, bright beer or conditioning (BBT), a canning / bottling /
+  kegging run (packaging line).
+- lookup = a list of text options (e.g. an "FV Status" list). Its lookup
+  values are the options on that list.
+- measurement unit = unit of measurement.
+
+THE THREE SHAPES OF DATA (the distinction that actually matters)
+- A tag on its own holds continuous data.
+- An element with element attributes holds grouped continuous data for one
+  piece of equipment.
+- An event frame with event frame attributes holds batch data.
+
+HOW TO TALK
+- Lead with brewery words, not schema words. Say "equipment", "batch",
+  "measurement", "list". Do not open with "element", "event frame", "tag" or
+  "attribute" -- but if the user says them first, use them back. Some users
+  know these systems well and dislike being talked around.
+- Follow the brewery's units. Gravity may be Plato or specific gravity;
+  temperature may be F or C. Report whatever the tag carries and never
+  silently convert.
+- Vessel status, brand names and similar text values live in lists. Read the
+  list rather than assuming its options -- every brewery names them
+  differently.
+- Be specific about batch type. "A packaging run" is ambiguous; a canning run
+  and a kegging run measure different things. Ask which.
+- One plain, direct voice for everyone. Let the question set the depth: brief
+  for data entry, fuller for analysis.
+- Answer first, then add anything notable in a sentence. Do not invent
+  significance the data does not support.
+- Report what the data says with confidence. Be careful about prescribing
+  process changes -- target ranges per brand are not in the system yet, so
+  defer to the brewer on whether a number is acceptable.
+- Ask when a request is ambiguous (twenty fermenters, one "the fermenter"),
+  and confirm before writing anything.
+"""
+
+_OPERATOR_INSTRUCTIONS = _SHARED_INSTRUCTIONS + """
+YOUR ROLE HERE
+You can read the whole brewery model, record and correct readings, and run
+batches -- start a brew or fermentation, close it, reopen one closed by
+mistake, and fix its times. You cannot change how the brewery is set up; if
+someone needs new equipment or a new measurement defined, point them at an
+administrator.
+
+To find data: browse to the equipment, list its attributes to get the tag
+behind each measurement, then read or record values on that tag. To see what
+happened during a batch, get the batch's start and end and read the tag over
+that window.
+"""
+
+_ADMIN_INSTRUCTIONS = _SHARED_INSTRUCTIONS + """
+YOUR ROLE HERE
+You have full configuration access as well as everything an operator can do.
+You can set a brewery up from nothing.
+
+A SENSIBLE SETUP ORDER
+1. Create the company, then the site (set its timezone -- readings are
+   entered and displayed in it).
+2. Create the areas: brewhouse, cellar, packaging, utilities.
+3. Create the units of measurement and any lists (e.g. FV Status with its
+   options) the brewery needs.
+4. Create element templates -- one per KIND of equipment (Fermenter, Kettle,
+   Mash Mixer), not one per vessel. Mark a template non-exclusive only if
+   several batches can run on one of its vessels at once (a brewhouse can;
+   a mash mixer cannot).
+5. Add element attribute templates for the measurements each kind of
+   equipment carries (temperature, pressure, status).
+6. Add event frame templates for the batches each kind of equipment runs
+   (Brew on the brewhouse, Fermentation on the fermenter), with their
+   attribute templates and default start/end values.
+7. Create the elements themselves -- FV01 through FV12 -- giving each a tag
+   area. Tags and wiring are created automatically at this point, so define
+   the templates before the equipment.
+
+Work in bulk when the user describes their brewery in bulk ("twelve
+fermenters") -- create them all rather than asking one at a time. Confirm the
+shape back to them briefly when you are done with a step.
+"""
+
+mcp = FastMCP(
+    "BreweryPi",
+    instructions=(
+        _ADMIN_INSTRUCTIONS
+        if os.getenv("MCP_ROLE", "operator") == "admin"
+        else _OPERATOR_INSTRUCTIONS
+    ),
+)
 
 
 def _zone_for_tag(session: Session, tag: Tag) -> str:
@@ -307,14 +408,13 @@ def record_tag_value(
     lookup_value: str | None = None,
     observed_at: str | None = None,
 ) -> dict:
-    """Record a single new reading for a tag (the one write tool).
+    """Record a reading for a measurement.
 
-    For a numeric tag, pass ``value``. For a lookup-typed tag, pass
-    ``lookup_value`` as the name of an allowed, selectable lookup value.
-    Provide exactly one of the two. ``observed_at`` is an optional ISO 8601
-    time in the site's local timezone and defaults to now. Returns the created
-    reading, or an ``error`` describing what was wrong (unknown tag, wrong
-    value kind for the tag's type, or a lookup value that isn't selectable).
+    For a numeric measurement pass ``value``; for a text one pass
+    ``lookup_value``, naming an option on its list. Exactly one of the two.
+    ``observed_at`` is an optional ISO 8601 time in the brewery's local time
+    and defaults to now. Confirm what you are about to record before writing.
+    Returns the reading, or an ``error`` explaining what was wrong.
     """
     with _Session() as session:
         tag = session.get(Tag, tag_id)
@@ -513,11 +613,12 @@ def list_elements(
     site_id: int | None = None,
     parent_id: int | None = None,
 ) -> list[dict]:
-    """List elements (equipment instances), optionally filtered.
+    """List equipment, optionally filtered.
 
-    Filter by ``element_template_id`` for all instances of one template (e.g.
-    every Boiler), by ``site_id``, or by ``parent_id`` for one element's
-    children. Each row includes ``parent_id`` so the tree is reconstructable.
+    Filter by ``element_template_id`` for every vessel of one kind (all the
+    fermenters), by ``site_id`` for a whole brewery, or by ``parent_id`` for
+    what sits inside a given piece of equipment. Each row includes
+    ``parent_id`` so you can rebuild the layout.
     """
     with _Session() as session:
         rows = services.list_elements(
@@ -564,12 +665,13 @@ def list_element_attributes(
     element_id: int | None = None,
     element_attribute_template_id: int | None = None,
 ) -> list[dict]:
-    """List element attributes, optionally filtered.
+    """List the measurements a piece of equipment carries.
 
-    Filter by ``element_id`` to see one element's attributes (e.g. FV01's
-    Temperature) -- each row gives the attribute name and the ``tag_id`` /
-    ``tag_name`` holding its data, which you can then read with
-    `get_tag_values` or write with `record_tag_value`.
+    Filter by ``element_id`` to see one vessel's measurements -- FV01's
+    temperature, pressure, status. Each row gives the measurement name and the
+    ``tag_id``/``tag_name`` holding its data, which you then read with
+    `get_tag_values` or write with `record_tag_value`. This is the usual way
+    in: equipment -> measurement -> readings.
     """
     with _Session() as session:
         rows = services.list_element_attributes(
@@ -674,12 +776,13 @@ def list_event_frames(
     parent_id: int | None = None,
     open_only: bool = False,
 ) -> list[dict]:
-    """List event frames (batches), newest first, optionally filtered.
+    """List batches, newest first, optionally filtered.
 
-    An event frame is a named time window on a piece of equipment -- a brew, a
-    fermentation, a cleaning. ``open_only=true`` returns just the ones still
-    running. Times are in the site's local timezone. Use the window with
-    `get_tag_values` to see what a tag did during that batch.
+    A batch is a named window of time on one piece of equipment -- a brew, a
+    fermentation, a canning run. ``open_only=true`` returns just what is still
+    running, which answers "what is going on right now". Times are in the
+    brewery's local time. Take a batch's start and end and pass them to
+    `get_tag_values` to see what a measurement did during it.
     """
     with _Session() as session:
         rows = services.list_event_frames(
@@ -712,13 +815,19 @@ def create_event_frame(
     ended_at: str | None = None,
     parent_id: int | None = None,
 ) -> dict:
-    """Start an event frame (batch) on a piece of equipment.
+    """Start a batch on a piece of equipment.
 
-    ``started_at``/``ended_at`` are ISO 8601 times in the site's local
-    timezone; ``started_at`` defaults to now and leaving ``ended_at`` unset
-    starts a running batch. Nested batches (e.g. a Mashing inside a Brew) need
-    ``parent_id``. Writes each attribute's default start value at the start
-    time. Refused if the equipment is single-occupancy and already busy.
+    Call the batch what the equipment makes: a brew on the brewhouse, a
+    fermentation on a fermenter, a canning or kegging run on a packaging line
+    (ask which -- they measure different things). Use the batch type the
+    brewery defined for that equipment.
+
+    ``started_at``/``ended_at`` are ISO 8601 times in the brewery's local
+    time; ``started_at`` defaults to now, and leaving ``ended_at`` unset means
+    the batch is still running. A batch inside another (a mashing within a
+    brew) needs ``parent_id``. Any default start values are recorded
+    automatically. Refused if the equipment can only run one batch at a time
+    and is already busy.
     """
     with _Session() as session:
         element = session.get(Element, element_id)
@@ -751,11 +860,11 @@ def create_event_frame(
 def close_event_frame(
     event_frame_id: int, ended_at: str | None = None
 ) -> dict:
-    """Close (end) a running event frame.
+    """Close (end) a running batch.
 
-    ``ended_at`` is an ISO 8601 local time, defaulting to now. Writes each
-    attribute's default end value at that time, and closes any still-running
-    nested batches at the same instant.
+    ``ended_at`` is an ISO 8601 local time, defaulting to now. Records any
+    default end values at that time -- setting a vessel back to "Empty", for
+    instance -- and closes any nested batches still running inside it.
     """
     with _Session() as session:
         try:
@@ -1032,7 +1141,11 @@ def list_lookups(enterprise_id: int | None = None) -> list[dict]:
 
 
 def create_lookup(enterprise_id: int, name: str) -> dict:
-    """Create a lookup under an enterprise (admin, write)."""
+    """Create a list of text options (admin, write).
+
+    Use a list wherever a measurement is text rather than a number -- vessel
+    status, brand. Add its options with `create_lookup_value`.
+    """
     with _Session() as session:
         try:
             lookup = services.create_lookup(session, enterprise_id, name)
@@ -1096,7 +1209,11 @@ def _lookup_value_dict(value: LookupValue) -> dict:
 
 
 def list_lookup_values(lookup_id: int) -> list[dict]:
-    """List the values belonging to a lookup (admin)."""
+    """List the options on a list.
+
+    Read these rather than assuming -- every brewery names its vessel statuses
+    and brands differently.
+    """
     with _Session() as session:
         rows = services.list_lookup_values(session, lookup_id)
         return [_lookup_value_dict(v) for v in rows]
@@ -1322,7 +1439,12 @@ def create_area(
     name: str,
     description: str | None = None,
 ) -> dict:
-    """Create an area under a site (admin, write)."""
+    """Create an area within a brewery (admin, write).
+
+    A physical zone -- brewhouse, cellar, packaging -- or a virtual grouping
+    such as utilities for boilers, glycol and compressed air. Areas hold the
+    tags for the equipment in them.
+    """
     with _Session() as session:
         try:
             area = services.create_area(
@@ -1422,10 +1544,12 @@ def create_site(
     description: str | None = None,
     timezone: str = "UTC",
 ) -> dict:
-    """Create a site under an enterprise (admin, write).
+    """Create a brewery location (admin, write).
 
-    ``timezone`` is an IANA name (e.g. "America/New_York"); readings at this
-    site are entered and displayed in it. Defaults to "UTC".
+    Usually named for the place ("Atlanta") or the house name ("Brew 1").
+    ``timezone`` is an IANA name (e.g. "America/New_York"); every reading and
+    batch time at this site is entered and displayed in it, so set it now.
+    Defaults to "UTC".
     """
     with _Session() as session:
         try:
@@ -1678,13 +1802,17 @@ def create_element_template(
     parent_id: int | None = None,
     exclusive: bool = True,
 ) -> dict:
-    """Create an element template under a site (admin, write).
+    """Define a KIND of equipment (admin, write).
 
-    Pass ``parent_id`` to nest it under an existing template in the same
-    site; omit it for a top-level template. Name is unique within the site.
-    ``exclusive`` (default true) means event frames on elements of this
-    template can't overlap in time; set false for umbrella equipment (e.g. a
-    brewhouse) that hosts concurrent frames.
+    One template per kind -- "Fermenter", "Kettle", "Mash Mixer" -- not one
+    per vessel; the individual vessels are created later as elements. Pass
+    ``parent_id`` to nest a kind inside another (a Mash Mixer within a
+    Brewhouse). Name is unique within the site.
+
+    ``exclusive`` (default true) means only one batch at a time can run on a
+    vessel of this kind -- right for a mash mixer or fermenter. Set it false
+    for umbrella equipment such as a brewhouse, where several brews can be in
+    progress at once.
     """
     with _Session() as session:
         try:
@@ -1796,11 +1924,14 @@ def create_element(
     tag_area_id: int | None = None,
     parent_id: int | None = None,
 ) -> dict:
-    """Create an element instancing a template (admin, write).
+    """Create one actual piece of equipment (admin, write).
 
-    Pass ``parent_id`` when the template is a child template (its parent must
-    instance the template's parent template); omit it for a top-level
-    template. ``tag_area_id`` (optional) must be an area in the same site.
+    This is a specific vessel or machine -- FV01, Kettle 2 -- instancing a
+    kind defined by ``element_template_id``. Give it ``tag_area_id`` (an area
+    in the same site) and its measurements are wired up automatically, so
+    define the kind's attributes before creating the equipment. Pass
+    ``parent_id`` when this sits inside another piece of equipment (a mash
+    mixer within a brewhouse).
     """
     with _Session() as session:
         try:
@@ -1925,11 +2056,13 @@ def create_element_attribute_template(
     lookup_id: int | None = None,
     measurement_unit_id: int | None = None,
 ) -> dict:
-    """Create an attribute template on an element template (admin, write).
+    """Define a measurement that a kind of equipment carries (admin, write).
 
-    An attribute is lookup-typed (``lookup_id``) or numeric
-    (``measurement_unit_id``) or neither -- not both. Any lookup/unit must
-    belong to the element template's enterprise.
+    For example temperature or pressure on a Fermenter. Numeric measurements
+    take ``measurement_unit_id``; text measurements (a vessel status, a brand)
+    take ``lookup_id`` naming the list of options -- one or the other, never
+    both. Every vessel of this kind gets the measurement automatically, and
+    existing vessels are updated too.
     """
     with _Session() as session:
         try:
@@ -2094,11 +2227,12 @@ def create_event_frame_template(
     description: str | None = None,
     parent_id: int | None = None,
 ) -> dict:
-    """Create an event frame template on an element template (admin, write).
+    """Define a KIND of batch that a kind of equipment runs (admin, write).
 
-    Pass ``parent_id`` to nest it (A1 mirror: this template's element template
-    must be a direct child of the parent template's element template); omit it
-    for a top-level template. Name is unique per element template.
+    A "Brew" on the brewhouse, a "Fermentation" on the fermenter, a "Canning
+    Run" on the canning line. Pass ``parent_id`` to nest a batch inside
+    another -- a Mashing within a Brew -- which requires this batch's
+    equipment to sit directly inside the parent batch's equipment.
     """
     with _Session() as session:
         try:
@@ -2236,15 +2370,15 @@ def create_event_frame_attribute_template(
     default_start_lookup_value_id: int | None = None,
     default_end_lookup_value_id: int | None = None,
 ) -> dict:
-    """Create an event frame attribute template (admin, write).
+    """Define a measurement recorded on a kind of batch (admin, write).
 
-    Lookup-typed (``lookup_id``) or numeric (``measurement_unit_id``), not
-    both. Numeric attributes take float defaults
-    (``default_start_value``/``default_end_value``); lookup-typed attributes
-    take lookup-value defaults (``default_start_lookup_value_id``/
-    ``default_end_lookup_value_id``, which must be selectable values of the
-    attribute's lookup). Defaults are written as readings at the frame's
-    started_at/ended_at.
+    Numeric measurements take ``measurement_unit_id``; text ones take
+    ``lookup_id``. The defaults are recorded automatically when a batch starts
+    and ends -- so a Fermentation's status can be set to "Ready to fill" on
+    start and "Empty" on close. Numeric defaults use
+    ``default_start_value``/``default_end_value``; text defaults use
+    ``default_start_lookup_value_id``/``default_end_lookup_value_id``, which
+    must be selectable options on the attribute's list.
     """
     with _Session() as session:
         try:
