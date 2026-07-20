@@ -7,6 +7,22 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- House context: free text on `Enterprise` (migration `b6cacc7323a7`) holding
+  what cannot be derived from the data -- how a brewery talks, ambiguities the
+  agent should resolve rather than guess, rough operating ranges, house rules.
+  `get_house_context` on both tiers, `set_house_context` on admin (replaces
+  rather than appends, previewing the current value unless `confirm=true`),
+  both defaulting to the only enterprise when there is one. Capped at 4,000
+  characters with an error that explains the cost. The server instructions
+  tell the agent to read it before answering, `browse_hierarchy` carries it as
+  a backstop, and the admin setup order now ends by offering to save it from
+  the words the user used while configuring.
+- `docs/house-context.md` replaces the Project starter template. Because
+  context lives in the database, every user inherits it with no per-person
+  setup and nobody edits a file; the doc covers changing it conversationally,
+  an optional interview prompt, and what does not belong in it.
+
+### Added
 - Brewery vocabulary glossary. The MCP server now ships an `instructions`
   block, tier-aware: both tiers get the entity mapping (equipment, batch,
   measurement, list), the three shapes of data, and the tone rules -- lead

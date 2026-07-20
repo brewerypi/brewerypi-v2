@@ -27,6 +27,7 @@ from sqlalchemy import (
     CheckConstraint,
     ForeignKey,
     String,
+    Text,
     UniqueConstraint,
     text,
 )
@@ -42,6 +43,11 @@ class Enterprise(Base):
     abbreviation: Mapped[str] = mapped_column(String(10), unique=True)
     name: Mapped[str] = mapped_column(String(45), unique=True)
     description: Mapped[str | None] = mapped_column(String(255))
+    # Free text the agent reads into a conversation: how this brewery talks,
+    # its house rules, rough operating ranges. Deliberately NOT a place for
+    # anything queryable (sites, equipment, measurements) -- see
+    # docs/design-decisions.md. Capped in the service layer.
+    house_context: Mapped[str | None] = mapped_column(Text)
 
     sites: Mapped[list[Site]] = relationship(
         back_populates="enterprise",

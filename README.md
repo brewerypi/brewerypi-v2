@@ -31,7 +31,7 @@ brewerypi/
 ├── docs/
 │   ├── getting-started.md      # lowercase kebab-case docs
 │   ├── design-decisions.md     # decisions not visible in the code
-│   ├── claude-project-starter.md  # house context template for a Project
+│   ├── house-context.md        # how a brewery's vocabulary is stored
 │   └── deploy-mcp-hetzner.md   # MCP server deployment
 └── scripts/
     └── seed_sample_data.py     # dev helper scripts

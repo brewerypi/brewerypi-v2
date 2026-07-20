@@ -151,6 +151,32 @@ the schema keeps its own names.
 
 ---
 
+## House context
+
+**Status: built.**
+
+How a brewery talks, its house rules and its rough operating ranges cannot be
+derived from the data, so they are stored as free text on `Enterprise` and
+read by the agent through `get_house_context`.
+
+Storing it in the database rather than in a Claude Project is deliberate: a
+Project applies only to chats inside it, so a second operator or admin would
+inherit nothing, and pasted copies drift apart. On the enterprise it is
+written once, inherited by every user on any plan, versioned with the data,
+and changed conversationally.
+
+Only what cannot be looked up belongs there -- vocabulary, ambiguities to
+resolve, rough ranges, house rules. Sites, equipment, measurements and units
+are all queryable, and duplicating them would create two sources that can
+disagree. Capped at 4,000 characters (a backstop against pasted SOPs; the
+real control is the tool description asking for ~400 words), with an error
+that explains the cost rather than just the limit.
+
+Writes are admin-only, on the grounds that this is shared configuration
+affecting every user. Reads are on both tiers.
+
+---
+
 ## Timezones and the OAuth seam
 
 **Status: built, with one branch deliberately left empty.**

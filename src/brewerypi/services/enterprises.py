@@ -148,3 +148,62 @@ def _check_unique(
         raise ConflictError(
             f"an enterprise with that {field} already exists"
         )
+
+
+#: House context is read into conversations, so it is capped. This is a
+#: backstop against pathological input (a pasted SOP, a spreadsheet dump) --
+#: the real control is the tool description asking for ~400 words.
+HOUSE_CONTEXT_MAX = 4000
+
+
+def get_house_context(session: Session, enterprise_id: int) -> str | None:
+    """Return an enterprise's house context, or None if unset."""
+    return get_enterprise(session, enterprise_id).house_context
+
+
+def set_house_context(
+    session: Session, enterprise_id: int, house_context: str | None
+) -> Enterprise:
+    """Replace an enterprise's house context (``None`` clears it).
+
+    Replaces rather than appends: appending would accumulate cruft with no
+    way to prune it. Callers should show the current value first.
+    """
+    enterprise = get_enterprise(session, enterprise_id)
+    if house_context is not None:
+        house_context = house_context.strip()
+        if not house_context:
+            house_context = None
+    if house_context is not None and len(house_context) > HOUSE_CONTEXT_MAX:
+        raise ValidationError(
+            f"house context is {len(house_context)} characters; the limit "
+            f"is {HOUSE_CONTEXT_MAX}. This text is read into every "
+            "conversation, so keep it to the vocabulary, house rules and "
+            "operating ranges that cannot be looked up -- equipment lists, "
+            "SOPs and anything already configured in the system do not "
+            "belong here."
+        )
+    enterprise.house_context = house_context
+    session.flush()
+    return enterprise
+
+
+def resolve_enterprise_id(
+    session: Session, enterprise_id: int | None
+) -> int:
+    """Resolve an optional enterprise id, defaulting to the only one.
+
+    Most installations have exactly one enterprise, so callers should not
+    have to name it. With several, the id is required.
+    """
+    if enterprise_id is not None:
+        return get_enterprise(session, enterprise_id).id
+    rows = list(session.scalars(select(Enterprise)).all())
+    if len(rows) == 1:
+        return rows[0].id
+    if not rows:
+        raise NotFoundError("no enterprise exists yet")
+    raise ValidationError(
+        f"there are {len(rows)} enterprises; say which one "
+        f"({', '.join(r.name for r in rows)})"
+    )

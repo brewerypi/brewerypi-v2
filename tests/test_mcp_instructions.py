@@ -65,3 +65,17 @@ def test_tool_descriptions_use_brewery_language():
     assert "KIND of equipment" in create_element_template.__doc__
     assert "actual piece of equipment" in create_element.__doc__
     assert "Start a batch" in create_event_frame.__doc__
+
+
+def test_both_tiers_are_told_to_read_house_context():
+    for role in (None, "admin"):
+        text = _reload(role)
+        assert "call `get_house_context` once" in text
+
+
+def test_admin_setup_order_ends_by_saving_house_context():
+    text = _reload("admin")
+    assert "offer to save their house context" in text
+    assert "set_house_context" in text
+    # operators are not told to write it
+    assert "set_house_context" not in _reload(None)

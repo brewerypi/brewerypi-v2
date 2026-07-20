@@ -96,6 +96,12 @@ THE THREE SHAPES OF DATA (the distinction that actually matters)
   piece of equipment.
 - An event frame with event frame attributes holds batch data.
 
+HOUSE CONTEXT
+Before answering questions about the brewery, call `get_house_context` once
+and follow what it says. It holds the words this brewery uses, the ranges
+they consider normal, and anything they want flagged -- none of which is
+derivable from the data. If it is empty, carry on without it.
+
 HOW TO TALK
 - Lead with brewery words, not schema words. Say "equipment", "batch",
   "measurement", "list". Do not open with "element", "event frame", "tag" or
@@ -157,6 +163,13 @@ A SENSIBLE SETUP ORDER
 7. Create the elements themselves -- FV01 through FV12 -- giving each a tag
    area. Tags and wiring are created automatically at this point, so define
    the templates before the equipment.
+
+8. When the model is in place, offer to save their house context. They will
+   have used their own words while setting up -- "FVs", "the 22", "barrels"
+   -- and those are exactly what to keep. Ask two or three short follow-ups
+   about rough operating ranges and any house rules, then save it with
+   `set_house_context`. Everyone who connects inherits it, so this is worth
+   doing once, properly.
 
 Work in bulk when the user describes their brewery in bulk ("twelve
 fermenters") -- create them all rather than asking one at a time. Confirm the
@@ -382,7 +395,8 @@ def browse_hierarchy() -> list[dict]:
     """Return the whole tree: enterprises -> sites -> areas with tag counts.
 
     A compact overview to orient yourself before drilling in with the other
-    tools.
+    tools. Each enterprise also carries its ``house_context`` -- how this
+    brewery talks and its house rules -- which you should follow.
     """
     with _Session() as session:
         out = []
@@ -397,7 +411,14 @@ def browse_hierarchy() -> list[dict]:
                     for a in sorted(s.areas, key=lambda a: a.name)
                 ]
                 sites.append({"id": s.id, "name": s.name, "areas": areas})
-            out.append({"id": e.id, "name": e.name, "sites": sites})
+            out.append(
+                {
+                    "id": e.id,
+                    "name": e.name,
+                    "house_context": e.house_context,
+                    "sites": sites,
+                }
+            )
         return out
 
 
@@ -1032,6 +1053,75 @@ def get_event_frame_attribute(event_frame_attribute_id: int) -> dict:
         except ServiceError as exc:
             return {"error": str(exc)}
         return _event_frame_attribute_dict(session, a)
+
+
+@mcp.tool
+def get_house_context(enterprise_id: int | None = None) -> dict:
+    """Return this brewery's house context: how they talk and their rules.
+
+    Read this before answering questions about the brewery. It holds the
+    things that are not in the data -- the words this brewery uses, what
+    normal looks like to them, and anything they want flagged. Follow it.
+    Omit ``enterprise_id`` when there is only one company.
+    """
+    with _Session() as session:
+        try:
+            eid = services.resolve_enterprise_id(session, enterprise_id)
+            return {
+                "enterprise_id": eid,
+                "house_context": services.get_house_context(session, eid),
+            }
+        except ServiceError as exc:
+            return {"error": str(exc)}
+
+
+def set_house_context(
+    house_context: str | None = None,
+    enterprise_id: int | None = None,
+    confirm: bool = False,
+) -> dict:
+    """Save this brewery's house context (admin, write).
+
+    Use this to remember how a brewery talks and the rules it works to --
+    typically right after setting one up, from the words they used. Keep it
+    to roughly 400 words, and only what cannot be looked up: their
+    vocabulary, anything they want you to ask about rather than guess, rough
+    operating ranges, and house rules. Do NOT record sites, equipment,
+    measurements or units -- those are already in the system and would go
+    stale here.
+
+    This REPLACES whatever is stored. Without ``confirm=true`` it shows the
+    current value so nothing is overwritten unseen. Pass ``house_context``
+    as null with ``confirm=true`` to clear it.
+    """
+    with _Session() as session:
+        try:
+            eid = services.resolve_enterprise_id(session, enterprise_id)
+            current = services.get_house_context(session, eid)
+        except ServiceError as exc:
+            return {"error": str(exc)}
+        if not confirm:
+            return {
+                "confirm_required": True,
+                "enterprise_id": eid,
+                "current_house_context": current,
+                "proposed_house_context": house_context,
+                "message": (
+                    "This replaces the stored house context for everyone "
+                    "who connects. Review the current value above, then "
+                    "call again with confirm=true."
+                ),
+            }
+        try:
+            services.set_house_context(session, eid, house_context)
+            session.commit()
+            return {
+                "enterprise_id": eid,
+                "house_context": services.get_house_context(session, eid),
+            }
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
 
 
 def _unit_dict(unit: MeasurementUnit) -> dict:
@@ -2613,6 +2703,7 @@ def _register_config_tools(server: FastMCP) -> None:
         delete_event_frame_attribute_template,
         wire_event_frame_attribute,
         unwire_event_frame_attribute,
+        set_house_context,
     ):
         server.tool(tool)
 
