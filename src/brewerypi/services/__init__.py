@@ -46,10 +46,7 @@ from brewerypi.services.enterprises import (
     create_enterprise,
     delete_enterprise,
     get_enterprise,
-    get_house_context,
     list_enterprises,
-    resolve_enterprise_id,
-    set_house_context,
     update_enterprise,
 )
 from brewerypi.services.event_frame_attribute_templates import (
@@ -172,7 +169,6 @@ __all__ = [
     "get_event_frame_attribute",
     "get_event_frame_attribute_template",
     "get_event_frame_template",
-    "get_house_context",
     "get_lookup",
     "get_lookup_value",
     "get_measurement_unit",
@@ -195,8 +191,6 @@ __all__ = [
     "list_sites",
     "list_tags",
     "reopen_event_frame",
-    "resolve_enterprise_id",
-    "set_house_context",
     "tag_is_referenced",
     "unwire_element_attribute",
     "unwire_event_frame_attribute",
