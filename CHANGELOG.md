@@ -21,9 +21,14 @@ All notable changes to this project are documented here. The format is based on
   creates an actual vessel, `create_event_frame` starts a batch, and so on),
   so the mapping is taught at the point of use.
 - `docs/claude-project-starter.md`: a Project template for house-specific
-  context -- units, process outline, what normal looks like, house terms --
-  which can be edited without a deploy, plus a table for logging what the
-  agent got wrong during testing.
+  context -- house terms, process outline, what normal looks like, things to
+  watch for -- which can be edited without a deploy, plus a table for logging
+  what the agent got wrong during testing. Deliberately holds only what
+  cannot be looked up: the equipment, sites and units a brewery is built from
+  are read back out of the system once configured, so the template does not
+  restate them and cannot go stale against them. The process outline takes a
+  block per product line, since a seltzer or an RTD does not follow the beer
+  path.
 
 ### Added
 - `docs/design-decisions.md`, recording decisions that shape the schema and

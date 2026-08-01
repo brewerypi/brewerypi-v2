@@ -11,23 +11,13 @@ Everything below is a starting draft. Delete anything that does not fit.
 
 ---
 
-## About this brewery
-
-<!-- Fill this in for the brewery you are demoing or running. -->
-
-- Company:
-- Site(s) and where they are:
-- Gravity is measured in: Plato / specific gravity
-- Temperature is measured in: F / C
-- Volume is measured in: barrels (BBL) / hectoliters (hL)
-- Brewhouse size:
-- Fermenters:
-- Brite tanks:
-- Packaging formats: cans / bottles / kegs
-
 ## How we talk here
 
 <!-- Correct me here whenever the agent uses a word you would not use. -->
+
+This file is yours alone — it is not shared with the rest of the brewery. The
+vocabulary below is the house's, though, so if a teammate starts their own
+Project, send them your copy rather than let them start from scratch.
 
 - We call a brewhouse batch a **brew** (not a "turn").
 - We call a fermenter an **FV**.
@@ -35,9 +25,14 @@ Everything below is a starting draft. Delete anything that does not fit.
 - Knockout is usually shortened to **KO**.
 - A diacetyl rest is usually a **D-rest**.
 
-## Our process, in order
+## Our production process, in order
 
-<!-- A short outline helps the agent reason about what happens when. -->
+<!-- A short outline helps the agent reason about what happens when. Keep one
+     block per product line: a seltzer or an RTD does not follow the beer
+     path, and a single list cannot stretch over both. Delete what you do not
+     make. -->
+
+### Beer
 
 1. Mill and mash in the mash mixer.
 2. Lauter, then boil in the kettle with hop additions.
@@ -47,6 +42,26 @@ Everything below is a starting draft. Delete anything that does not fit.
 6. Crash cool; harvest yeast from the cone.
 7. Centrifuge or filter into a BBT for conditioning and carbonation.
 8. Package: canning, bottling or kegging run.
+
+<!-- Sketches to replace with your own, if you run these lines:
+
+### Hard seltzer
+
+1. Dissolve sugar to gravity; no mash, lauter or boil.
+2. Pitch yeast with nutrient; ferment to dry.
+3. Carbon-filter the base to strip flavor and color.
+4. Blend flavor and acid to spec in a BBT; carbonate.
+5. Package.
+
+### RTD
+
+1. Blend spirit or base, flavor, sweetener and water to spec.
+2. Carbonate if the format calls for it; no fermentation.
+3. Package.
+
+-->
+
+Say which line a batch belongs to when it is not obvious from the equipment.
 
 ## What normal looks like
 
