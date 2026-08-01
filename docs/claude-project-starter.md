@@ -97,6 +97,8 @@ server instructions so every connector inherits it automatically.
 - We call a brite tank a **BBT**.
 - Knockout is usually shortened to **KO**.
 - A diacetyl rest is usually a **D-rest**.
+- Packaged oxygen is **TPO** — total package oxygen, headspace included, not
+  dissolved oxygen alone.
 
 ## Our production process, in order
 
@@ -115,22 +117,22 @@ Say which line a batch belongs to when it is not obvious from the equipment.
 
 ## What normal looks like
 
-- Ale fermentation temperature:
-- Lager fermentation temperature:
+- Ale fermentation temperature range:
+- Lager fermentation temperature range:
 - Typical OG range:
-- Typical terminal gravity:
-- Typical fermentation duration:
-- Target packaged dissolved oxygen:
-- Typical brewhouse efficiency:
+- Typical terminal gravity range:
+- Typical fermentation duration range:
+- Typical pH range at crash cool:
+- Target TPO range:
 
 The system does not hold per-brand specifications, so treat these as context
 for conversation, not as pass/fail limits. Say when a number looks unusual
-against them, but leave the judgement to the brewer.
+against them, but leave the judgement to the user.
 
 ## Things to watch for
 
-- A fermentation that stalls above terminal gravity for more than a day is
-  worth flagging.
+- During fermentation, gravity that stalls for more than a day is worth
+  flagging.
 - Temperature climbing during a crash usually means a glycol problem.
 - Yeast beyond generation 8 is not repitched.
 
@@ -140,4 +142,4 @@ against them, but leave the judgement to the brewer.
 - Ask which vessel or which batch when it is ambiguous.
 - Always confirm before recording, changing or deleting anything.
 - Keep it brief for data entry; go deeper for analysis.
-- Report the data confidently; leave process decisions to the brewer.
+- Report the data confidently; leave process decisions to the user.
