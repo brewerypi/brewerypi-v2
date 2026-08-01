@@ -199,6 +199,17 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
 - For the MCP-server path, set `DATABASE_URL` to an ABSOLUTE sqlite path, since
   the server is launched from a different working directory than the repo root.
 - Line endings: `.gitattributes` pins `* text=auto eol=lf`; keep the editor on LF.
+- KNOWN FAILURE on Windows: `pytest` reports ~44 failures, all from
+  `ZoneInfo(...)` raising `ZoneInfoNotFoundError` (even for `"UTC"`), so
+  `is_valid_timezone` rejects every zone and anything creating a `Site` fails.
+  Windows ships no system IANA tz database and `tzdata` is NOT declared in
+  `pyproject.toml`, so `zoneinfo.TZPATH` is empty. These failures are
+  PRE-EXISTING — do not assume your change caused them; confirm with `git
+  stash`. Workaround: `pip install tzdata`. The fix is to declare it as a
+  dependency (unconditionally, to pin the tzdb version, or
+  `; sys_platform == "win32"` to lean on the host tzdb elsewhere) — undecided,
+  and deliberately not yet done. Linux CI has a system tzdb and passes green,
+  so CI hides this; the package is broken for any Windows consumer.
 
 ## Not done yet
 - `create_all` (in `main.py`) still builds the schema for the throwaway
