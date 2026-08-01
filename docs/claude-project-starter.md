@@ -45,7 +45,10 @@ What each section is for:
   happens when. One block per product line.
 - **What normal looks like** — the highest-value thing you can add. Rough
   ranges are fine. Fill a line in or delete it: a blank tells the agent
-  nothing and invites it to guess.
+  nothing and invites it to guess. Only the fermentation temperatures are
+  beer-specific; the rest apply to anything you package. Where one number
+  will not cover the house, qualify the line and add another, the way ale
+  and lager already do.
 - **Things to watch for** — house rules, and anything that has bitten you.
 - **How I want you to behave** — your working style, not the house's.
 
@@ -117,9 +120,9 @@ Say which line a batch belongs to when it is not obvious from the equipment.
 
 ## What normal looks like
 
+- Typical OG range:
 - Ale fermentation temperature range:
 - Lager fermentation temperature range:
-- Typical OG range:
 - Typical terminal gravity range:
 - Typical fermentation duration range:
 - Typical pH range at crash cool:
