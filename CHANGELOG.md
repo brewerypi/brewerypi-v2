@@ -28,7 +28,10 @@ All notable changes to this project are documented here. The format is based on
   are read back out of the system once configured, so the template does not
   restate them and cannot go stale against them. The process outline takes a
   block per product line, since a seltzer or an RTD does not follow the beer
-  path.
+  path. Split at a marked boundary: guidance for the reader above it, the
+  block to paste below it, and no HTML comments anywhere -- the destination
+  is a plain custom-instructions box, never a rendered page, so a comment is
+  not hidden from the agent, it is just text the agent reads.
 
 ### Added
 - `docs/design-decisions.md`, recording decisions that shape the schema and
