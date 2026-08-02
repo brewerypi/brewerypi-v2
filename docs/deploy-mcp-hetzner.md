@@ -288,7 +288,35 @@ systemctl restart brewerypi-mcp-admin   # if the admin tier is running
 ```
 
 The `alembic upgrade head` applies any new migrations; it's a no-op when
-there are none, so it's safe to run every time.
+there are none, so it's safe to run every time. Back up `app.db` first (see
+Notes) if the release touches data rather than just code.
+
+### Backfilling defaults an existing company missed
+
+Some config arrives with `create_enterprise` and so never reaches a company
+created before it existed — the default measurement units are the first
+case. Ask the **admin** connector to add the standard brewing units to the
+company, or do it on the box:
+
+```
+cd /opt/brewerypi
+DATABASE_URL=sqlite:////opt/brewerypi/app.db .venv/bin/python - <<'PY'
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
+from brewerypi import services
+from brewerypi.config import DATABASE_URL
+
+engine = create_engine(DATABASE_URL)
+with Session(engine) as session:
+    for ent in services.list_enterprises(session):
+        added = services.add_default_measurement_units(session, ent.id)
+        print(f"{ent.name}: added {len(added)}")
+    session.commit()
+PY
+```
+
+It skips any unit whose symbol or name the company already uses rather than
+failing, and renames nothing, so a second run adds 0 and is harmless.
 
 ## Notes
 
