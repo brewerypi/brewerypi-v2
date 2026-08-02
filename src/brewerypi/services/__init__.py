@@ -13,6 +13,10 @@ from brewerypi.services.areas import (
     list_areas,
     update_area,
 )
+from brewerypi.services.default_measurement_units import (
+    DEFAULT_MEASUREMENT_UNITS,
+    add_default_measurement_units,
+)
 from brewerypi.services.element_attribute_templates import (
     create_element_attribute_template,
     delete_element_attribute_template,
@@ -126,10 +130,12 @@ from brewerypi.services.tags import (
 )
 
 __all__ = [
+    "DEFAULT_MEASUREMENT_UNITS",
     "ConflictError",
     "NotFoundError",
     "ServiceError",
     "ValidationError",
+    "add_default_measurement_units",
     "build_tag_name",
     "close_event_frame",
     "create_area",

@@ -7,7 +7,7 @@ from fastmcp import Client, FastMCP
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from brewerypi import mcp_server
+from brewerypi import mcp_server, services
 from brewerypi.database import Base
 from brewerypi.models import Area, Enterprise, Site, Tag
 
@@ -32,6 +32,25 @@ def test_create_and_list(seeded):
     assert "id" in created
     listed = mcp_server.list_measurement_units(seeded)
     assert [u["name"] for u in listed] == ["Celsius"]
+
+
+def test_add_defaults(seeded):
+    result = mcp_server.add_default_measurement_units(seeded)
+    assert result["added_count"] == len(services.DEFAULT_MEASUREMENT_UNITS)
+    assert result["skipped_count"] == 0
+    listed = mcp_server.list_measurement_units(seeded)
+    assert len(listed) == len(services.DEFAULT_MEASUREMENT_UNITS)
+
+
+def test_add_defaults_is_idempotent(seeded):
+    mcp_server.add_default_measurement_units(seeded)
+    again = mcp_server.add_default_measurement_units(seeded)
+    assert again["added"] == []
+    assert again["skipped_count"] == len(services.DEFAULT_MEASUREMENT_UNITS)
+
+
+def test_add_defaults_unknown_enterprise_returns_error(seeded):
+    assert "error" in mcp_server.add_default_measurement_units(9999)
 
 
 def test_create_conflict_returns_error(seeded):

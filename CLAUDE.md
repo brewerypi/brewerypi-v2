@@ -234,7 +234,9 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
   `measurement_units`, `lookups`, `lookup_values`, `tags`, `areas`, `sites`,
   `enterprises`, `element_templates`, `elements`,
   `element_attribute_templates`, `event_frame_templates`,
-  `event_frame_attribute_templates`, `event_frames` (shared `clean_str` /
+  `event_frame_attribute_templates`, `event_frames`, plus
+  `default_measurement_units` (not a table: the ported upstream default unit
+  list) (shared `clean_str` /
   `optional_str` /
   `clean_name_segment` in `_validation.py`; `clean_name_segment` is used for
   element and attribute-template names — trims, collapses internal whitespace,
@@ -247,13 +249,15 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
   neither, same-enterprise) and extended `delete_lookup` /
   `delete_measurement_unit` (refuse if an attribute template references them);
   admin owns its `list_`/`create`/`update`/`delete` tools.
-  Operators read elements; admins write. MCP tools: operator tier 17
-  (element reads, element-attribute reads, and event-frame-template reads —
+  Operators read elements; admins write. MCP tools: operator tier 26
+  (the browse tree and reading tools, element reads, element-attribute reads,
+  and event-frame-template reads —
   operators browse batch types to start instances, and run the whole event
   frame lifecycle: create/close/reopen/update/delete_event_frame), admin tier
-  76 (adds
+  77 (adds
   `create`/`update`/`delete_element`, the config tables' CRUD, the element
   attribute template tools, `wire`/`unwire_element_attribute`,
+  `add_default_measurement_units`,
   `create`/`update`/`delete_event_frame_template`, and the event frame
   attribute template tools, and wire/unwire_event_frame_attribute).
   `element_templates` is a config table the operator tier doesn't

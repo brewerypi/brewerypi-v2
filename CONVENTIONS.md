@@ -188,7 +188,11 @@ tools.**
 
 - **Writes are uniform.** `create_<table>`, `update_<table>`, and
   `delete_<table>` are used everywhere. They never collide with operator
-  tools, which are read-only apart from `record_tag_value`.
+  tools, which are read-only apart from `record_tag_value`. A write that is
+  neither a single-row create nor an edit takes a verb that says what it
+  does — `wire`/`unwire_element_attribute`, and
+  `add_default_measurement_units`, which bulk-seeds a whole standard list
+  and is idempotent rather than conflicting.
 - **Reads split by whether the operator tier already browses that table:**
   - **Hierarchy tables** (`enterprise`, `site`, `area`, `tag`) — the operator
     tier already lists them (this is the browse tree behind

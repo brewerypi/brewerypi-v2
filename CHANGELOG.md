@@ -7,6 +7,23 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- Default measurement units. `services/default_measurement_units.py` holds
+  `DEFAULT_MEASUREMENT_UNITS` (49 pairs) and an idempotent
+  `add_default_measurement_units`; a new enterprise gets them from
+  `create_enterprise` (opt out with `include_default_units=False`), since
+  units are enterprise-scoped and `create_all` has no enterprise to hang them
+  on. Admin tool `add_default_measurement_units` backfills an existing
+  company, skipping anything whose symbol or name is already taken rather
+  than conflicting (admin tier now 77 tools). Ported from upstream's
+  `addDefaultUnitsOfMeasurements` with the list normalized: singular
+  sentence-case names with proper nouns capitalized (`Degree Celsius`), SI
+  symbol style (`cells/mL`, `gal/min` not `gpm`), the ambiguous ones spelled
+  out (US beer barrel, US gallon, metric ton per hour, `psi` vs `psig`), EBC
+  and SRM named as color scales, upstream's `ASBC` dropped as a duplicate of
+  SRM, and the missing metric counterparts added (`hL`, `°Bx`, `bar`,
+  `mg/L`, `°C/min`, `L/min`, `g/hL`, `kg/hL`). Three upstream symbols did not
+  fit `abbreviation`'s 10 characters and were shortened: `cells/mL°P`,
+  `10⁶ cells`, `10¹² cells`.
 - Brewery vocabulary glossary. The MCP server now ships an `instructions`
   block, tier-aware: both tiers get the entity mapping (equipment, batch,
   measurement, list), the three shapes of data, and the tone rules -- lead

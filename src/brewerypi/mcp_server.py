@@ -143,8 +143,9 @@ A SENSIBLE SETUP ORDER
 1. Create the company, then the site (set its timezone -- readings are
    entered and displayed in it).
 2. Create the areas: brewhouse, cellar, packaging, utilities.
-3. Create the units of measurement and any lists (e.g. FV Status with its
-   options) the brewery needs.
+3. Add any lists the brewery needs (e.g. FV Status with its options). The
+   standard brewing units of measurement come with the company -- list them
+   first and create only the ones that are missing.
 4. Create element templates -- one per KIND of equipment (Fermenter, Kettle,
    Mash Mixer), not one per vessel. Mark a template non-exclusive only if
    several batches can run on one of its vessels at once (a brewhouse can;
@@ -1125,6 +1126,34 @@ def delete_measurement_unit(unit_id: int, confirm: bool = False) -> dict:
             return {"error": str(exc)}
 
 
+def add_default_measurement_units(enterprise_id: int) -> dict:
+    """Add the standard brewing measurement units to a company (admin).
+
+    New companies already get these. Use this to backfill a company created
+    before the defaults existed, or one whose units were cleared. Safe to
+    call twice: units that already exist (by symbol or name) are skipped,
+    not duplicated, and nothing existing is renamed or removed.
+    """
+    with _Session() as session:
+        try:
+            added = services.add_default_measurement_units(
+                session, enterprise_id
+            )
+            result = {
+                "enterprise_id": enterprise_id,
+                "added": [_unit_dict(u) for u in added],
+                "added_count": len(added),
+                "skipped_count": (
+                    len(services.DEFAULT_MEASUREMENT_UNITS) - len(added)
+                ),
+            }
+            session.commit()
+            return result
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
 def _lookup_dict(lookup: Lookup) -> dict:
     return {
         "id": lookup.id,
@@ -1671,7 +1700,9 @@ def create_enterprise(
 ) -> dict:
     """Create an enterprise (admin, write).
 
-    ``abbreviation`` and ``name`` are globally unique.
+    ``abbreviation`` and ``name`` are globally unique. The company starts
+    with the standard brewing measurement units (°C, °P, bbl, hL, IBU, ...);
+    list them before creating one, and add only what is missing.
     """
     with _Session() as session:
         try:
@@ -2567,6 +2598,7 @@ def _register_config_tools(server: FastMCP) -> None:
         create_measurement_unit,
         update_measurement_unit,
         delete_measurement_unit,
+        add_default_measurement_units,
         list_lookups,
         create_lookup,
         update_lookup,

@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from brewerypi import mcp_server
+from brewerypi import mcp_server, services
 from brewerypi.database import Base
 from brewerypi.models import (
     Area,
@@ -30,6 +30,13 @@ def test_create_and_get_enterprise(factory):
     created = mcp_server.create_enterprise("BRW", "Brewery Co")
     assert created["name"] == "Brewery Co"
     assert mcp_server.get_enterprise(created["id"])["id"] == created["id"]
+
+
+def test_create_enterprise_seeds_default_units(factory):
+    ent = mcp_server.create_enterprise("BRW", "Brewery Co")
+    units = mcp_server.list_measurement_units(ent["id"])
+    assert len(units) == len(services.DEFAULT_MEASUREMENT_UNITS)
+    assert "Degree Plato" in {u["name"] for u in units}
 
 
 def test_create_enterprise_duplicate_error(factory):
@@ -61,7 +68,7 @@ def test_delete_preview_reports_full_subtree(factory):
         session.add(Tag(name="Mash Temp", area_id=area.id))
         session.add(
             MeasurementUnit(
-                enterprise_id=ent["id"], abbreviation="°C", name="Celsius"
+                enterprise_id=ent["id"], abbreviation="cal", name="Calorie"
             )
         )
         session.commit()
@@ -70,7 +77,10 @@ def test_delete_preview_reports_full_subtree(factory):
     assert preview["site_count"] == 1
     assert preview["area_count"] == 1
     assert preview["tag_count"] == 1
-    assert preview["measurement_unit_count"] == 1
+    # the seeded defaults plus the one added above
+    assert preview["measurement_unit_count"] == (
+        len(services.DEFAULT_MEASUREMENT_UNITS) + 1
+    )
     done = mcp_server.delete_enterprise(ent["id"], confirm=True)
     assert done == {"deleted": ent["id"]}
 

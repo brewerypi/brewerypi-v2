@@ -20,6 +20,9 @@ from brewerypi.models import (
     TagValue,
 )
 from brewerypi.services._validation import clean_str, optional_str
+from brewerypi.services.default_measurement_units import (
+    add_default_measurement_units,
+)
 from brewerypi.services.exceptions import (
     ConflictError,
     NotFoundError,
@@ -45,8 +48,14 @@ def create_enterprise(
     abbreviation: str,
     name: str,
     description: str | None = None,
+    include_default_units: bool = True,
 ) -> Enterprise:
-    """Create an enterprise (abbreviation and name are globally unique)."""
+    """Create an enterprise (abbreviation and name are globally unique).
+
+    Measurement units are enterprise-scoped, so a new enterprise starts with
+    the brewing defaults (see ``default_measurement_units``) unless
+    ``include_default_units`` is False.
+    """
     abbreviation = clean_str(abbreviation, "abbreviation", 10)
     name = clean_str(name, "name", 45)
     _check_unique(session, abbreviation, name)
@@ -57,6 +66,8 @@ def create_enterprise(
     )
     session.add(ent)
     session.flush()
+    if include_default_units:
+        add_default_measurement_units(session, ent.id)
     return ent
 
 
