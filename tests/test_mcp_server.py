@@ -181,8 +181,12 @@ def test_record_unknown_tag(seeded):
     assert "error" in mcp_server.record_tag_value(99999, value=1.0)
 
 
-def test_get_configuration_workbook_returns_a_file():
-    """Admin tier hands back a real .xlsx, not a description of one."""
+def test_get_configuration_workbook_returns_a_file(seeded):
+    """Admin tier hands back a real .xlsx, not a description of one.
+
+    Takes ``seeded`` because a site workbook reads the company's lists:
+    without it the tool would open whatever ``DATABASE_URL`` points at.
+    """
     result = mcp_server.get_configuration_workbook(scope="site")
     assert result.resource.mimeType == workbook.XLSX_MEDIA_TYPE
     content = base64.b64decode(result.resource.blob)
