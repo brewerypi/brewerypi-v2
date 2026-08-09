@@ -26,6 +26,10 @@ htmlcov/
 # Claude Code personal, un-shared context (also auto-gitignored by Claude Code)
 CLAUDE.local.md
 
+# Claude Code personal settings — machine-local permission grants and
+# overrides. The shared .claude/settings.json IS tracked.
+.claude/settings.local.json
+
 # Editor / IDE
 .vscode/
 .idea/
