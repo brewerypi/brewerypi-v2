@@ -45,6 +45,10 @@ SHEETS: list[tuple[str, str, str]] = [
     ("Kind of equipment | What you read", "Rounds", "site"),
 ]
 
+#: Read-only tab naming the lookups a company already has, so a
+#: further site references them instead of creating near-duplicates.
+REFERENCE_TAB = "Lists you already have"
+
 SCOPES = ("all", "enterprise", "site")
 
 _BLURBS = {
@@ -294,6 +298,7 @@ def build_workbook(
     scope: str = "all",
     example: bool = False,
     data: dict | None = None,
+    existing_lists: list[tuple[str, str]] | None = None,
 ) -> bytes:
     """Return an .xlsx as bytes.
 
@@ -302,9 +307,12 @@ def build_workbook(
     answer, every other key is a list of rows), else from the brief's
     worked example if ``example``, else the tabs are left blank.
 
-    ``data`` is the seam the agent prefills through, handing back lists
-    and units it has read out of the database so a second site cannot
-    duplicate them.
+    ``existing_lists`` is (name, options) for the lookups the company
+    already has. A site-scope workbook has no editable Lists tab on
+    purpose, so this arrives as a read-only reference instead: without it
+    someone filling in a second site cannot see that "FV Status" exists
+    and invents "Fermenter Status" beside it. Lookups are
+    enterprise-scoped, so that duplicate would follow every later site.
     """
     if scope not in SCOPES:
         raise ValueError("scope must be one of %s" % (SCOPES,))
@@ -358,6 +366,14 @@ def build_workbook(
             ]
         sheets.append((sheet[1], rows, [22] * len(header), sheet[2]))
 
+    if existing_lists:
+        rows = [(["List", "Options", "Already set up?"], HEADER)]
+        rows += [
+            ([name, options, "yes, use it as it is"], NORMAL)
+            for name, options in existing_lists
+        ]
+        sheets.append((REFERENCE_TAB, rows, [24, 46, 22], "site"))
+
     if scope != "all":
         sheets = [s for s in sheets if s[3] in ("all", scope)]
     return _package(sheets)
@@ -368,6 +384,7 @@ def build_from_brief(
     example: bool = False,
     data: dict | None = None,
     brief_path: Path | None = None,
+    existing_lists: list[tuple[str, str]] | None = None,
 ) -> bytes:
     """Read the brief off disk and build the workbook from it."""
     path = brief_path or default_brief_path()
@@ -380,4 +397,6 @@ def build_from_brief(
             "(a git checkout with an editable install, as the deploy "
             "guide describes)" % path
         ) from exc
-    return build_workbook(markdown, scope, example, data)
+    return build_workbook(
+        markdown, scope, example, data, existing_lists
+    )

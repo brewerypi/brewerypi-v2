@@ -193,3 +193,21 @@ def test_get_configuration_workbook_returns_a_file():
 def test_get_configuration_workbook_rejects_a_bad_scope():
     result = mcp_server.get_configuration_workbook(scope="nonsense")
     assert "error" in result
+
+
+def test_site_workbook_references_the_existing_lists(seeded):
+    """A further site must see the company's lookups, not re-invent them."""
+    result = mcp_server.get_configuration_workbook(scope="site")
+    rows = workbook_tabs(
+        base64.b64decode(result.resource.blob)
+    )[workbook.REFERENCE_TAB]
+    assert [r[0] for r in rows[1:]] == ["Fermentation Stage"]
+    # Unselectable values still belong on the list the user can see.
+    assert "Secondary" in rows[1][1]
+
+
+def test_workbook_for_a_new_company_has_no_reference_tab(seeded):
+    result = mcp_server.get_configuration_workbook(scope="all")
+    assert workbook.REFERENCE_TAB not in workbook_tabs(
+        base64.b64decode(result.resource.blob)
+    )

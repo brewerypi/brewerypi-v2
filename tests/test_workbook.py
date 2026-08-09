@@ -144,3 +144,22 @@ def test_unknown_scope_is_rejected(brief):
 def test_missing_brief_explains_the_deploy_requirement(tmp_path):
     with pytest.raises(FileNotFoundError, match="editable install"):
         workbook.build_from_brief(brief_path=tmp_path / "nope.md")
+
+
+def test_site_workbook_shows_the_lists_that_already_exist(brief):
+    """Site scope has no editable Lists tab, so it needs the reference."""
+    filled = tabs(workbook.build_workbook(
+        brief,
+        scope="site",
+        existing_lists=[("FV Status", "Empty, Clean, Filling")],
+    ))
+    assert "Lists" not in filled
+    assert filled[workbook.REFERENCE_TAB][1][:2] == [
+        "FV Status", "Empty, Clean, Filling",
+    ]
+
+
+def test_no_reference_tab_when_nothing_exists_yet(brief):
+    assert workbook.REFERENCE_TAB not in tabs(
+        workbook.build_workbook(brief, scope="site")
+    )

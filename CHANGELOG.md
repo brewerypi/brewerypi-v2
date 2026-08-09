@@ -47,7 +47,13 @@ All notable changes to this project are documented here. The format is based on
   .xlsx as zipped XML rather than adding a spreadsheet dependency. The
   workbook deliberately carries no guidance: instructions stay in the
   Markdown, and a test asserts no cell holds anything that is not a table
-  row or a prompt from the brief.
+  row or a prompt from the brief. A "site" workbook additionally lists
+  the company's existing lookups on a read-only reference tab, read from
+  the database at call time. That scope has no editable Lists tab by
+  design, so without the reference someone configuring a second site
+  cannot see that "FV Status" exists and invents "Fermenter Status"
+  beside it -- and because lookups are enterprise-scoped, the duplicate
+  would then follow every later site.
 - `docs/site-configuration-brief.md`: a fill-in-the-blanks brief the user
   pastes into an admin chat to configure one site. Batch-first, because a
   batch is what a brewery already writes down by hand -- a brew, a

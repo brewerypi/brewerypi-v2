@@ -2593,8 +2593,39 @@ def unwire_event_frame_attribute(
             return {"error": str(exc)}
 
 
+def _existing_lists(
+    scope: str, enterprise_id: int | None
+) -> list[tuple[str, str]] | None:
+    """Return (name, options) for the lookups a company already has.
+
+    Only for a "site" workbook. That scope deliberately has no editable
+    Lists tab, so this reference is the only way someone filling in a
+    further site can see what exists. Unselectable values are included:
+    they are still options on the list, and inventing a duplicate to get
+    one back is the failure this prevents.
+    """
+    if scope != "site":
+        return None
+    with _Session() as session:
+        found = [
+            (
+                lookup.name,
+                ", ".join(
+                    value.name
+                    for value in services.list_lookup_values(
+                        session, lookup.id
+                    )
+                ),
+            )
+            for lookup in services.list_lookups(session, enterprise_id)
+        ]
+    return found or None
+
+
 def get_configuration_workbook(
-    scope: str = "all", example: bool = False
+    scope: str = "all",
+    example: bool = False,
+    enterprise_id: int | None = None,
 ) -> EmbeddedResource | dict:
     """Hand back a spreadsheet for describing a brewery's setup.
 
@@ -2610,9 +2641,21 @@ def get_configuration_workbook(
     ``example`` fills every tab in for a brewery that does not exist, as
     a reference for what a completed workbook looks like. Never treat a
     returned example as real configuration.
+
+    A "site" workbook also lists the company's existing lists on a
+    reference tab, so a further site reuses "FV Status" rather than
+    inventing "Fermenter Status" beside it.
     """
     try:
-        content = workbook.build_from_brief(scope=scope, example=example)
+        content = workbook.build_from_brief(
+            scope=scope,
+            example=example,
+            existing_lists=(
+                None
+                if example
+                else _existing_lists(scope, enterprise_id)
+            ),
+        )
     except (ValueError, FileNotFoundError) as exc:
         return {"error": str(exc)}
     name = "brewery-pi-%s%s.xlsx" % (scope, "-example" if example else "")
