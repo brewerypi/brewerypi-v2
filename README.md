@@ -32,6 +32,7 @@ brewerypi/
 │   ├── getting-started.md      # lowercase kebab-case docs
 │   ├── design-decisions.md     # decisions not visible in the code
 │   ├── claude-project-starter.md  # house context template for a Project
+│   ├── site-configuration-brief.md  # fill-in brief to configure one site
 │   └── deploy-mcp-hetzner.md   # MCP server deployment
 └── scripts/
     └── seed_sample_data.py     # dev helper scripts

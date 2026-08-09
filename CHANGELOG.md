@@ -37,6 +37,21 @@ All notable changes to this project are documented here. The format is based on
   (`create_element_template` defines a KIND of equipment, `create_element`
   creates an actual vessel, `create_event_frame` starts a batch, and so on),
   so the mapping is taught at the point of use.
+- `docs/site-configuration-brief.md`: a fill-in-the-blanks brief the user
+  pastes into an admin chat to configure one site. Batch-first, because a
+  batch is what a brewery already writes down by hand -- a brew, a
+  fermentation, a canning run, a few values at each boundary -- while
+  hand-entered continuous readings only stay current where the cardinality
+  is low, so equipment read on rounds (boiler pH, glycol) gets its own
+  section rather than leading. Asks brewery questions that the agent maps
+  to the schema: "can more than one batch run on one of these at once"
+  rather than exclusivity, "part of" rather than parent ids, and one
+  "units or list" column standing in for the mutually exclusive
+  measurement-unit / lookup pair. Split company-wide from site-specific,
+  since measurement units and lists are enterprise-scoped and would
+  collide on the second site, while element templates are site-scoped and
+  have to be restated anyway. Same paste boundary as the Project starter,
+  with the worked example above it so it cannot be pasted as data.
 - `docs/claude-project-starter.md`: a Project template for house-specific
   context -- house terms, process outline, what normal looks like, things to
   watch for -- which can be edited without a deploy, plus a table for logging
