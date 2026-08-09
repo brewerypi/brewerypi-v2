@@ -163,3 +163,20 @@ def test_no_reference_tab_when_nothing_exists_yet(brief):
     assert workbook.REFERENCE_TAB not in tabs(
         workbook.build_workbook(brief, scope="site")
     )
+
+
+def test_units_reference_shows_symbol_and_name(brief):
+    """The fill-in column wants the symbol, so show which is which."""
+    filled = tabs(workbook.build_workbook(
+        brief, existing_units=[("\u00b0P", "Degree Plato")],
+    ))
+    assert filled[workbook.UNITS_TAB][1][:2] == ["\u00b0P", "Degree Plato"]
+
+
+def test_units_reference_appears_at_every_scope(brief):
+    units = [("\u00b0P", "Degree Plato")]
+    for scope in workbook.SCOPES:
+        filled = tabs(workbook.build_workbook(
+            brief, scope=scope, existing_units=units,
+        ))
+        assert workbook.UNITS_TAB in filled, scope

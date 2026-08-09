@@ -2622,6 +2622,23 @@ def _existing_lists(
     return found or None
 
 
+def _existing_units(enterprise_id: int | None) -> list[tuple[str, str]]:
+    """Return (symbol, name) for the measurement units a company has.
+
+    Every scope gets these, not just "site": the "units or list" column
+    wants the symbol, and a new company already has the seeded list from
+    the moment it exists, so the reference is useful on the first
+    workbook as much as the fifth.
+    """
+    with _Session() as session:
+        return [
+            (unit.abbreviation, unit.name)
+            for unit in services.list_measurement_units(
+                session, enterprise_id
+            )
+        ]
+
+
 def get_configuration_workbook(
     scope: str = "all",
     example: bool = False,
@@ -2646,6 +2663,13 @@ def get_configuration_workbook(
     reference tab, so a further site reuses "FV Status" rather than
     inventing "Fermenter Status" beside it.
     """
+    # Validate before touching the database: a bad argument should not
+    # cost a query, and the reference reads below run as arguments, which
+    # are evaluated before build_from_brief could reject anything.
+    if scope not in workbook.SCOPES:
+        return {
+            "error": "scope must be one of %s" % (workbook.SCOPES,)
+        }
     try:
         content = workbook.build_from_brief(
             scope=scope,
@@ -2654,6 +2678,9 @@ def get_configuration_workbook(
                 None
                 if example
                 else _existing_lists(scope, enterprise_id)
+            ),
+            existing_units=(
+                None if example else _existing_units(enterprise_id)
             ),
         )
     except (ValueError, FileNotFoundError) as exc:

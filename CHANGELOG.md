@@ -53,7 +53,11 @@ All notable changes to this project are documented here. The format is based on
   design, so without the reference someone configuring a second site
   cannot see that "FV Status" exists and invents "Fermenter Status"
   beside it -- and because lookups are enterprise-scoped, the duplicate
-  would then follow every later site.
+  would then follow every later site. Every scope also gets a read-only
+  tab of the company's measurement units, symbol beside name: the "units
+  or list" column wants `°P`, and seeding means the units exist from the
+  moment the company does, so the reference earns its place on the first
+  workbook as much as the fifth.
 - `docs/site-configuration-brief.md`: a fill-in-the-blanks brief the user
   pastes into an admin chat to configure one site. Batch-first, because a
   batch is what a brewery already writes down by hand -- a brew, a

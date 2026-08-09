@@ -49,6 +49,11 @@ SHEETS: list[tuple[str, str, str]] = [
 #: further site references them instead of creating near-duplicates.
 REFERENCE_TAB = "Lists you already have"
 
+#: Read-only tab naming the units a company already has. The column
+#: a user fills in wants the symbol ("°P"), not the name
+#: ("Degree Plato"), and seeding provides 49 of them.
+UNITS_TAB = "Units you can use"
+
 SCOPES = ("all", "enterprise", "site")
 
 _BLURBS = {
@@ -299,6 +304,7 @@ def build_workbook(
     example: bool = False,
     data: dict | None = None,
     existing_lists: list[tuple[str, str]] | None = None,
+    existing_units: list[tuple[str, str]] | None = None,
 ) -> bytes:
     """Return an .xlsx as bytes.
 
@@ -374,6 +380,14 @@ def build_workbook(
         ]
         sheets.append((REFERENCE_TAB, rows, [24, 46, 22], "site"))
 
+    if existing_units:
+        rows = [(["Write this", "For", "Already set up?"], HEADER)]
+        rows += [
+            ([symbol, name, "yes, use it as it is"], NORMAL)
+            for symbol, name in existing_units
+        ]
+        sheets.append((UNITS_TAB, rows, [16, 42, 22], "all"))
+
     if scope != "all":
         sheets = [s for s in sheets if s[3] in ("all", scope)]
     return _package(sheets)
@@ -385,6 +399,7 @@ def build_from_brief(
     data: dict | None = None,
     brief_path: Path | None = None,
     existing_lists: list[tuple[str, str]] | None = None,
+    existing_units: list[tuple[str, str]] | None = None,
 ) -> bytes:
     """Read the brief off disk and build the workbook from it."""
     path = brief_path or default_brief_path()
@@ -398,5 +413,5 @@ def build_from_brief(
             "guide describes)" % path
         ) from exc
     return build_workbook(
-        markdown, scope, example, data, existing_lists
+        markdown, scope, example, data, existing_lists, existing_units
     )

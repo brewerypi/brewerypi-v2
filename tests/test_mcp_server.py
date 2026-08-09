@@ -215,3 +215,13 @@ def test_workbook_for_a_new_company_has_no_reference_tab(seeded):
     assert workbook.REFERENCE_TAB not in workbook_tabs(
         base64.b64decode(result.resource.blob)
     )
+
+
+def test_workbook_lists_the_units_the_company_has(seeded):
+    """Prevents writing "Plato" where the unit is the symbol."""
+    result = mcp_server.get_configuration_workbook(scope="site")
+    rows = workbook_tabs(
+        base64.b64decode(result.resource.blob)
+    )[workbook.UNITS_TAB]
+    assert rows[0] == ["Write this", "For", "Already set up?"]
+    assert any(r[0] == "°C" for r in rows[1:]), rows
