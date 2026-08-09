@@ -62,6 +62,7 @@ not a can size.
 
 ### The site, answered
 
+- The company this site belongs to: Example Brewing Co.
 - Site name: Springfield
 - Short name or abbreviation for it: SPR
 - Town or city it is in, with the state or country: Springfield, Illinois
@@ -163,6 +164,7 @@ down, so just write the unit you want beside each measurement.
 
 Answer once per site. Use a fresh copy for each further site.
 
+- The company this site belongs to:
 - Site name:
 - Short name or abbreviation for it:
 - Town or city it is in, with the state or country:

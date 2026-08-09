@@ -57,7 +57,12 @@ All notable changes to this project are documented here. The format is based on
   tab of the company's measurement units, symbol beside name: the "units
   or list" column wants `°P`, and seeding means the units exist from the
   moment the company does, so the reference earns its place on the first
-  workbook as much as the fifth.
+  workbook as much as the fifth. A site workbook also names the
+  company it belongs to, prefilled: `sites.enterprise_id` is
+  required and nothing else in that workbook implied it, so the
+  agent was left to infer the owner and could attach a second site
+  to nothing. Prefilled rather than asked, since a near-miss
+  spelling of the company name reads as a new company.
 - `docs/site-configuration-brief.md`: a fill-in-the-blanks brief the user
   pastes into an admin chat to configure one site. Batch-first, because a
   batch is what a brewery already writes down by hand -- a brew, a

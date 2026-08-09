@@ -54,6 +54,11 @@ REFERENCE_TAB = "Lists you already have"
 #: ("Degree Plato"), and seeding provides 49 of them.
 UNITS_TAB = "Units you can use"
 
+#: The Site tab prompt naming the owning company. Prefilled for a
+#: further site so nobody retypes it: a site belongs to exactly one
+#: company, and a near-miss spelling would read as a new one.
+COMPANY_PROMPT = "The company this site belongs to"
+
 SCOPES = ("all", "enterprise", "site")
 
 _BLURBS = {
@@ -305,6 +310,7 @@ def build_workbook(
     data: dict | None = None,
     existing_lists: list[tuple[str, str]] | None = None,
     existing_units: list[tuple[str, str]] | None = None,
+    company_name: str | None = None,
 ) -> bytes:
     """Return an .xlsx as bytes.
 
@@ -338,6 +344,10 @@ def build_workbook(
         }
         example = True
         blurb = data.get("_readme") or blurb
+
+    if company_name:
+        answers_site = dict(answers_site)
+        answers_site.setdefault(COMPANY_PROMPT, company_name)
 
     sheets: list[tuple[str, list, list[int], str]] = [(
         "Read me",
@@ -400,6 +410,7 @@ def build_from_brief(
     brief_path: Path | None = None,
     existing_lists: list[tuple[str, str]] | None = None,
     existing_units: list[tuple[str, str]] | None = None,
+    company_name: str | None = None,
 ) -> bytes:
     """Read the brief off disk and build the workbook from it."""
     path = brief_path or default_brief_path()
@@ -413,5 +424,6 @@ def build_from_brief(
             "guide describes)" % path
         ) from exc
     return build_workbook(
-        markdown, scope, example, data, existing_lists, existing_units
+        markdown, scope, example, data, existing_lists,
+        existing_units, company_name,
     )

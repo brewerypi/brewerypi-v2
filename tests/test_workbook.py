@@ -180,3 +180,18 @@ def test_units_reference_appears_at_every_scope(brief):
             brief, scope=scope, existing_units=units,
         ))
         assert workbook.UNITS_TAB in filled, scope
+
+
+def test_site_workbook_names_its_company(brief):
+    """Site.enterprise_id is required, so the workbook must carry it."""
+    filled = tabs(workbook.build_workbook(
+        brief, scope="site", company_name="Example Brewing Co.",
+    ))
+    assert [workbook.COMPANY_PROMPT, "Example Brewing Co."] in filled[
+        "Site"
+    ]
+
+
+def test_company_prompt_is_a_real_line_in_the_brief(brief):
+    """Guards the prefill key against the brief being reworded."""
+    assert "- %s:" % workbook.COMPANY_PROMPT in brief

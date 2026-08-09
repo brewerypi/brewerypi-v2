@@ -2622,6 +2622,25 @@ def _existing_lists(
     return found or None
 
 
+def _company_name(enterprise_id: int | None) -> str | None:
+    """Return the company a further site belongs to, if unambiguous.
+
+    ``Site.enterprise_id`` is required, and a site workbook otherwise
+    says nothing about which company it is for, so the agent has to
+    infer it. With several companies and no id given, this returns None
+    and the prompt stays blank: a blank is a question the agent asks,
+    where a guess is a site attached to the wrong business.
+    """
+    with _Session() as session:
+        rows = list(session.scalars(select(Enterprise)).all())
+        if enterprise_id is not None:
+            match = next(
+                (e for e in rows if e.id == enterprise_id), None
+            )
+            return match.name if match else None
+        return rows[0].name if len(rows) == 1 else None
+
+
 def _existing_units(enterprise_id: int | None) -> list[tuple[str, str]]:
     """Return (symbol, name) for the measurement units a company has.
 
@@ -2681,6 +2700,11 @@ def get_configuration_workbook(
             ),
             existing_units=(
                 None if example else _existing_units(enterprise_id)
+            ),
+            company_name=(
+                None
+                if example or scope != "site"
+                else _company_name(enterprise_id)
             ),
         )
     except (ValueError, FileNotFoundError) as exc:

@@ -225,3 +225,9 @@ def test_workbook_lists_the_units_the_company_has(seeded):
     )[workbook.UNITS_TAB]
     assert rows[0] == ["Write this", "For", "Already set up?"]
     assert any(r[0] == "°C" for r in rows[1:]), rows
+
+
+def test_site_workbook_names_the_company_it_belongs_to(seeded):
+    result = mcp_server.get_configuration_workbook(scope="site")
+    rows = workbook_tabs(base64.b64decode(result.resource.blob))["Site"]
+    assert [workbook.COMPANY_PROMPT, "Brewery Co"] in rows
