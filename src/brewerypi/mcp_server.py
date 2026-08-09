@@ -20,15 +20,17 @@ In deployment the process binds to localhost and a reverse proxy
 terminates HTTPS and gates access with a secret path; see the deploy guide.
 """
 
+import base64
 import os
 from datetime import datetime, timezone
 
 from fastmcp import FastMCP
+from mcp.types import BlobResourceContents, EmbeddedResource
 from sqlalchemy import create_engine, event, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from brewerypi import services
+from brewerypi import services, workbook
 from brewerypi.config import DATABASE_URL
 from brewerypi.models import (
     Area,
@@ -2591,6 +2593,39 @@ def unwire_event_frame_attribute(
             return {"error": str(exc)}
 
 
+def get_configuration_workbook(
+    scope: str = "all", example: bool = False
+) -> EmbeddedResource | dict:
+    """Hand back a spreadsheet for describing a brewery's setup.
+
+    Send the file to the user to fill in and upload back, rather than
+    asking for a whole brewery a question at a time. One tab per part of
+    the setup: the company and its lists, the site, its equipment, the
+    batches each kind of equipment runs, and what gets recorded.
+
+    ``scope`` picks how much of it to include: "all" for a new company
+    and its first site, "enterprise" for the company-wide answers alone,
+    "site" for one further site at a company that already exists.
+
+    ``example`` fills every tab in for a brewery that does not exist, as
+    a reference for what a completed workbook looks like. Never treat a
+    returned example as real configuration.
+    """
+    try:
+        content = workbook.build_from_brief(scope=scope, example=example)
+    except (ValueError, FileNotFoundError) as exc:
+        return {"error": str(exc)}
+    name = "brewery-pi-%s%s.xlsx" % (scope, "-example" if example else "")
+    return EmbeddedResource(
+        type="resource",
+        resource=BlobResourceContents(
+            uri="file:///%s" % name,
+            mimeType=workbook.XLSX_MEDIA_TYPE,
+            blob=base64.b64encode(content).decode(),
+        ),
+    )
+
+
 def _register_config_tools(server: FastMCP) -> None:
     """Register the admin-only configuration CRUD tools on a server."""
     for tool in (
@@ -2599,6 +2634,7 @@ def _register_config_tools(server: FastMCP) -> None:
         update_measurement_unit,
         delete_measurement_unit,
         add_default_measurement_units,
+        get_configuration_workbook,
         list_lookups,
         create_lookup,
         update_lookup,

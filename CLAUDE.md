@@ -254,12 +254,13 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
   and event-frame-template reads —
   operators browse batch types to start instances, and run the whole event
   frame lifecycle: create/close/reopen/update/delete_event_frame), admin tier
-  77 (adds
+  78 (adds
   `create`/`update`/`delete_element`, the config tables' CRUD, the element
   attribute template tools, `wire`/`unwire_element_attribute`,
   `add_default_measurement_units`,
-  `create`/`update`/`delete_event_frame_template`, and the event frame
-  attribute template tools, and wire/unwire_event_frame_attribute).
+  `create`/`update`/`delete_event_frame_template`, the event frame
+  attribute template tools, wire/unwire_event_frame_attribute, and
+  `get_configuration_workbook`).
   `element_templates` is a config table the operator tier doesn't
   browse, so admin OWNS `list_element_templates` (reference-table pattern);
   its update re-parents via `parent_id` / promotes via `make_top_level`.

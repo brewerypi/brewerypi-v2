@@ -37,6 +37,17 @@ All notable changes to this project are documented here. The format is based on
   (`create_element_template` defines a KIND of equipment, `create_element`
   creates an actual vessel, `create_event_frame` starts a batch, and so on),
   so the mapping is taught at the point of use.
+- `get_configuration_workbook` (admin): hands the brief back as an .xlsx
+  the user fills in offline and uploads, for anyone who would rather not
+  edit Markdown tables. `scope` picks how much of it to include -- the
+  whole thing, the company-wide answers alone, or one further site -- and
+  `example=True` returns it filled in for a brewery that does not exist.
+  `brewerypi/workbook.py` derives the tabs from the brief's own tables at
+  call time, so the spreadsheet cannot drift from the doc, and writes the
+  .xlsx as zipped XML rather than adding a spreadsheet dependency. The
+  workbook deliberately carries no guidance: instructions stay in the
+  Markdown, and a test asserts no cell holds anything that is not a table
+  row or a prompt from the brief.
 - `docs/site-configuration-brief.md`: a fill-in-the-blanks brief the user
   pastes into an admin chat to configure one site. Batch-first, because a
   batch is what a brewery already writes down by hand -- a brew, a

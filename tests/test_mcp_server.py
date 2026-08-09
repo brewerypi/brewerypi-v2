@@ -9,13 +9,14 @@ Requires the ``mcp`` extra (``pip install -e ".[dev,mcp]"``) since importing
 the server pulls in ``fastmcp``.
 """
 
+import base64
 import datetime
 
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from brewerypi import mcp_server
+from brewerypi import mcp_server, workbook
 from brewerypi.database import Base
 from brewerypi.models import (
     Area,
@@ -27,6 +28,7 @@ from brewerypi.models import (
     Tag,
     TagValue,
 )
+from tests.test_workbook import tabs as workbook_tabs
 
 
 @pytest.fixture
@@ -177,3 +179,17 @@ def test_record_rejects_unselectable_lookup_value(seeded):
 
 def test_record_unknown_tag(seeded):
     assert "error" in mcp_server.record_tag_value(99999, value=1.0)
+
+
+def test_get_configuration_workbook_returns_a_file():
+    """Admin tier hands back a real .xlsx, not a description of one."""
+    result = mcp_server.get_configuration_workbook(scope="site")
+    assert result.resource.mimeType == workbook.XLSX_MEDIA_TYPE
+    content = base64.b64decode(result.resource.blob)
+    assert content[:2] == b"PK"  # a zip, which is what .xlsx is
+    assert "Equipment" in workbook_tabs(content)
+
+
+def test_get_configuration_workbook_rejects_a_bad_scope():
+    result = mcp_server.get_configuration_workbook(scope="nonsense")
+    assert "error" in result
