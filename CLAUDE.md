@@ -145,7 +145,17 @@ extending event frames or adding delete guards.
 - `EventFrameTemplate` (event frames, in progress): a batch-window type defined
   for an `element_template` (`element_template_id`), self-referential
   (`parent_id`) so a "Brew" on a Brewhouse nests a "Mashing" on the Mash Mixer
-  child. Name unique per element template. `ElementTemplate` cascades them. A1
+  child. Name unique per element template. `ElementTemplate` cascades them.
+  `step_order` (non-null) is the position of the step within its parent
+  process — Mashing 1, Lautering 2, Boil 3 — unique among siblings via
+  `UniqueConstraint("parent_id", "step_order")`. A top-level template is the
+  process, not a step inside one, so it ALWAYS holds 1: that is what makes
+  the single constraint sufficient despite SQL's NULL-is-never-equal-to-NULL
+  rule, since every row where uniqueness matters has a non-NULL `parent_id`,
+  and two top-level templates both at 1 is the intended outcome (they list
+  alphabetically). The service requires `step_order` when nesting and rejects
+  it (other than 1) at top level; promoting to top-level resets it to 1;
+  `list_` orders by `step_order, name`. A1
   nesting mirror + `default_start/end` attribute values + the instance side
   (overlap guard via `element_template.exclusive`, containment, open/close/
   reopen, tag wiring reuse) are being built table-by-table.

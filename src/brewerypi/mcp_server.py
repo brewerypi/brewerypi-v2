@@ -701,6 +701,7 @@ def _event_frame_template_dict(t: EventFrameTemplate) -> dict:
         "id": t.id,
         "element_template_id": t.element_template_id,
         "parent_id": t.parent_id,
+        "step_order": t.step_order,
         "name": t.name,
         "description": t.description,
     }
@@ -2257,6 +2258,7 @@ def unwire_element_attribute(
 def create_event_frame_template(
     element_template_id: int,
     name: str,
+    step_order: int | None = None,
     description: str | None = None,
     parent_id: int | None = None,
 ) -> dict:
@@ -2266,11 +2268,21 @@ def create_event_frame_template(
     Run" on the canning line. Pass ``parent_id`` to nest a batch inside
     another -- a Mashing within a Brew -- which requires this batch's
     equipment to sit directly inside the parent batch's equipment.
+
+    When nesting, ``step_order`` says which step this is within the parent
+    batch -- Mashing 1, Lautering 2, Boil 3 -- and no two steps under the
+    same parent can share a number. A batch type that isn't nested inside
+    another doesn't need one.
     """
     with _Session() as session:
         try:
             t = services.create_event_frame_template(
-                session, element_template_id, name, description, parent_id
+                session,
+                element_template_id,
+                name,
+                step_order,
+                description,
+                parent_id,
             )
             result = _event_frame_template_dict(t)
             session.commit()
@@ -2286,18 +2298,27 @@ def update_event_frame_template(
     description: str | None = None,
     parent_id: int | None = None,
     make_top_level: bool = False,
+    step_order: int | None = None,
 ) -> dict:
     """Update an event frame template (admin, write).
 
     Re-parent by setting ``parent_id`` (A1 mirror still applies) or
     ``make_top_level=true``; leave both unset to keep the current parent.
-    ``name``/``description`` change only when provided.
+    ``name``/``description`` change only when provided. ``step_order``
+    re-positions this step among the other steps under the same parent --
+    that number has to be free. Promoting a batch type out to the top level
+    resets it to 1.
     """
     with _Session() as session:
         try:
             if make_top_level:
                 t = services.update_event_frame_template(
-                    session, template_id, name, description, parent_id=None
+                    session,
+                    template_id,
+                    name,
+                    description,
+                    parent_id=None,
+                    step_order=step_order,
                 )
             elif parent_id is not None:
                 t = services.update_event_frame_template(
@@ -2306,10 +2327,15 @@ def update_event_frame_template(
                     name,
                     description,
                     parent_id=parent_id,
+                    step_order=step_order,
                 )
             else:
                 t = services.update_event_frame_template(
-                    session, template_id, name, description
+                    session,
+                    template_id,
+                    name,
+                    description,
+                    step_order=step_order,
                 )
             result = _event_frame_template_dict(t)
             session.commit()

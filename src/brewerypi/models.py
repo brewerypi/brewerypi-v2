@@ -444,10 +444,22 @@ class EventFrameTemplate(Base):
     can have a "Mashing" child template on the Brewhouse's Mash Mixer child
     (the A1 mirror rule is enforced in the service layer). Name is unique per
     element template.
+
+    ``step_order`` is the position of this step within its parent process --
+    Mashing 1, Lautering 2, Boil 3 -- and is unique among siblings. A
+    top-level template is not a step inside anything (it IS the process), so
+    it always carries 1; that is why the unique constraint on
+    ``(parent_id, step_order)`` is enough on its own. Every row where
+    uniqueness matters has a non-NULL ``parent_id``, and SQL's NULL-is-never-
+    equal-to-NULL rule only exempts the top-level rows, where two templates
+    both holding 1 is the intended outcome rather than a collision.
     """
 
     __tablename__ = "event_frame_templates"
-    __table_args__ = (UniqueConstraint("element_template_id", "name"),)
+    __table_args__ = (
+        UniqueConstraint("element_template_id", "name"),
+        UniqueConstraint("parent_id", "step_order"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     element_template_id: Mapped[int] = mapped_column(
@@ -456,6 +468,7 @@ class EventFrameTemplate(Base):
     parent_id: Mapped[int | None] = mapped_column(
         ForeignKey("event_frame_templates.id"), index=True
     )
+    step_order: Mapped[int] = mapped_column(default=1)
     name: Mapped[str] = mapped_column(String(45))
     description: Mapped[str | None] = mapped_column(String(255))
 

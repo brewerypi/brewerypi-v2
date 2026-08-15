@@ -43,7 +43,7 @@ def test_create_nested_and_list(seeded):
     brew = mcp_server.create_event_frame_template(seeded["bh"], "Brew")
     assert brew["parent_id"] is None
     mashing = mcp_server.create_event_frame_template(
-        seeded["mm"], "Mashing", parent_id=brew["id"]
+        seeded["mm"], "Mashing", step_order=1, parent_id=brew["id"]
     )
     assert mashing["parent_id"] == brew["id"]
     rows = mcp_server.list_event_frame_templates(
@@ -56,7 +56,7 @@ def test_create_a1_violation_error(seeded):
     brew = mcp_server.create_event_frame_template(seeded["bh"], "Brew")
     # Fermenter isn't a child of Brewhouse
     result = mcp_server.create_event_frame_template(
-        seeded["ferm"], "Bogus", parent_id=brew["id"]
+        seeded["ferm"], "Bogus", step_order=1, parent_id=brew["id"]
     )
     assert "error" in result
 
@@ -84,13 +84,35 @@ def test_update_reparent(seeded):
 def test_delete_requires_confirm_and_guards_children(seeded):
     brew = mcp_server.create_event_frame_template(seeded["bh"], "Brew")
     mcp_server.create_event_frame_template(
-        seeded["mm"], "Mashing", parent_id=brew["id"]
+        seeded["mm"], "Mashing", step_order=1, parent_id=brew["id"]
     )
     preview = mcp_server.delete_event_frame_template(brew["id"])
     assert preview["child_count"] == 1
     assert "error" in mcp_server.delete_event_frame_template(
         brew["id"], confirm=True
     )
+
+
+def test_step_order_round_trip(seeded):
+    brew = mcp_server.create_event_frame_template(seeded["bh"], "Brew")
+    assert brew["step_order"] == 1
+    mcp_server.create_event_frame_template(
+        seeded["mm"], "Mashing", step_order=1, parent_id=brew["id"]
+    )
+    taken = mcp_server.create_event_frame_template(
+        seeded["mm"], "Lautering", step_order=1, parent_id=brew["id"]
+    )
+    assert "error" in taken
+    lautering = mcp_server.create_event_frame_template(
+        seeded["mm"], "Lautering", step_order=2, parent_id=brew["id"]
+    )
+    assert lautering["step_order"] == 2
+    moved = mcp_server.update_event_frame_template(
+        lautering["id"], step_order=3
+    )
+    assert moved["step_order"] == 3
+    rows = mcp_server.list_event_frame_templates(parent_id=brew["id"])
+    assert [r["name"] for r in rows] == ["Mashing", "Lautering"]
 
 
 def test_reads_operator_writes_admin():

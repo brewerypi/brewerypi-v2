@@ -66,7 +66,7 @@ def ctx():
         )
         brew_t = create_event_frame_template(session, bh_t.id, "Brew")
         mash_t = create_event_frame_template(
-            session, mm_t.id, "Mashing", parent_id=brew_t.id
+            session, mm_t.id, "Mashing", step_order=1, parent_id=brew_t.id
         )
         bh = create_element(session, bh_t.id, "BH1", tag_area_id=area.id)
         mm = create_element(
