@@ -195,3 +195,17 @@ def test_site_workbook_names_its_company(brief):
 def test_company_prompt_is_a_real_line_in_the_brief(brief):
     """Guards the prefill key against the brief being reworded."""
     assert "- %s:" % workbook.COMPANY_PROMPT in brief
+
+
+def test_nesting_carries_the_step_order(brief):
+    """Nested batch types need a step_order; nothing else supplies it."""
+    filled = tabs(workbook.build_workbook(brief, example=True))
+    header, rows = filled["Nesting"][0], filled["Nesting"][1:]
+    assert header[-1] == "Order"
+    # The brew's steps run in process order, not alphabetical.
+    assert [(r[1], r[-1]) for r in rows] == [
+        ("Mashing", "1"),
+        ("Lautering", "2"),
+        ("Boiling", "3"),
+        ("Whirlpooling", "4"),
+    ]

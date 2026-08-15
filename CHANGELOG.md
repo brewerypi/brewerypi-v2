@@ -62,7 +62,9 @@ All notable changes to this project are documented here. The format is based on
   required and nothing else in that workbook implied it, so the
   agent was left to infer the owner and could attach a second site
   to nothing. Prefilled rather than asked, since a near-miss
-  spelling of the company name reads as a new company.
+  spelling of the company name reads as a new company. The nesting
+  table carries an `Order` column, since `step_order` is required
+  when nesting and row position is not a signal the agent can read.
 - `docs/site-configuration-brief.md`: a fill-in-the-blanks brief the user
   pastes into an admin chat to configure one site. Batch-first, because a
   batch is what a brewery already writes down by hand -- a brew, a

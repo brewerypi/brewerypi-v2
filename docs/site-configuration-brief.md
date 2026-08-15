@@ -102,14 +102,15 @@ than one, because two brews are often in flight at once.
 | Canning line | Canning | No |
 | Kegging line | Kegging | No |
 
-Which batches happen inside another batch.
+Which batches happen inside another batch, and the order they run in.
+Mashing is the first step of a brew, lautering the second.
 
-| Equipment | This batch | Happens inside |
-| --- | --- | --- |
-| Mash mixer | Mashing | Brew |
-| Lauter tun | Lautering | Brew |
-| Kettle | Boiling | Brew |
-| Whirlpool | Whirlpooling | Brew |
+| Equipment | This batch | Happens inside | Order |
+| --- | --- | --- | --- |
+| Mash mixer | Mashing | Brew | 1 |
+| Lauter tun | Lautering | Brew | 2 |
+| Kettle | Boiling | Brew | 3 |
+| Whirlpool | Whirlpooling | Brew | 4 |
 
 What gets recorded on a batch. "At start" and "at end" are the values
 filled in for you by default. Leave them blank when the value differs
@@ -194,11 +195,13 @@ worth getting right, so say so if you are unsure:
 |  |  |  |
 
 Does a batch on one piece of equipment happen inside a batch on another?
-Mashing, on the mash mixer, happens inside a brew on the brewhouse:
+Mashing, on the mash mixer, happens inside a brew on the brewhouse.
+Number them in the order they actually run, since nothing else says
+which step comes first:
 
-| Equipment | This batch | Happens inside |
-| --- | --- | --- |
-|  |  |  |
+| Equipment | This batch | Happens inside | Order |
+| --- | --- | --- | --- |
+|  |  |  |  |
 
 ### What you record on a batch
 
