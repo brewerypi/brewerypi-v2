@@ -10,11 +10,20 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest]
         python-version: ["3.10", "3.11", "3.12", "3.13"]
+        # One Windows job: platform breakage (missing system tz database,
+        # path and line-ending handling) is an OS-level question, not a
+        # per-version one, so a single job covers it. Without this the
+        # matrix only ever asks "does it work on Linux?" -- which is how
+        # the package stayed broken on Windows behind a green checkmark.
+        include:
+          - os: windows-latest
+            python-version: "3.13"
 
     steps:
       - uses: actions/checkout@v7

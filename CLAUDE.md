@@ -199,17 +199,16 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
 - For the MCP-server path, set `DATABASE_URL` to an ABSOLUTE sqlite path, since
   the server is launched from a different working directory than the repo root.
 - Line endings: `.gitattributes` pins `* text=auto eol=lf`; keep the editor on LF.
-- KNOWN FAILURE on Windows: `pytest` reports ~44 failures, all from
-  `ZoneInfo(...)` raising `ZoneInfoNotFoundError` (even for `"UTC"`), so
-  `is_valid_timezone` rejects every zone and anything creating a `Site` fails.
-  Windows ships no system IANA tz database and `tzdata` is NOT declared in
-  `pyproject.toml`, so `zoneinfo.TZPATH` is empty. These failures are
-  PRE-EXISTING — do not assume your change caused them; confirm with `git
-  stash`. Workaround: `pip install tzdata`. The fix is to declare it as a
-  dependency (unconditionally, to pin the tzdb version, or
-  `; sys_platform == "win32"` to lean on the host tzdb elsewhere) — undecided,
-  and deliberately not yet done. Linux CI has a system tzdb and passes green,
-  so CI hides this; the package is broken for any Windows consumer.
+- `tzdata` is an UNCONDITIONAL runtime dependency, deliberately. `zoneinfo`
+  reads the OS's IANA tz database; Windows ships none, so `zoneinfo.TZPATH` was
+  empty and every `ZoneInfo(...)` raised `ZoneInfoNotFoundError` — even for
+  `"UTC"` — making `is_valid_timezone` reject every zone and anything creating
+  a `Site` fail (~44 test failures on Windows, invisible to the Linux CI, which
+  has a system tzdb). Not marked `; sys_platform == "win32"`: shipping the same
+  tzdb everywhere keeps zone rules identical across deployments, and a
+  historian must not reinterpret stored UTC differently from host to host when
+  DST rules change. If zone lookups ever fail again, check that `tzdata` is
+  actually installed in the active environment (`pip install -e .`).
 
 ## Not done yet
 - `create_all` (in `main.py`) still builds the schema for the throwaway
@@ -223,8 +222,11 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
 - Schema-naming decision (see above) is still open.
 
 ## In place
-- MIT `LICENSE`, CI (GitHub Actions: ruff + pytest on 3.10–3.13, installing
-  the `dev` + `mcp` extras), pre-commit hook, `.gitattributes` (LF).
+- MIT `LICENSE`, CI (GitHub Actions: ruff + pytest on 3.10–3.13 on Linux plus
+  one `windows-latest` job on 3.13, installing the `dev` + `mcp` extras),
+  pre-commit hook, `.gitattributes` (LF). The Windows job exists to catch
+  platform breakage (missing system tz database, paths, line endings) that a
+  Linux-only matrix structurally cannot see — keep it when editing the matrix.
 - Pushed to GitHub at `github.com/brewerypi/brewerypi-v2`.
 - Alembic migrations in `migrations/` (initial migration captures the current
   schema; `env.py` wired to `Base.metadata` + `DATABASE_URL`).

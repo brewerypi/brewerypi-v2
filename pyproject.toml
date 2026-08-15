@@ -10,6 +10,12 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "sqlalchemy>=2.0",
+    # `zoneinfo` reads the OS's IANA database, and Windows ships none -- every
+    # zone lookup fails there, `"UTC"` included. Declared unconditionally (not
+    # `; sys_platform == "win32"`) so every deployment resolves zone rules
+    # from the same tzdb: DST rules change, and a historian must not
+    # reinterpret stored UTC differently from one host to the next.
+    "tzdata",
 ]
 
 [project.optional-dependencies]
