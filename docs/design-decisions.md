@@ -211,3 +211,20 @@ confirm preview is the only bulk path that removes them.
   eventually justify the move. Note that several auto-generated foreign key
   names already exceed Postgres's 63-character identifier limit; harmless on
   SQLite, but they will be truncated on migration.
+- **Staff-authored forms and reports (Claude Artifacts + MCP).** A published
+  Artifact can declare the `mcp` capability and call the viewer's connectors
+  from the page itself, so a round-entry form or a shift report reads and
+  writes Brewery Pi directly, without the data passing through the
+  conversation. The plumbing already exists end to end: the deployed
+  operator/admin connectors, the capability, and a tool surface covering both
+  halves -- `record_tag_value` and the event frame lifecycle for writes,
+  `browse_hierarchy` / `get_tag_values` / `tag_value_stats` for reads. Two
+  things gate it. **Identity:** forms make writing easy and high-volume,
+  which is exactly when a shared secret path with no attribution stops being
+  acceptable, so this waits on OAuth above. **Distribution:** a page
+  declaring `mcp` cannot be shared publicly and each viewer must add the
+  connector themselves, so every brewer authors their own page rather than
+  the cellar sharing one URL. Worth doing first either way: the MCP tools
+  declare no `annotations`, and adding `readOnlyHint` would let read tools
+  cache and coalesce while making write tools structurally un-cacheable and
+  un-watchable.
