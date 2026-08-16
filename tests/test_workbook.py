@@ -248,3 +248,16 @@ def _nesting_xml(content: bytes) -> str:
     return archive.read(
         "xl/worksheets/sheet%d.xml" % index
     ).decode("utf-8")
+
+
+def test_units_reference_is_sorted_by_symbol(brief):
+    """49 seeded units are a lookup table, so order by the looked-up key."""
+    filled = tabs(workbook.build_workbook(brief, existing_units=[
+        ("psi", "Pound per square inch"),
+        ("\u00b0P", "Degree Plato"),
+        ("bbl", "US beer barrel"),
+        ("L", "Liter"),
+    ]))
+    assert [r[0] for r in filled[workbook.UNITS_TAB][1:]] == [
+        "bbl", "L", "psi", "\u00b0P",
+    ]

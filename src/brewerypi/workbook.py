@@ -419,9 +419,13 @@ def build_workbook(
 
     if existing_units:
         rows = [(["Write this", "For", "Already set up?"], HEADER)]
+        # Sorted by symbol, since that is the column being looked up and
+        # there are 49 of them before a brewery adds any of its own.
         rows += [
             ([symbol, name, "yes, use it as it is"], NORMAL)
-            for symbol, name in existing_units
+            for symbol, name in sorted(
+                existing_units, key=lambda unit: unit[0].lower()
+            )
         ]
         sheets.append((UNITS_TAB, rows, [16, 42, 22], "all"))
 

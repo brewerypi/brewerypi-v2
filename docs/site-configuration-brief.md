@@ -59,6 +59,7 @@ not a can size.
 | Brand | Pale Ale, IPA, Pilsner, Stout |
 | Can format | 12 oz, 16 oz, 19.2 oz |
 | Keg format | 1/2 bbl., 1/6 bbl. |
+| Yes/No | Yes, No |
 
 ### The site, answered
 
@@ -119,6 +120,14 @@ every batch and you will type it each time.
 | Equipment | Batch | What you record | Units or list | At start | At end |
 | --- | --- | --- | --- | --- | --- |
 | Brewhouse | Brew | Brand | Brand | | |
+| Mash mixer | Mashing | pH | pH | | |
+| Mash mixer | Mashing | Conversion complete | Yes/No | | |
+| Lauter tun | Lautering | Gravity | °P | | |
+| Lauter tun | Lautering | pH | pH | | |
+| Kettle | Boiling | Gravity | °P | | |
+| Kettle | Boiling | pH | pH | | |
+| Whirlpool | Whirlpooling | Gravity | °P | | |
+| Whirlpool | Whirlpooling | pH | pH | | |
 | Fermenter | Fermentation | Status | FV Status | Filling | Empty |
 | Fermenter | Fermentation | Gravity | °P | | |
 | Fermenter | Fermentation | Temperature | °F | | |
