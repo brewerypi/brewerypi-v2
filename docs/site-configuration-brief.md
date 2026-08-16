@@ -140,7 +140,7 @@ every batch and you will type it each time.
 
 What gets read on rounds instead of per batch.
 
-| Kind of equipment | What you read | Units or list |
+| Kind of equipment | What you record | Units or list |
 | --- | --- | --- |
 | Boiler | Conductivity | µS/cm |
 | Boiler | pH | pH |
@@ -226,6 +226,6 @@ when the value differs every batch:
 For equipment listed above that you check on a walk-around rather than per
 batch: boilers, glycol, water treatment, CIP. Skip it if you have none:
 
-| Kind of equipment | What you read | Units or list |
+| Kind of equipment | What you record | Units or list |
 | --- | --- | --- |
 |  |  |  |

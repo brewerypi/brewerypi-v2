@@ -42,7 +42,7 @@ SHEETS: list[tuple[str, str, str]] = [
     ("Kind of equipment | What a batch is called", "Batches", "site"),
     ("Equipment | This batch", "Nesting", "site"),
     ("Equipment | Batch | What you record", "Recorded", "site"),
-    ("Kind of equipment | What you read", "Rounds", "site"),
+    ("Kind of equipment | What you record", "Rounds", "site"),
 ]
 
 #: Read-only tab naming the lookups a company already has, so a

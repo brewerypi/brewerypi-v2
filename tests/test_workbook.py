@@ -261,3 +261,17 @@ def test_units_reference_is_sorted_by_symbol(brief):
     assert [r[0] for r in filled[workbook.UNITS_TAB][1:]] == [
         "bbl", "L", "psi", "\u00b0P",
     ]
+
+
+def test_every_brief_table_maps_to_its_own_tab(brief):
+    """Sheet keys are header prefixes, so two tables can collide.
+
+    Recorded and Rounds both contain "What you record"; only the first
+    column tells them apart. A reworded header that made one a prefix of
+    the other would silently drop a tab rather than fail.
+    """
+    _, _, headers = workbook.parse_form(brief)
+    matched = [workbook._match_sheet(header) for header in headers]
+    assert None not in matched, headers
+    labels = [m[1] for m in matched]
+    assert len(labels) == len(set(labels)), labels
