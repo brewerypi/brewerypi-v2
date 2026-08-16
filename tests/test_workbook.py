@@ -37,7 +37,14 @@ def tabs(content: bytes) -> dict[str, list[list[str]]]:
         )
         rows = []
         for row in sheet.iter(NS + "row"):
-            cells = [t.text or "" for t in row.iter(NS + "t")]
+            cells = []
+            for cell in row.iter(NS + "c"):
+                # Text cells carry <is><t>; numbers carry <v>.
+                text = "".join(t.text or "" for t in cell.iter(NS + "t"))
+                if not text:
+                    value = cell.find(NS + "v")
+                    text = (value.text or "") if value is not None else ""
+                cells.append(text)
             if cells:
                 rows.append(cells)
         out[name] = rows
@@ -209,3 +216,35 @@ def test_nesting_carries_the_step_order(brief):
         ("Boiling", "3"),
         ("Whirlpooling", "4"),
     ]
+
+
+def test_numbers_are_written_as_numbers(brief):
+    """Excel flags a numeric-looking string as Number Stored as Text."""
+    content = workbook.build_workbook(brief, example=True)
+    sheet = _nesting_xml(content)
+    assert "<v>1</v>" in sheet
+    assert "<t xml:space=\"preserve\">1</t>" not in sheet
+
+
+def test_text_that_merely_looks_numeric_stays_text(brief):
+    """Round-tripping guards what the user actually wrote."""
+    assert workbook._is_number("4")
+    assert workbook._is_number("19.2")
+    assert not workbook._is_number("01")      # a leading zero is meaning
+    assert not workbook._is_number("1/2 bbl.")
+    assert not workbook._is_number("12 oz")
+    assert not workbook._is_number("")
+
+
+def _nesting_xml(content: bytes) -> str:
+    archive = zipfile.ZipFile(io.BytesIO(content))
+    names = [
+        s.get("name")
+        for s in ET.fromstring(
+            archive.read("xl/workbook.xml")
+        ).iter(NS + "sheet")
+    ]
+    index = names.index("Nesting") + 1
+    return archive.read(
+        "xl/worksheets/sheet%d.xml" % index
+    ).decode("utf-8")

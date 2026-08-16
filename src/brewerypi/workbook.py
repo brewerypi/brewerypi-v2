@@ -170,6 +170,24 @@ def _column(index: int) -> str:
     return chr(ord("A") + index)
 
 
+def _is_number(value: str) -> bool:
+    """True when the text is exactly how that number prints back.
+
+    Excel flags a numeric-looking string as "Number Stored as Text", so
+    genuine numbers are written as numbers. The round-trip check keeps
+    that from rewriting what someone typed: "01" and "1." both parse,
+    but neither prints back the same, so they stay text.
+    """
+    text = str(value)
+    for parse in (int, float):
+        try:
+            if str(parse(text)) == text:
+                return True
+        except ValueError:
+            pass
+    return False
+
+
 def _sheet_xml(
     rows: list[tuple[list[str], int]],
     widths: list[int],
@@ -190,14 +208,23 @@ def _sheet_xml(
     )
     body = []
     for number, (cells, style) in enumerate(rows, 1):
-        rendered = "".join(
-            '<c r="%s%d" t="inlineStr" s="%d"><is>'
-            '<t xml:space="preserve">%s</t></is></c>'
-            % (_column(i), number, style, escape(str(value)))
-            for i, value in enumerate(cells)
-            if value != ""
-        )
-        body.append('<row r="%d">%s</row>' % (number, rendered))
+        rendered = []
+        for i, value in enumerate(cells):
+            if value == "":
+                continue
+            reference = "%s%d" % (_column(i), number)
+            if _is_number(value):
+                rendered.append(
+                    '<c r="%s" s="%d"><v>%s</v></c>'
+                    % (reference, style, value)
+                )
+            else:
+                rendered.append(
+                    '<c r="%s" t="inlineStr" s="%d"><is>'
+                    '<t xml:space="preserve">%s</t></is></c>'
+                    % (reference, style, escape(str(value)))
+                )
+        body.append('<row r="%d">%s</row>' % (number, "".join(rendered)))
     return (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         '<worksheet xmlns="http://schemas.openxmlformats.org/'
