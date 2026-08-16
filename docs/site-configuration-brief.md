@@ -132,7 +132,7 @@ every batch and you will type it each time.
 | Fermenter | Fermentation | Gravity | °P | | |
 | Fermenter | Fermentation | Temperature | °F | | |
 | Brite tank | Conditioning | Status | BBT Status | Filling | Empty |
-| Brite tank | Conditioning | Pressure | PSI | | |
+| Brite tank | Conditioning | Pressure | psi | | |
 | Canning line | Canning | Format | Can format | | |
 | Canning line | Canning | TPO | ppb | | |
 | Kegging line | Kegging | Format | Keg format | | |
