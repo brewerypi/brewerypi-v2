@@ -169,6 +169,10 @@ def delete_element(session: Session, element_id: int) -> None:
 
     Its element attributes are unwired first: owned tags go with them (and the
     delete is refused if such a tag has readings), adopted tags are left.
+
+    Refused too if a transfer on *other* equipment still points at one of this
+    element's batches: deleting the element would cascade those batches away
+    and take the lineage with them.
     """
     element = get_element(session, element_id)
     children = session.scalar(
@@ -181,6 +185,7 @@ def delete_element(session: Session, element_id: int) -> None:
             f"cannot delete element {element_id}: it has {children} child "
             "element(s); delete or reparent them first"
         )
+    _check_no_transfers_into_frames(session, element_id)
     from brewerypi.services.element_attributes import (
         list_element_attributes,
         unwire_element_attribute,
@@ -198,6 +203,33 @@ def delete_element(session: Session, element_id: int) -> None:
         unwire_event_frame_attribute(session, attribute.id)
     session.delete(element)
     session.flush()
+
+
+def _check_no_transfers_into_frames(
+    session: Session, element_id: int
+) -> None:
+    """Refuse if another element's transfer points at this one's batches."""
+    from brewerypi.models import EventFrame
+    from brewerypi.services.event_frames import transfers_referencing
+
+    frame_ids = list(
+        session.scalars(
+            select(EventFrame.id).where(EventFrame.element_id == element_id)
+        ).all()
+    )
+    blockers = transfers_referencing(session, frame_ids, exclude_ids=frame_ids)
+    if blockers:
+        first = blockers[0]
+        extra = (
+            f" (and {len(blockers) - 1} other transfer(s))"
+            if len(blockers) > 1
+            else ""
+        )
+        raise ValidationError(
+            f"cannot delete element {element_id}: transfer frame {first.id} "
+            f"({first.name!r}) still points at one of its batches{extra}; "
+            "unlink or delete the transfer first"
+        )
 
 
 def _check_parent(

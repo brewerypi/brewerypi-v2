@@ -758,11 +758,18 @@ def _zone_for_frame(session: Session, frame: EventFrame) -> str:
 
 def _event_frame_dict(session: Session, f: EventFrame) -> dict:
     zone = _zone_for_frame(session, f)
+    element = session.get(Element, f.element_id)
     return {
         "id": f.id,
         "element_id": f.element_id,
+        "element_name": element.name if element is not None else None,
+        "element_template_id": (
+            element.element_template_id if element is not None else None
+        ),
         "event_frame_template_id": f.event_frame_template_id,
         "parent_id": f.parent_id,
+        "source_event_frame_id": f.source_event_frame_id,
+        "destination_event_frame_id": f.destination_event_frame_id,
         "name": f.name,
         "started_at": from_utc(f.started_at, zone),
         "ended_at": (
@@ -779,6 +786,9 @@ def list_event_frames(
     event_frame_template_id: int | None = None,
     parent_id: int | None = None,
     open_only: bool = False,
+    element_template_id: int | None = None,
+    source_event_frame_id: int | None = None,
+    destination_event_frame_id: int | None = None,
 ) -> list[dict]:
     """List batches, newest first, optionally filtered.
 
@@ -787,6 +797,13 @@ def list_event_frames(
     running, which answers "what is going on right now". Times are in the
     brewery's local time. Take a batch's start and end and pass them to
     `get_tag_values` to see what a measurement did during it.
+
+    To pick the source or destination of a transfer, filter by the kind of
+    equipment and the kind of batch -- ``element_template_id`` (every
+    fermenter) with ``event_frame_template_id`` (fermentations) and
+    ``open_only=true`` -- then choose from the list, which names the vessel.
+    ``source_event_frame_id`` / ``destination_event_frame_id`` instead ask
+    what moved out of, or into, one particular batch.
     """
     with _Session() as session:
         rows = services.list_event_frames(
@@ -795,6 +812,9 @@ def list_event_frames(
             event_frame_template_id,
             parent_id,
             open_only,
+            element_template_id,
+            source_event_frame_id,
+            destination_event_frame_id,
         )
         return [_event_frame_dict(session, f) for f in rows]
 
@@ -818,6 +838,8 @@ def create_event_frame(
     started_at: str | None = None,
     ended_at: str | None = None,
     parent_id: int | None = None,
+    source_event_frame_id: int | None = None,
+    destination_event_frame_id: int | None = None,
 ) -> dict:
     """Start a batch on a piece of equipment.
 
@@ -832,6 +854,15 @@ def create_event_frame(
     brew) needs ``parent_id``. Any default start values are recorded
     automatically. Refused if the equipment can only run one batch at a time
     and is already busy.
+
+    Moving beer? Give the batch a source and/or destination and it records the
+    transfer: a knockout from a brew into a fermentation, a centrifugation
+    from a fermentation into a brite tank, a canning run drawing from a brite
+    tank (source, no destination). Use `list_event_frames` filtered by
+    equipment type and batch type to find each end, and note that both ends
+    must already be running when the transfer starts. If the receiving batch
+    does not exist yet, leave the destination out and add it later with
+    `link_transfer`.
     """
     with _Session() as session:
         element = session.get(Element, element_id)
@@ -851,6 +882,8 @@ def create_event_frame(
                 start_dt,
                 end_dt,
                 parent_id,
+                source_event_frame_id,
+                destination_event_frame_id,
             )
             result = _event_frame_dict(session, frame)
             session.commit()
@@ -966,6 +999,23 @@ def delete_event_frame(
                 .select_from(EventFrame)
                 .where(EventFrame.parent_id == event_frame_id)
             )
+            blockers = services.transfers_blocking_delete(
+                session, event_frame_id
+            )
+            if blockers:
+                return {
+                    "confirm_required": False,
+                    "blocking_transfers": [
+                        {"id": t.id, "name": t.name} for t in blockers
+                    ],
+                    "message": (
+                        f"Cannot delete event frame {event_frame_id} "
+                        f"({frame.name}): "
+                        f"{len(blockers)} transfer(s) still record beer "
+                        "moving to or from it. Unlink or delete those "
+                        "first."
+                    ),
+                }
             return {
                 "confirm_required": True,
                 "event_frame": _event_frame_dict(session, frame),
@@ -984,6 +1034,89 @@ def delete_event_frame(
         except ServiceError as exc:
             session.rollback()
             return {"error": str(exc)}
+
+
+@mcp.tool
+def link_transfer(
+    event_frame_id: int,
+    source_event_frame_id: int | None = None,
+    destination_event_frame_id: int | None = None,
+    clear_source: bool = False,
+    clear_destination: bool = False,
+) -> dict:
+    """Record where a transfer's beer came from and where it went.
+
+    Use this when the receiving batch did not exist yet when the transfer
+    started -- open the brite tank's batch, then point the centrifugation at
+    it. Only what you pass changes; ``clear_source`` / ``clear_destination``
+    remove a link recorded by mistake.
+
+    Both ends must already be running when the transfer starts, and must stay
+    open until it finishes, so a transfer is refused if it falls outside
+    either batch's window.
+    """
+    with _Session() as session:
+        kwargs: dict = {}
+        if clear_source:
+            kwargs["source_event_frame_id"] = None
+        elif source_event_frame_id is not None:
+            kwargs["source_event_frame_id"] = source_event_frame_id
+        if clear_destination:
+            kwargs["destination_event_frame_id"] = None
+        elif destination_event_frame_id is not None:
+            kwargs["destination_event_frame_id"] = destination_event_frame_id
+        try:
+            frame = services.link_transfer(
+                session, event_frame_id, **kwargs
+            )
+            result = _event_frame_dict(session, frame)
+            session.commit()
+            return result
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
+@mcp.tool
+def trace_batch_lineage(
+    event_frame_id: int,
+    direction: str = "both",
+    max_depth: int = 10,
+) -> dict:
+    """Follow beer between batches: where it came from, where it went.
+
+    This is the traceability question a spreadsheet cannot answer -- "which
+    brews are in this canning run?" -- walked through every transfer in
+    between: packaging back through the brite tank, the centrifugation, the
+    fermentation, the knockout, to the brews themselves.
+
+    ``direction`` is "upstream" (back towards the raw materials),
+    "downstream" (forward to where the beer ended up) or "both".
+    ``max_depth`` limits how many transfers to follow; ``truncated`` in the
+    result says the limit cut the trail short, so nothing is silently
+    missing. Beer that goes to a brite tank and comes back belongs to the
+    same batch, so the trail can legitimately loop -- each batch is reported
+    once, at the shortest number of transfers from where you started.
+    """
+    with _Session() as session:
+        try:
+            result = services.trace_lineage(
+                session, event_frame_id, direction, max_depth
+            )
+        except ServiceError as exc:
+            return {"error": str(exc)}
+        for frame in result["frames"]:
+            zone = _zone_for_frame(
+                session, session.get(EventFrame, frame["id"])
+            )
+            frame["started_at"] = from_utc(frame["started_at"], zone)
+            frame["ended_at"] = (
+                from_utc(frame["ended_at"], zone)
+                if frame["ended_at"] is not None
+                else None
+            )
+            frame["timezone"] = zone
+        return result
 
 
 def _event_frame_attribute_dict(

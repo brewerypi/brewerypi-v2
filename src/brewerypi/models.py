@@ -555,6 +555,19 @@ class EventFrame(Base):
     boundary. Nests like the element/template trees (the A1 mirror and the
     overlap/containment guards live in the service layer). The name is a free
     label (not uniqueness-constrained).
+
+    ``source_event_frame_id``/``destination_event_frame_id`` make a frame a
+    *transfer*: beer moving out of one batch and into another, on whatever
+    equipment performs the move. They are FLOW, not containment --
+    ``parent_id`` is containment (a Mashing inside a Brew), obeying A1,
+    while flow runs between siblings, may point at closed batches, and may
+    legitimately cycle (a brite tank can send beer back to the fermentation it
+    came from -- the same batch, so the same frame). Multiplicity lives in the
+    number of transfer frames: two brews into one fermentation is two knockout
+    frames sharing a destination. Both are nullable -- a packaging run has a
+    source and no destination, and a destination is often set only once the
+    receiving batch exists. RESTRICT: a batch cannot be deleted while a
+    transfer still points at it.
     """
 
     __tablename__ = "event_frames"
@@ -575,19 +588,38 @@ class EventFrame(Base):
     parent_id: Mapped[int | None] = mapped_column(
         ForeignKey("event_frames.id"), index=True
     )
+    source_event_frame_id: Mapped[int | None] = mapped_column(
+        ForeignKey("event_frames.id", ondelete="RESTRICT"), index=True
+    )
+    destination_event_frame_id: Mapped[int | None] = mapped_column(
+        ForeignKey("event_frames.id", ondelete="RESTRICT"), index=True
+    )
     name: Mapped[str] = mapped_column(String(45))
     started_at: Mapped[datetime] = mapped_column()
     ended_at: Mapped[datetime | None] = mapped_column()
 
     element: Mapped[Element] = relationship(back_populates="event_frames")
     event_frame_template: Mapped[EventFrameTemplate] = relationship()
+    # Three self-referencing FKs, so every self-relationship below must say
+    # which one it joins on -- SQLAlchemy cannot infer it.
     parent: Mapped[EventFrame | None] = relationship(
         back_populates="children",
+        foreign_keys="EventFrame.parent_id",
         remote_side="EventFrame.id",
     )
     children: Mapped[list[EventFrame]] = relationship(
         back_populates="parent",
+        foreign_keys="EventFrame.parent_id",
         cascade="all, delete-orphan",
+    )
+    # No reverse collections: flow links are queried, never cascaded through.
+    source: Mapped[EventFrame | None] = relationship(
+        foreign_keys="EventFrame.source_event_frame_id",
+        remote_side="EventFrame.id",
+    )
+    destination: Mapped[EventFrame | None] = relationship(
+        foreign_keys="EventFrame.destination_event_frame_id",
+        remote_side="EventFrame.id",
     )
 
     def __repr__(self) -> str:

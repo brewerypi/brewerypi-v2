@@ -11,7 +11,9 @@ reading the code and reading this page cannot quietly disagree.
 
 ## Transfer frames and batch lineage
 
-**Status: decided, not built.**
+**Status: built.** Columns on `event_frames`, flow rules in
+`services/event_frames.py`, the graph walk in `services/lineage.py`, and the
+`link_transfer` / `trace_batch_lineage` tools on the operator tier.
 
 Beer moves between vessels, and those movements are what tie one batch to the
 next: several brews knock out into one fermentation, a fermentation is
@@ -43,8 +45,11 @@ which the existing event frame machinery already provides.
 
 **Point at event frames, not elements.** `FV01` has held hundreds of
 fermentations, so "from FV01" identifies nothing. Frame-to-frame gives real
-lineage. Tools can still let people speak in vessels: "transfer FV01 to BBT03"
-resolves each vessel to the frame currently open on it.
+lineage. People still choose in vessel terms: `list_event_frames` filters by
+kind of equipment and kind of batch (`element_template_id` +
+`event_frame_template_id` + `open_only`) and each row names its vessel, so
+picking a source reads as "the fermenters -> fermentations -> FV01 B123"
+rather than as an id lookup.
 
 **Multiplicity lives in the number of transfer frames.** Two brews into one
 fermentation is two knockout frames sharing a destination. One fermentation
@@ -81,9 +86,29 @@ no special-cased brew-to-fermentation edge. Workflow implication: closing a
 brew should offer to create the knockout frame in the same action, rather than
 leaving it as separate bookkeeping.
 
-**Timing is unconstrained.** A transfer frame's window need not sit inside its
-source or destination windows; real transfers straddle boundaries. A soft
-warning may be worth adding later, but no hard guard.
+**Timing is contained at both ends.** A transfer's window must sit *within*
+each endpoint's window: beer cannot leave a batch that had not started or had
+already finished. An open endpoint runs to +infinity, so it constrains only
+the start; an open transfer runs to +infinity too, so it needs an open
+endpoint at each linked end. One rule then covers what look like two: closing
+a batch while a transfer is still running out of (or into) it is refused
+because the open transfer no longer fits.
+
+This makes frame boundaries a **configuration convention** rather than a free
+choice, which is the real cost of the rule. A knockout only links if the brew
+stays open until the knockout finishes and the receiving fermentation is
+already open when it starts. Both match how the vessels are actually used --
+the fermentation is claimed before wort arrives, and the brew day is not over
+while wort is still moving -- but a brewery that closes its brew when the
+kettle empties will hit a refusal and have to move that boundary.
+
+Containment is re-checked whenever an endpoint's window moves or closes, so
+the database never holds a link that the create path would have rejected.
+Deleting is refused the same way: a batch cannot be deleted while a transfer
+points at it, and the guard covers the whole subtree a delete would cascade
+through, since deleting a Brew takes its Mashing with it. Deleting the
+*element* is refused too, for the same reason. Unlink first, deliberately --
+lineage is the one thing a delete must not quietly destroy.
 
 **The flow graph genuinely cycles, and that is legitimate.** Beer can go
 FV -> BBT for conditioning and later come back BBT -> FV. The returning beer
@@ -98,12 +123,15 @@ Three consequences follow:
    must track visited frames or it will loop forever on a re-blend. Same
    pattern as `_subtree` and `build_tag_name` in the services, but here it is
    load-bearing rather than belt-and-braces.
-2. **The destination frame must be open to receive.** If the fermentation was
-   fully transferred out and closed, the return requires reopening it first.
-   `reopen_event_frame` already re-runs the overlap guard, so if another
-   fermentation has since started in that vessel the reopen is correctly
-   refused. Reopen stays the single audited path back to an open batch; the
-   transfer tools must not quietly resurrect frames.
+2. **A batch expecting beer back stays open**, and that is what keeps the
+   lineage honest: while the fermentation frame is open, the exclusive-element
+   overlap guard holds FV01 against any new fermentation, so there is no way
+   to accidentally invent a second batch for the returning beer. Containment
+   then accepts the return with no special case -- the fermentation started
+   long before, and its open end imposes no upper bound. If the frame *was*
+   closed, `reopen_event_frame` is the correction path (and re-runs the
+   overlap guard, so a vessel that has since been refilled correctly refuses);
+   the transfer tools never quietly resurrect a frame.
 3. **Volume accounting must net inbound against outbound.** Summing inbound
    transfers to derive batch size would over-count returned volume. Any yield
    or loss metric has to treat transfers as directional, or it will produce
@@ -118,6 +146,15 @@ this safe.
 The traceability query a brewery cannot get out of a spreadsheet: *"which
 brews are in this canning run?"* walks the graph backward through packaging ->
 conditioning -> centrifugation -> fermentation -> knockout -> brews.
+
+`trace_lineage` returns that walk flat -- every frame reached with the depth
+at which it was first seen, plus the edges between them -- because a graph
+that re-blends and cycles has no faithful tree form. Each edge names the frame
+that *carries* the link, which is the transfer itself, so a dedicated
+centrifugation frame and a direct rack (the receiving frame simply naming its
+source) read through the same structure. `truncated` reports whether
+`max_depth` cut the trail, so a clipped graph is never mistaken for a complete
+one.
 
 ---
 
@@ -188,6 +225,13 @@ children, because a child has independent meaning and losing a subtree is
 expensive. `event_frames` cascade to their nested frames, because a Mashing
 has no life apart from its Brew. Same reasoning will apply to any future
 self-referential table.
+
+**Flow links refuse, containment cascades** -- the same distinction inside one
+table. A frame's `parent_id` children go with it, while a frame that a
+transfer points at cannot be deleted at all, because that link records
+something that physically happened between two batches and no other row
+carries it. The guard tests the whole subtree the cascade would reach, so
+deleting a Brew is refused when the transfer points at its Mashing.
 
 Readings are the one thing nothing destroys by accident: `tag_values.tag_id`
 is NOT NULL, so readings cannot outlive their tag, and `delete_tag` behind a

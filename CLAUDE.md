@@ -6,9 +6,9 @@ BreweryPi project (github.com/brewerypi/brewerypi, MIT), which the maintainer
 owns and has rights to. Keep the name `brewerypi` everywhere.
 
 Design decisions that are NOT visible in the code — the transfer/lineage
-model (decided, not built), the vocabulary layer, the OAuth seam, and the
-delete philosophy — live in `docs/design-decisions.md`. Read it before
-extending event frames or adding delete guards.
+model, the vocabulary layer, the OAuth seam, and the delete philosophy — live
+in `docs/design-decisions.md`. Read it before extending event frames or adding
+delete guards.
 
 ## Stack & layout
 - Python 3.10+, `src/` layout, import package `brewerypi`.
@@ -134,10 +134,21 @@ extending event frames or adding delete guards.
   Fires on element create, tag-area assignment, and retroactively when an event
   frame attribute template is added.
 - Event frame LIFECYCLE lives in `services/event_frames.py`: create (open),
-  close, reopen, update, delete. Guards: element instances the template; A1
+  close, reopen, update, delete, plus `link_transfer` (set/clear source and
+  destination late — the receiving batch often does not exist when beer starts
+  moving). Guards: element instances the template; A1
   instance mirror for nesting; child window within parent's; and overlap —
   refused on an `exclusive` element (across ALL templates), unlimited on a
-  non-exclusive one. Half-open intervals (touching allowed; open = +infinity).
+  non-exclusive one. FLOW guards: endpoints must differ from each other and
+  from the frame, be at the same site, and CONTAIN the transfer's window at
+  BOTH ends (open endpoint = +infinity). Containment is re-checked whenever an
+  endpoint moves or closes, so closing a batch a transfer is still running
+  through is refused; deleting one is refused too (whole cascade subtree
+  checked, via `transfers_blocking_delete`; `delete_element` checks the same).
+  The rule makes frame boundaries a convention: a brew must stay open until
+  its knockout finishes and the fermentation must already be open — see
+  `docs/design-decisions.md` before loosening it.
+  Half-open intervals (touching allowed; open = +infinity).
   Open writes default START values as readings at `started_at`; close writes
   END values at `ended_at` and closes open descendants too. Reopen re-runs the
   guards and leaves readings alone. Boundary moves never touch readings — a
@@ -173,6 +184,16 @@ extending event frames or adding delete guards.
   `Element` cascades its frames, a parent frame cascades children. Name is a
   free label. The overlap guard (via `element_template.exclusive`),
   containment, tag wiring, and open/close/reopen are service-layer work.
+  Two more self-FKs, `source_event_frame_id` / `destination_event_frame_id`
+  (both nullable, `ON DELETE RESTRICT`), make a frame a TRANSFER: beer moving
+  out of one batch into another. That is FLOW, not containment — `parent_id`
+  nests under A1 and cascades, while flow runs between siblings, may point at
+  closed batches, and legitimately CYCLES (a brite tank returning beer to the
+  fermentation it came from points at the ORIGINAL frame — same batch). Three
+  self-FKs means every self-relationship needs an explicit `foreign_keys=`.
+  Multiplicity is the number of transfers: two brews into one fermentation is
+  two knockout frames sharing a destination. Volume is an attribute, not a
+  column.
 - `EventFrameAttribute`: wiring from an **element** to the tag backing one
   event frame attribute (`element_id`, `event_frame_attribute_template_id`,
   `tag_id`, `owns_tag`; unique per element+template). Element-scoped, NOT
@@ -209,6 +230,14 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
 - For the MCP-server path, set `DATABASE_URL` to an ABSOLUTE sqlite path, since
   the server is launched from a different working directory than the repo root.
 - Line endings: `.gitattributes` pins `* text=auto eol=lf`; keep the editor on LF.
+- Adding a FOREIGN KEY column on SQLite: `op.add_column` fails (SQLite cannot
+  ALTER in a constraint) and plain `op.batch_alter_table` rebuilds from
+  reflection, which silently DROPS `CHECK` constraints and a column-level FK's
+  `ON DELETE` clause — SQLAlchemy's SQLite dialect reflects neither. Spell the
+  pre-migration table out in the migration and pass it as `copy_from` (see
+  `d52f7c1a9e04`), then re-create every index afterwards, since the rebuild
+  takes them with the old table. Verify with `alembic check` — it catches
+  exactly this drift.
 - `tzdata` is an UNCONDITIONAL runtime dependency, deliberately. `zoneinfo`
   reads the OS's IANA tz database; Windows ships none, so `zoneinfo.TZPATH` was
   empty and every `ZoneInfo(...)` raised `ZoneInfoNotFoundError` — even for
@@ -248,7 +277,10 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
   `element_attribute_templates`, `event_frame_templates`,
   `event_frame_attribute_templates`, `event_frames`, plus
   `default_measurement_units` (not a table: the ported upstream default unit
-  list) (shared `clean_str` /
+  list) and `lineage` (not a table either: the flow-graph walk —
+  `trace_lineage(frame, direction, max_depth)` returns flat frames + edges,
+  visited-set guarded because the graph cycles, `truncated` when max_depth
+  cuts it) (shared `clean_str` /
   `optional_str` /
   `clean_name_segment` in `_validation.py`; `clean_name_segment` is used for
   element and attribute-template names — trims, collapses internal whitespace,
@@ -261,12 +293,13 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
   neither, same-enterprise) and extended `delete_lookup` /
   `delete_measurement_unit` (refuse if an attribute template references them);
   admin owns its `list_`/`create`/`update`/`delete` tools.
-  Operators read elements; admins write. MCP tools: operator tier 26
+  Operators read elements; admins write. MCP tools: operator tier 28
   (the browse tree and reading tools, element reads, element-attribute reads,
   and event-frame-template reads —
   operators browse batch types to start instances, and run the whole event
-  frame lifecycle: create/close/reopen/update/delete_event_frame), admin tier
-  78 (adds
+  frame lifecycle: create/close/reopen/update/delete_event_frame, plus
+  `link_transfer` and `trace_batch_lineage`), admin tier
+  80 (adds
   `create`/`update`/`delete_element`, the config tables' CRUD, the element
   attribute template tools, `wire`/`unwire_element_attribute`,
   `add_default_measurement_units`,

@@ -78,8 +78,11 @@ from brewerypi.services.event_frames import (
     create_event_frame,
     delete_event_frame,
     get_event_frame,
+    link_transfer,
     list_event_frames,
     reopen_event_frame,
+    transfers_blocking_delete,
+    transfers_referencing,
     update_event_frame,
 )
 from brewerypi.services.exceptions import (
@@ -88,6 +91,7 @@ from brewerypi.services.exceptions import (
     ServiceError,
     ValidationError,
 )
+from brewerypi.services.lineage import trace_lineage
 from brewerypi.services.lookup_values import (
     create_lookup_value,
     delete_lookup_value,
@@ -181,6 +185,7 @@ __all__ = [
     "get_site",
     "get_tag",
     "get_tag_value",
+    "link_transfer",
     "list_areas",
     "list_element_attribute_templates",
     "list_element_attributes",
@@ -198,6 +203,9 @@ __all__ = [
     "list_tags",
     "reopen_event_frame",
     "tag_is_referenced",
+    "trace_lineage",
+    "transfers_blocking_delete",
+    "transfers_referencing",
     "unwire_element_attribute",
     "unwire_event_frame_attribute",
     "update_area",

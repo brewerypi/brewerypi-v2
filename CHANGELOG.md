@@ -7,6 +7,42 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- Transfer frames and batch lineage — the link that ties one batch to the
+  next. `event_frames` gains two nullable self-FKs,
+  `source_event_frame_id` / `destination_event_frame_id` (`ON DELETE
+  RESTRICT`, indexed), so a frame carrying either IS the transfer: a
+  centrifugation on CF01 whose source is FV01's fermentation and whose
+  destination is BBT03's conditioning. Multiplicity is the number of
+  transfers (two brews into one fermentation = two knockout frames sharing a
+  destination), volume is an event frame attribute rather than a column, and
+  a direct rack can just name its source with no ceremonial transfer frame.
+  Flow is deliberately not containment: `parent_id` nests under A1 and
+  cascades, while flow runs between siblings and may cycle, since a brite
+  tank returning beer points at the ORIGINAL fermentation frame.
+  Guards in `services/event_frames.py`: endpoints must differ from each other
+  and from the frame, sit at the same site, and CONTAIN the transfer's window
+  at both ends (open endpoint = +infinity). One rule covers what look like
+  several — closing a batch while a transfer still runs through it is refused
+  because the open transfer no longer fits — and it is re-checked whenever an
+  endpoint's window moves or closes, so the database never holds a link the
+  create path would have rejected. It does make frame boundaries a
+  convention: the brew must stay open until knockout finishes and the
+  fermentation must already be open. Deletes refuse rather than cascade,
+  across the whole subtree a delete would reach (`transfers_blocking_delete`,
+  also enforced by `delete_element`), because no other row records that the
+  beer moved.
+  `services/lineage.py` walks the graph: `trace_lineage(frame, direction,
+  max_depth)` returns flat frames (each with the depth it was first seen at)
+  plus the edges between them, visited-set guarded because re-blends cycle,
+  with `truncated` when `max_depth` cut the trail. New operator tools
+  `link_transfer` (set or clear an end after the fact, for the routine case
+  where the receiving batch did not exist when beer started moving) and
+  `trace_batch_lineage` ("which brews are in this canning run?"), taking the
+  operator tier to 28 and admin to 80; `create_event_frame` takes both
+  endpoints, `list_event_frames` filters by `element_template_id` and by
+  either flow link, and its payload now names the vessel, so picking a source
+  reads as fermenters -> fermentations -> FV01 B123. Design rationale in
+  `docs/design-decisions.md` (status flipped from "decided, not built").
 - Default measurement units. `services/default_measurement_units.py` holds
   `DEFAULT_MEASUREMENT_UNITS` (49 pairs) and an idempotent
   `add_default_measurement_units`; a new enterprise gets them from

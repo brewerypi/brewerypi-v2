@@ -11,7 +11,11 @@ from sqlalchemy.orm import Session
 from brewerypi.database import Base
 from brewerypi.models import (
     Area,
+    Element,
+    ElementTemplate,
     Enterprise,
+    EventFrame,
+    EventFrameTemplate,
     Lookup,
     LookupValue,
     MeasurementUnit,
@@ -302,5 +306,73 @@ def test_lookup_value_delete_blocked_when_referenced_by_tag_value():
     with Session(engine) as session:
         lv = session.scalar(select(LookupValue))
         session.delete(lv)
+        with pytest.raises(IntegrityError):
+            session.commit()
+
+
+def make_transfer(session):
+    """A knockout frame linking a brew to a fermentation. Returns its id."""
+    import datetime
+
+    enterprise = Enterprise(abbreviation="BRW", name="Brewery Co")
+    site = Site(abbreviation="HQ", name="Headquarters")
+    enterprise.sites.append(site)
+    session.add(enterprise)
+    session.flush()
+    template = ElementTemplate(site_id=site.id, name="Brewhouse")
+    session.add(template)
+    session.flush()
+    element = Element(element_template_id=template.id, name="BH1")
+    session.add(element)
+    frame_template = EventFrameTemplate(
+        element_template_id=template.id, name="Brew", step_order=1
+    )
+    session.add(frame_template)
+    session.flush()
+
+    def frame(name, hour, **links):
+        f = EventFrame(
+            element_id=element.id,
+            event_frame_template_id=frame_template.id,
+            name=name,
+            started_at=datetime.datetime(2026, 7, 17, hour),
+            **links,
+        )
+        session.add(f)
+        session.flush()
+        return f
+
+    brew = frame("Brew #1", 6)
+    ferm = frame("FV01 B123", 5)
+    transfer = frame(
+        "Knockout", 8,
+        source_event_frame_id=brew.id,
+        destination_event_frame_id=ferm.id,
+    )
+    session.commit()
+    return transfer.id
+
+
+def test_transfer_links_navigate_and_stay_separate_from_nesting():
+    engine = make_engine()
+    with Session(engine) as session:
+        transfer_id = make_transfer(session)
+    with Session(engine) as session:
+        transfer = session.get(EventFrame, transfer_id)
+        assert transfer.source.name == "Brew #1"
+        assert transfer.destination.name == "FV01 B123"
+        # flow is not containment: three self-FKs, and only one of them nests
+        assert transfer.parent is None
+        assert transfer.source.children == []
+
+
+def test_event_frame_delete_blocked_while_a_transfer_points_at_it():
+    """The DB-level backstop behind the service's delete guard."""
+    engine = make_engine()
+    with Session(engine) as session:
+        transfer_id = make_transfer(session)
+    with Session(engine) as session:
+        transfer = session.get(EventFrame, transfer_id)
+        session.delete(transfer.source)
         with pytest.raises(IntegrityError):
             session.commit()
