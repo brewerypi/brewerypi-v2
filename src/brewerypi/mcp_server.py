@@ -156,7 +156,10 @@ A SENSIBLE SETUP ORDER
    equipment carries (temperature, pressure, status).
 6. Add event frame templates for the batches each kind of equipment runs
    (Brew on the brewhouse, Fermentation on the fermenter), with their
-   attribute templates and default start/end values.
+   attribute templates and default start/end values. A step that moves beer
+   out of, or into, the batch it sits inside gets a ``parent_flow`` -- wort
+   cooling draws from its brew ("source"), a yeast pitch delivers into its
+   wort cooling ("destination") -- so that end is recorded automatically.
 7. Create the elements themselves -- FV01 through FV12 -- giving each a tag
    area. Tags and wiring are created automatically at this point, so define
    the templates before the equipment.
@@ -702,6 +705,7 @@ def _event_frame_template_dict(t: EventFrameTemplate) -> dict:
         "element_template_id": t.element_template_id,
         "parent_id": t.parent_id,
         "step_order": t.step_order,
+        "parent_flow": t.parent_flow,
         "name": t.name,
         "description": t.description,
     }
@@ -863,6 +867,13 @@ def create_event_frame(
     must already be running when the transfer starts. If the receiving batch
     does not exist yet, leave the destination out and add it later with
     `link_transfer`.
+
+    Some steps already know one end. When the batch type has a
+    ``parent_flow`` (see `get_event_frame_template`), the batch it sits
+    inside is recorded for you as that end -- wort cooling always draws from
+    its brew, a yeast pitch always delivers into its wort cooling -- so only
+    ask for the other one: which fermentation the wort is going to, or which
+    fermentation the yeast is coming from.
     """
     with _Session() as session:
         element = session.get(Element, element_id)
@@ -1054,6 +1065,10 @@ def link_transfer(
     Both ends must already be running when the transfer starts, and must stay
     open until it finishes, so a transfer is refused if it falls outside
     either batch's window.
+
+    An end that comes from where the step sits -- a wort cooling's brew, a
+    yeast pitch's wort cooling -- is fixed: it cannot be cleared or pointed
+    elsewhere, and is filled in here if an older batch is missing it.
     """
     with _Session() as session:
         kwargs: dict = {}
@@ -1081,27 +1096,45 @@ def link_transfer(
 def trace_batch_lineage(
     event_frame_id: int,
     direction: str = "both",
-    max_depth: int = 10,
+    max_depth: int | None = None,
+    max_frames: int = 500,
+    exclude_event_frame_template_ids: list[int] | None = None,
 ) -> dict:
     """Follow beer between batches: where it came from, where it went.
 
     This is the traceability question a spreadsheet cannot answer -- "which
     brews are in this canning run?" -- walked through every transfer in
     between: packaging back through the brite tank, the centrifugation, the
-    fermentation, the knockout, to the brews themselves.
+    fermentation, the wort cooling, to the brews themselves.
 
     ``direction`` is "upstream" (back towards the raw materials),
-    "downstream" (forward to where the beer ended up) or "both".
-    ``max_depth`` limits how many transfers to follow; ``truncated`` in the
-    result says the limit cut the trail short, so nothing is silently
-    missing. Beer that goes to a brite tank and comes back belongs to the
-    same batch, so the trail can legitimately loop -- each batch is reported
-    once, at the shortest number of transfers from where you started.
+    "downstream" (forward to where the beer ended up) or "both". The trail
+    is followed to its end; ``max_depth`` is only for asking about the next
+    few transfers.
+
+    Yeast makes trails long. A yeast pitch links a fermentation to the one
+    its yeast came from, so following everything reaches back through every
+    generation of that yeast, and forward from an old brew to most of what
+    was made since. To ask whose WORT is in a batch, pass the yeast pitch
+    batch type in ``exclude_event_frame_template_ids`` and that kind of
+    transfer is not followed. Ask the user which they mean if it is unclear.
+
+    ``max_frames`` stops a very large trail; ``truncated`` in the result says
+    a limit cut it short, so nothing is silently missing -- say so, and offer
+    to narrow the question or raise the limit. Beer that goes to a brite tank
+    and comes back belongs to the same batch, so the trail can legitimately
+    loop -- each batch is reported once, at the shortest number of transfers
+    from where you started.
     """
     with _Session() as session:
         try:
             result = services.trace_lineage(
-                session, event_frame_id, direction, max_depth
+                session,
+                event_frame_id,
+                direction,
+                max_depth,
+                max_frames,
+                exclude_event_frame_template_ids or (),
             )
         except ServiceError as exc:
             return {"error": str(exc)}
@@ -2394,6 +2427,7 @@ def create_event_frame_template(
     step_order: int | None = None,
     description: str | None = None,
     parent_id: int | None = None,
+    parent_flow: str | None = None,
 ) -> dict:
     """Define a KIND of batch that a kind of equipment runs (admin, write).
 
@@ -2406,6 +2440,14 @@ def create_event_frame_template(
     batch -- Mashing 1, Lautering 2, Boil 3 -- and no two steps under the
     same parent can share a number. A batch type that isn't nested inside
     another doesn't need one.
+
+    If the step moves beer out of, or into, the batch it sits inside, say so
+    with ``parent_flow`` and that end of the transfer is recorded on every
+    batch of this type without anyone entering it: "source" when the step
+    draws from its parent (wort cooling inside a brew -- the wort comes from
+    that brew), "destination" when it delivers into its parent (a yeast pitch
+    inside a wort cooling). Leave it out for a step that moves nothing, like
+    mashing. Only a nested batch type can have one.
     """
     with _Session() as session:
         try:
@@ -2416,6 +2458,7 @@ def create_event_frame_template(
                 step_order,
                 description,
                 parent_id,
+                parent_flow,
             )
             result = _event_frame_template_dict(t)
             session.commit()
@@ -2432,6 +2475,8 @@ def update_event_frame_template(
     parent_id: int | None = None,
     make_top_level: bool = False,
     step_order: int | None = None,
+    parent_flow: str | None = None,
+    clear_parent_flow: bool = False,
 ) -> dict:
     """Update an event frame template (admin, write).
 
@@ -2441,35 +2486,26 @@ def update_event_frame_template(
     re-positions this step among the other steps under the same parent --
     that number has to be free. Promoting a batch type out to the top level
     resets it to 1.
+
+    ``parent_flow`` ("source" or "destination") marks the step as moving beer
+    out of, or into, the batch it sits inside; ``clear_parent_flow=true``
+    removes that. Batches already recorded are not rewritten -- they pick the
+    rule up the next time their transfer is linked.
     """
     with _Session() as session:
+        kwargs: dict = {"step_order": step_order}
+        if make_top_level:
+            kwargs["parent_id"] = None
+        elif parent_id is not None:
+            kwargs["parent_id"] = parent_id
+        if clear_parent_flow:
+            kwargs["parent_flow"] = None
+        elif parent_flow is not None:
+            kwargs["parent_flow"] = parent_flow
         try:
-            if make_top_level:
-                t = services.update_event_frame_template(
-                    session,
-                    template_id,
-                    name,
-                    description,
-                    parent_id=None,
-                    step_order=step_order,
-                )
-            elif parent_id is not None:
-                t = services.update_event_frame_template(
-                    session,
-                    template_id,
-                    name,
-                    description,
-                    parent_id=parent_id,
-                    step_order=step_order,
-                )
-            else:
-                t = services.update_event_frame_template(
-                    session,
-                    template_id,
-                    name,
-                    description,
-                    step_order=step_order,
-                )
+            t = services.update_event_frame_template(
+                session, template_id, name, description, **kwargs
+            )
             result = _event_frame_template_dict(t)
             session.commit()
             return result

@@ -7,6 +7,35 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- Transfers that are steps inside a batch, and whole-trail lineage. Found by
+  running the transfer work against a real brewhouse layout, where wort
+  cooling is step 5 of the Brew rather than a separate knockout batch: the
+  step had no source, so tracing upstream from a fermentation stopped at the
+  wort cooling and never named the brew — and naming the brew by hand then
+  blocked the brew from closing.
+  `event_frame_templates` gains `parent_flow` (`source` / `destination`,
+  nullable, nested templates only; migration `b7e2d9146a3c`), which declares
+  the end of a transfer that the nesting already fixes. A Wort cooling draws
+  from its Brew; a Yeast pitch delivers into its Wort cooling. The service
+  fills that end in on create (before the other end exists) and on
+  `link_transfer` (for frames older than the setting), and refuses to clear
+  it or point it elsewhere, so only the other end is ever chosen. Existing
+  frames are never rewritten when a template's setting changes.
+  `close_event_frame` no longer lets a transfer block a close it is part of:
+  a linked descendant being closed in the same call is judged at the instant
+  it will end. A separate transfer still blocks, as before.
+  `trace_lineage` now walks to the end of the trail: `max_depth` is optional
+  and unset by default (was 10, capped at 50). `max_frames` (default 500,
+  ceiling 5000) bounds the result instead, and
+  `exclude_event_frame_template_ids` leaves a kind of transfer out of the
+  walk — pass the Yeast pitch template to ask whose wort is in a batch, since
+  following yeast reaches back through every generation it was repitched.
+  `truncated` reports a limit cutting the trail, not an exclusion.
+  `create_`/`update_event_frame_template` take `parent_flow` (and
+  `clear_parent_flow`), template payloads include it, and
+  `trace_batch_lineage` takes the three walk options. Design rationale,
+  including the reversal of "knockout always gets its own transfer frame", in
+  `docs/design-decisions.md`.
 - Transfer frames and batch lineage — the link that ties one batch to the
   next. `event_frames` gains two nullable self-FKs,
   `source_event_frame_id` / `destination_event_frame_id` (`ON DELETE

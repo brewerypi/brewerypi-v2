@@ -376,3 +376,24 @@ def test_event_frame_delete_blocked_while_a_transfer_points_at_it():
         session.delete(transfer.source)
         with pytest.raises(IntegrityError):
             session.commit()
+
+
+def test_event_frame_template_parent_flow_is_optional_and_persists():
+    engine = make_engine()
+    with Session(engine) as session:
+        make_transfer(session)
+        brew = session.scalars(select(EventFrameTemplate)).one()
+        assert brew.parent_flow is None
+        cooling = EventFrameTemplate(
+            element_template_id=brew.element_template_id,
+            parent_id=brew.id,
+            name="Wort cooling",
+            step_order=1,
+            parent_flow="source",
+        )
+        session.add(cooling)
+        session.commit()
+        cooling_id = cooling.id
+    with Session(engine) as session:
+        cooling = session.get(EventFrameTemplate, cooling_id)
+        assert cooling.parent_flow == "source"

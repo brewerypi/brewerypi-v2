@@ -15,14 +15,24 @@ forever. This is load-bearing, not defensive.
 
 Results are flat: every frame reached, each with the depth at which it was
 first seen, plus the edges between them. A cyclic or re-blending graph has no
-faithful tree form, so none is offered. ``truncated`` says whether
-``max_depth`` cut the walk short, so a caller never mistakes a clipped graph
-for a complete one.
+faithful tree form, so none is offered.
+
+The walk runs to the end of the trail by default -- a trace that stops partway
+is no use for traceability. What bounds it is size, not depth: yeast is
+repitched from one fermentation into the next, so a trail that follows yeast
+reaches back to the last time fresh yeast came in, and forward from an old
+brew to nearly everything made since. ``max_frames`` stops the walk there,
+and ``exclude_event_frame_template_ids`` lets a caller leave a kind of
+transfer out altogether (skip "Yeast pitch" to ask whose *wort* is in a
+batch). ``truncated`` says whether either limit cut the walk short, so a
+caller never mistakes a clipped graph for a complete one.
 
 Times are naive UTC; the tool boundary converts.
 """
 
 from __future__ import annotations
+
+from collections.abc import Collection
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -32,14 +42,17 @@ from brewerypi.services.event_frames import get_event_frame
 from brewerypi.services.exceptions import ValidationError
 
 DIRECTIONS = ("upstream", "downstream", "both")
-MAX_DEPTH_LIMIT = 50
+DEFAULT_MAX_FRAMES = 500
+MAX_FRAMES_LIMIT = 5000
 
 
 def trace_lineage(
     session: Session,
     event_frame_id: int,
     direction: str = "both",
-    max_depth: int = 10,
+    max_depth: int | None = None,
+    max_frames: int = DEFAULT_MAX_FRAMES,
+    exclude_event_frame_template_ids: Collection[int] = (),
 ) -> dict:
     """Walk the transfer graph from one batch.
 
@@ -48,15 +61,25 @@ def trace_lineage(
     to where it ended up, ``both`` does each and merges. Returns the frames
     reached (with ``depth``, 0 being the starting batch) and the transfer
     edges between them.
+
+    The walk is unbounded in depth unless ``max_depth`` is given, and stops
+    once ``max_frames`` frames have been collected. Frames instancing any of
+    ``exclude_event_frame_template_ids`` are not followed: they, and whatever
+    is only reachable through them, are left out (the starting batch is always
+    kept). ``truncated`` is True when a limit -- not an exclusion -- left
+    part of the trail unwalked.
     """
     if direction not in DIRECTIONS:
         raise ValidationError(
             f"direction must be one of {', '.join(DIRECTIONS)}"
         )
-    if max_depth < 1 or max_depth > MAX_DEPTH_LIMIT:
+    if max_depth is not None and max_depth < 1:
+        raise ValidationError("max_depth must be 1 or greater")
+    if max_frames < 1 or max_frames > MAX_FRAMES_LIMIT:
         raise ValidationError(
-            f"max_depth must be between 1 and {MAX_DEPTH_LIMIT}"
+            f"max_frames must be between 1 and {MAX_FRAMES_LIMIT}"
         )
+    excluded = set(exclude_event_frame_template_ids)
     start = get_event_frame(session, event_frame_id)
 
     visited = {start.id: 0}
@@ -64,28 +87,37 @@ def trace_lineage(
     edges: dict[tuple[int, int, int], dict] = {}
     frontier = [start]
     depth = 0
-    while frontier and depth < max_depth:
+    truncated = False
+    while frontier and (max_depth is None or depth < max_depth):
         depth += 1
         next_frontier = []
         for frame in frontier:
-            for neighbour, edge in _neighbours(session, frame, direction):
+            for neighbour, edge in _neighbours(
+                session, frame, direction, excluded
+            ):
+                if neighbour.id not in visited:
+                    if len(frames) >= max_frames:
+                        truncated = True
+                        continue
+                    visited[neighbour.id] = depth
+                    frames.append(_frame_dict(session, neighbour, depth))
+                    next_frontier.append(neighbour)
                 edges.setdefault(_edge_key(edge), edge)
-                if neighbour.id in visited:
-                    continue
-                visited[neighbour.id] = depth
-                frames.append(_frame_dict(session, neighbour, depth))
-                next_frontier.append(neighbour)
         frontier = next_frontier
 
-    truncated = any(
+    # Anything still on the frontier was stopped by max_depth; it cut the
+    # trail only if one of those frames leads somewhere not yet seen.
+    truncated = truncated or any(
         neighbour.id not in visited
         for frame in frontier
-        for neighbour, _ in _neighbours(session, frame, direction)
+        for neighbour, _ in _neighbours(session, frame, direction, excluded)
     )
     return {
         "event_frame_id": start.id,
         "direction": direction,
         "max_depth": max_depth,
+        "max_frames": max_frames,
+        "exclude_event_frame_template_ids": sorted(excluded),
         "frames": frames,
         "edges": list(edges.values()),
         "truncated": truncated,
@@ -93,12 +125,16 @@ def trace_lineage(
 
 
 def _neighbours(
-    session: Session, frame: EventFrame, direction: str
+    session: Session,
+    frame: EventFrame,
+    direction: str,
+    excluded: Collection[int] = (),
 ) -> list[tuple[EventFrame, dict]]:
     """Frames one flow hop away, with the edge that got us there.
 
     Two shapes per direction: the link this frame carries itself, and the
-    links other frames carry pointing at it.
+    links other frames carry pointing at it. Frames instancing an excluded
+    template are dropped here, so the walk never steps onto them.
     """
     found: list[tuple[EventFrame, dict]] = []
     if direction in ("upstream", "both"):
@@ -119,7 +155,11 @@ def _neighbours(
                 )
         for other in _linking_to(session, frame.id, "source"):
             found.append((other, _edge(other, frame, other)))
-    return found
+    return [
+        (neighbour, edge)
+        for neighbour, edge in found
+        if neighbour.event_frame_template_id not in excluded
+    ]
 
 
 def _linking_to(

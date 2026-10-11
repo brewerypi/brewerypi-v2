@@ -39,6 +39,12 @@ moving out of one batch and into another):
   cycle -- a brite tank can send beer back to the fermentation it came from,
   which is the same batch and therefore the same frame. Lineage walks
   (``services.lineage``) must carry a visited set.
+* A transfer that is a *step inside* the batch it draws from (or delivers
+  into) has that end implied by its nesting. The template says which
+  (``parent_flow``), and the parent is filled in as that end on every frame --
+  a Wort cooling's source is its Brew, a Yeast pitch's destination is its Wort
+  cooling. The implied end cannot be changed or cleared, and closing the
+  parent closes such a step with it rather than being blocked by it.
 
 Opening a frame writes each attribute's default *start* value as a reading on
 the wired tag at ``started_at``; closing writes the default *end* value at
@@ -155,7 +161,8 @@ def create_event_frame(
 
     Passing a source and/or destination makes this frame a transfer: beer
     moving out of one batch and into another. Either may be filled in later
-    with ``link_transfer``.
+    with ``link_transfer``. When the template carries a ``parent_flow``, the
+    parent frame is filled in as that end and only the other is chosen.
     """
     name = clean_str(name, "name", 45)
     if started_at is None:
@@ -176,6 +183,12 @@ def create_event_frame(
         )
     _check_parent(session, element, template, parent_id, started_at, ended_at)
     _check_overlap(session, element, started_at, ended_at)
+    source_event_frame_id, destination_event_frame_id = _apply_parent_flow(
+        template,
+        parent_id,
+        source_event_frame_id,
+        destination_event_frame_id,
+    )
     _check_transfer_links(
         session,
         None,
@@ -214,7 +227,9 @@ def close_event_frame(
 
     Refused while beer is still moving: a batch cannot close while a transfer
     out of (or into) it is still running, and a transfer cannot close after
-    the batch it flows through has ended.
+    the batch it flows through has ended. A transfer that is itself one of the
+    descendants being closed here does not block: it ends at this same
+    instant, so it still fits.
     """
     frame = get_event_frame(session, event_frame_id)
     if frame.ended_at is not None:
@@ -224,7 +239,9 @@ def close_event_frame(
         )
     if ended_at is None:
         ended_at = datetime.now(timezone.utc).replace(tzinfo=None)
-    for open_frame in _open_self_and_descendants(session, frame):
+    closing = _open_self_and_descendants(session, frame)
+    closing_ids = {open_frame.id for open_frame in closing}
+    for open_frame in closing:
         _check_window(open_frame.started_at, ended_at)
         _check_overlap(
             session,
@@ -243,7 +260,11 @@ def close_event_frame(
             ended_at,
         )
         _check_linked_transfers_fit(
-            session, open_frame, open_frame.started_at, ended_at
+            session,
+            open_frame,
+            open_frame.started_at,
+            ended_at,
+            closing_ids=closing_ids,
         )
         open_frame.ended_at = ended_at
         session.flush()
@@ -352,8 +373,21 @@ def link_transfer(
     often starts before anyone has opened the receiving batch. Pass ``None``
     for either endpoint to clear it; omit it to leave it alone. The full set
     of flow rules is re-checked against whatever the frame ends up with.
+
+    An end implied by the frame's nesting (its template's ``parent_flow``)
+    is not a choice: asking to clear it or point it elsewhere is refused, and
+    a frame that predates the setting has it filled in here.
     """
     frame = get_event_frame(session, event_frame_id)
+    template = session.get(EventFrameTemplate, frame.event_frame_template_id)
+    implied = _implied_end(template, frame.parent_id)
+    if (implied == "source" and source_event_frame_id is None) or (
+        implied == "destination" and destination_event_frame_id is None
+    ):
+        raise ValidationError(
+            f"this batch's {implied} is always the batch it sits inside, so "
+            "it cannot be cleared"
+        )
     source = (
         frame.source_event_frame_id
         if source_event_frame_id is _UNSET
@@ -363,6 +397,9 @@ def link_transfer(
         frame.destination_event_frame_id
         if destination_event_frame_id is _UNSET
         else destination_event_frame_id
+    )
+    source, destination = _apply_parent_flow(
+        template, frame.parent_id, source, destination
     )
     _check_transfer_links(
         session,
@@ -611,6 +648,43 @@ def _site_id_for_element(
     return template.site_id if template is not None else None
 
 
+def _implied_end(
+    template: EventFrameTemplate | None, parent_id: int | None
+) -> str | None:
+    """Which end of a frame's transfer its nesting implies, if either."""
+    if template is None or parent_id is None:
+        return None
+    return template.parent_flow
+
+
+def _apply_parent_flow(
+    template: EventFrameTemplate | None,
+    parent_id: int | None,
+    source_id: int | None,
+    destination_id: int | None,
+) -> tuple[int | None, int | None]:
+    """Fill in the transfer end that the frame's nesting already implies.
+
+    A step that moves beer out of (or into) the batch it sits inside has
+    exactly one possible partner at that end, so it is recorded for the
+    caller rather than asked for -- and naming any other frame is an error,
+    not an override.
+    """
+    implied = _implied_end(template, parent_id)
+    if implied is None:
+        return source_id, destination_id
+    given = source_id if implied == "source" else destination_id
+    if given is not None and given != parent_id:
+        raise ValidationError(
+            f"a {template.name!r} batch's {implied} is always the batch it "
+            f"sits inside (event frame {parent_id}); it cannot be event "
+            f"frame {given}"
+        )
+    if implied == "source":
+        return parent_id, destination_id
+    return source_id, parent_id
+
+
 def _check_transfer_links(
     session: Session,
     frame_id: int | None,
@@ -687,15 +761,24 @@ def _check_linked_transfers_fit(
     frame: EventFrame,
     started_at: datetime,
     ended_at: datetime | None,
+    closing_ids: Collection[int] = (),
 ) -> None:
-    """Moving or closing a batch must not strand a transfer through it."""
+    """Moving or closing a batch must not strand a transfer through it.
+
+    ``closing_ids`` names frames being closed in the same call (a batch and
+    its open steps). A transfer among them will end at ``ended_at`` too, so
+    it is judged as already closed there rather than as still running.
+    """
     for transfer in transfers_referencing(session, [frame.id], [frame.id]):
         role = (
             "out of"
             if transfer.source_event_frame_id == frame.id
             else "into"
         )
-        if ended_at is not None and transfer.ended_at is None:
+        transfer_ended_at = transfer.ended_at
+        if transfer_ended_at is None and transfer.id in closing_ids:
+            transfer_ended_at = ended_at
+        if ended_at is not None and transfer_ended_at is None:
             raise ConflictError(
                 f"transfer frame {transfer.id} ({transfer.name!r}) is still "
                 f"running {role} this batch; close the transfer first"
@@ -707,13 +790,13 @@ def _check_linked_transfers_fit(
             )
         if (
             ended_at is not None
-            and transfer.ended_at is not None
-            and transfer.ended_at > ended_at
+            and transfer_ended_at is not None
+            and transfer_ended_at > ended_at
         ):
             raise ValidationError(
                 f"transfer frame {transfer.id} ({transfer.name!r}) runs "
                 f"{role} this batch until "
-                f"{transfer.ended_at.isoformat()}, past the new end"
+                f"{transfer_ended_at.isoformat()}, past the new end"
             )
 
 

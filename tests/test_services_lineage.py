@@ -183,3 +183,105 @@ def test_bad_direction_and_depth_are_refused(chain):
         trace_lineage(session, f["can"], direction="sideways")
     with pytest.raises(ValidationError, match="max_depth"):
         trace_lineage(session, f["can"], max_depth=0)
+    with pytest.raises(ValidationError, match="max_frames"):
+        trace_lineage(session, f["can"], max_frames=0)
+
+
+GENERATIONS = 7
+
+
+@pytest.fixture
+def repitched(flow_ctx):
+    """Seven brews, each fermented with yeast from the one before.
+
+    Every day a brew cools into a fresh fermentation, alternating FV01 and
+    FV02, and its yeast pitch draws from the previous day's fermentation --
+    which is then closed, freeing that vessel for the day after. The wort
+    trail from any fermentation is three frames long; the yeast trail runs
+    back to day 1.
+    """
+    session, ids = flow_ctx
+    previous = None
+    for day in range(1, GENERATIONS + 1):
+        vessel = ids["fv01"] if day % 2 else ids["fv02"]
+        ferm = create_event_frame(
+            session, vessel, ids["ferm_t"], f"Ferm {day}",
+            started_at=D(day, 5),
+        )
+        brew = create_event_frame(
+            session, ids["bh1"], ids["brew_t"], f"Brew {day}",
+            started_at=D(day, 6),
+        )
+        cooling = create_event_frame(
+            session, ids["wc1"], ids["cool_t"], f"Cooling {day}",
+            started_at=D(day, 8), parent_id=brew.id,
+            destination_event_frame_id=ferm.id,
+        )
+        if previous is not None:
+            create_event_frame(
+                session, ids["yd1"], ids["pitch_t"], f"Pitch {day}",
+                started_at=D(day, 8, 10), parent_id=cooling.id,
+                source_event_frame_id=previous.id,
+            )
+        close_event_frame(session, brew.id, ended_at=D(day, 10))
+        if previous is not None:
+            close_event_frame(session, previous.id, ended_at=D(day, 12))
+        previous = ferm
+    return session, ids, previous.id
+
+
+def test_the_whole_trail_is_walked_by_default(repitched):
+    """Well past the old default depth of 10, and nothing is cut."""
+    session, _, last = repitched
+    result = trace_lineage(session, last, direction="upstream")
+    assert {f"Brew {day}" for day in range(1, GENERATIONS + 1)} <= names(
+        result
+    )
+    assert depth_of(result, "Brew 1") == 20
+    assert result["max_depth"] is None
+    assert result["truncated"] is False
+
+
+def test_downstream_from_an_old_brew_follows_its_yeast(repitched):
+    session, _, last = repitched
+    first_brew = next(
+        f["id"]
+        for f in trace_lineage(session, last, direction="upstream")["frames"]
+        if f["name"] == "Brew 1"
+    )
+    result = trace_lineage(session, first_brew, direction="downstream")
+    assert f"Ferm {GENERATIONS}" in names(result)
+
+
+def test_excluding_yeast_pitches_leaves_the_wort_trail(repitched):
+    """"Whose wort is in this fermentation?" -- one brew, not seven."""
+    session, ids, last = repitched
+    result = trace_lineage(
+        session, last, direction="upstream",
+        exclude_event_frame_template_ids=[ids["pitch_t"]],
+    )
+    assert names(result) == {
+        f"Ferm {GENERATIONS}",
+        f"Cooling {GENERATIONS}",
+        f"Brew {GENERATIONS}",
+    }
+    # left out on purpose is not the same as cut short
+    assert result["truncated"] is False
+    assert all(
+        e["transfer_name"] != f"Pitch {GENERATIONS}" for e in result["edges"]
+    )
+
+
+def test_max_frames_stops_a_large_trail_and_says_so(repitched):
+    session, _, last = repitched
+    result = trace_lineage(
+        session, last, direction="upstream", max_frames=5
+    )
+    assert len(result["frames"]) == 5
+    assert result["truncated"] is True
+    # no edge points at a frame that was left out
+    kept = {f["id"] for f in result["frames"]}
+    assert all(
+        {e["from_event_frame_id"], e["to_event_frame_id"]} <= kept
+        for e in result["edges"]
+    )

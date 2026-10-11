@@ -11,9 +11,10 @@ reading the code and reading this page cannot quietly disagree.
 
 ## Transfer frames and batch lineage
 
-**Status: built.** Columns on `event_frames`, flow rules in
-`services/event_frames.py`, the graph walk in `services/lineage.py`, and the
-`link_transfer` / `trace_batch_lineage` tools on the operator tier.
+**Status: built.** Columns on `event_frames`, `parent_flow` on
+`event_frame_templates`, flow rules in `services/event_frames.py`, the graph
+walk in `services/lineage.py`, and the `link_transfer` /
+`trace_batch_lineage` tools on the operator tier.
 
 Beer moves between vessels, and those movements are what tie one batch to the
 next: several brews knock out into one fermentation, a fermentation is
@@ -52,7 +53,7 @@ picking a source reads as "the fermenters -> fermentations -> FV01 B123"
 rather than as an id lookup.
 
 **Multiplicity lives in the number of transfer frames.** Two brews into one
-fermentation is two knockout frames sharing a destination. One fermentation
+fermentation is two wort cooling frames sharing a destination. One fermentation
 split across two brite tanks is two transfer frames sharing a source. A
 partial transfer is a frame that simply did not move everything. No join
 table is needed, because the physical multiplicity *is* the number of
@@ -80,11 +81,54 @@ blending needs one row per stream.
 
 ### Rules
 
-**Knockout always gets an explicit transfer frame.** Every lineage link goes
-through a transfer, so traversal is uniform: frame -> transfer -> frame, with
-no special-cased brew-to-fermentation edge. Workflow implication: closing a
-brew should offer to create the knockout frame in the same action, rather than
-leaving it as separate bookkeeping.
+**A transfer is a step of a batch when it has only one possible partner at
+that end; otherwise it is a batch of its own.** Wort cooling is the last step
+of a brew and can only ever draw from that brew, so it is a child frame of the
+Brew (on the wort cooler, inside the brewhouse) rather than a sibling
+"knockout" batch. A yeast pitch is dosed into one wort stream, so it is a
+child of the Wort cooling. A centrifugation runs on equipment that belongs to
+neither the fermentation nor the brite tank, so it stays a top-level frame
+with both ends chosen.
+
+This reverses the earlier rule that knockout always gets its own top-level
+transfer frame, created as the brew closes. That shape could not survive the
+containment rule below (a transfer created at the brew's close no longer fits
+inside the brew), and it asked operators to re-enter, on every brew, a source
+that the equipment layout already fixes. Nesting gets both for free: a child
+must sit inside its parent's window, so "the brew stays open until the wort
+has left" is structural rather than a convention to remember.
+
+**The implied end is declared once, on the template, and stored on every
+frame.** `event_frame_templates.parent_flow` says which end of the transfer
+the parent batch is: `source` (Wort cooling draws from its Brew) or
+`destination` (Yeast pitch delivers into its Wort cooling). The service fills
+that end in when the frame is created -- before the other end is known, which
+matters because a wort cooling routinely starts before anyone has picked the
+fermenter -- and refuses to clear it or point it elsewhere. Only the other end
+is ever chosen: which fermentation the wort goes to, which fermentation the
+yeast comes from. (A yeast propagation is an ordinary fermentation batch, so
+"wort only, into a propagation" is just a second Wort cooling in the same brew
+with a different destination, and needs no special case.)
+
+Two alternatives were rejected. *Inferring* the parent at trace time would
+keep the link out of the table, but it would make lineage walk containment as
+well as flow, and those are kept apart for good reason (see below). *Asking
+for it* on every frame keeps the walk pure but makes a forgotten source a
+silent hole in the lineage. Declaring it on the template and writing it to the
+frame keeps the lineage walk a plain walk over recorded links with nothing to
+forget. The cost is that a frame can now be both nested in and linked to the
+same parent, which the close path has to know about:
+
+**Closing a batch closes the transfers inside it.** A separate transfer still
+running out of a brew blocks the brew's close. A step of the brew cannot, or
+no brew with a wort cooling could be closed in one action -- so a transfer
+that is among the descendants being closed in the same call is judged at the
+instant it will end, where it still fits. Nesting wins over flow in exactly
+this one place.
+
+Changing a template's `parent_flow` never rewrites frames that already exist.
+They keep the links they were given and pick the rule up the next time
+`link_transfer` touches them.
 
 **Timing is contained at both ends.** A transfer's window must sit *within*
 each endpoint's window: beer cannot leave a batch that had not started or had
@@ -145,16 +189,41 @@ this safe.
 
 The traceability query a brewery cannot get out of a spreadsheet: *"which
 brews are in this canning run?"* walks the graph backward through packaging ->
-conditioning -> centrifugation -> fermentation -> knockout -> brews.
+conditioning -> centrifugation -> fermentation -> wort cooling -> brews.
 
 `trace_lineage` returns that walk flat -- every frame reached with the depth
 at which it was first seen, plus the edges between them -- because a graph
 that re-blends and cycles has no faithful tree form. Each edge names the frame
 that *carries* the link, which is the transfer itself, so a dedicated
 centrifugation frame and a direct rack (the receiving frame simply naming its
-source) read through the same structure. `truncated` reports whether
-`max_depth` cut the trail, so a clipped graph is never mistaken for a complete
-one.
+source) read through the same structure.
+
+**The walk runs to the end of the trail, and is bounded by size, not depth.**
+A trace that stops partway is no use for traceability, so `max_depth` is
+optional and unset by default (it was 10, capped at 50). What makes a trail
+large is yeast. Every yeast pitch links a fermentation to the one its yeast
+was cropped from, so a walk that follows yeast reaches back through every
+generation to the last time fresh yeast came in, and forward from an old brew
+to nearly everything brewed since. That is a true answer and sometimes the
+wanted one, but it is not the answer to "whose wort is in this can". So:
+
+- `exclude_event_frame_template_ids` leaves a kind of transfer out of the
+  walk. Passing the Yeast pitch template asks the wort question; passing
+  nothing asks for everything connected. It is a list of templates rather
+  than a "yeast" flag because the schema has no notion of yeast -- that is
+  the brewery's name for one of its batch types -- and the same lever serves
+  any other stream a brewery wants to set aside (a blend-back, a CIP return).
+- `max_frames` (default 500, ceiling 5000) stops a walk that is simply too
+  big to return.
+- `truncated` is true when a *limit* left part of the trail unwalked, and
+  false when frames were left out by an exclusion, which is a choice, not a
+  loss. A clipped graph is never mistaken for a complete one.
+
+One thing the containment rule now asks of yeast: the fermentation a pitch
+draws from must still be open when the pitch happens. A brewery that closes a
+fermentation when the beer leaves and crops the cone afterwards will be
+refused, and has to hold the batch open until its yeast is used. Left as is
+deliberately; revisit if it proves to fight real practice.
 
 ---
 

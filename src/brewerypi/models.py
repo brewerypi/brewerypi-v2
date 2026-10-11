@@ -453,6 +453,14 @@ class EventFrameTemplate(Base):
     uniqueness matters has a non-NULL ``parent_id``, and SQL's NULL-is-never-
     equal-to-NULL rule only exempts the top-level rows, where two templates
     both holding 1 is the intended outcome rather than a collision.
+
+    ``parent_flow`` marks a nested step that moves beer and says which end of
+    that transfer its parent batch is: ``"source"`` when the step draws from
+    the batch it sits inside (a Wort cooling inside a Brew), ``"destination"``
+    when it delivers into it (a Yeast pitch inside a Wort cooling). The
+    service fills that end in on every frame of the template, so only the
+    other end is ever chosen. NULL for a step that moves nothing, and always
+    NULL at top level, where there is no parent to imply.
     """
 
     __tablename__ = "event_frame_templates"
@@ -469,6 +477,7 @@ class EventFrameTemplate(Base):
         ForeignKey("event_frame_templates.id"), index=True
     )
     step_order: Mapped[int] = mapped_column(default=1)
+    parent_flow: Mapped[str | None] = mapped_column(String(11))
     name: Mapped[str] = mapped_column(String(45))
     description: Mapped[str | None] = mapped_column(String(255))
 

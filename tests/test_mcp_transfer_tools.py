@@ -44,10 +44,22 @@ def seeded(tmp_path, monkeypatch):
         ferm_t = create_event_frame_template(session, fv_t.id, "Fermentation")
         bh = create_element(session, bh_t.id, "BH1", tag_area_id=area.id)
         fv = create_element(session, fv_t.id, "FV01", tag_area_id=area.id)
+        # a wort cooler inside the brewhouse, whose step draws from its brew
+        wc_t = create_element_template(
+            session, site.id, "Wort Cooler", parent_id=bh_t.id
+        )
+        wc = create_element(
+            session, wc_t.id, "WC1", tag_area_id=area.id, parent_id=bh.id
+        )
+        cool_t = create_event_frame_template(
+            session, wc_t.id, "Wort cooling",
+            step_order=1, parent_id=brew_t.id, parent_flow="source",
+        )
         session.commit()
         ids = {
             "bh": bh.id, "fv": fv.id, "fv_t": fv_t.id,
             "brew_t": brew_t.id, "ko_t": ko_t.id, "ferm_t": ferm_t.id,
+            "wc": wc.id, "wc_t": wc_t.id, "cool_t": cool_t.id,
         }
     monkeypatch.setattr(mcp_server, "_Session", sessionmaker(engine))
     return ids
@@ -171,6 +183,61 @@ def test_lineage_rejects_a_bad_direction(seeded):
     brew, _ = brew_and_ferm(seeded)
     result = mcp_server.trace_batch_lineage(brew["id"], direction="up")
     assert "direction must be" in result["error"]
+
+
+def test_wort_cooling_names_its_brew_and_closes_with_it(seeded):
+    brew, ferm = brew_and_ferm(seeded)
+    cooling = mcp_server.create_event_frame(
+        seeded["wc"], seeded["cool_t"], "Wort cooling",
+        started_at="2026-07-17T08:00", parent_id=brew["id"],
+        destination_event_frame_id=ferm["id"],
+    )
+    # nobody passed a source: the brew it sits inside is the source
+    assert cooling["source_event_frame_id"] == brew["id"]
+    closed = mcp_server.close_event_frame(
+        brew["id"], ended_at="2026-07-17T09:30"
+    )
+    assert "error" not in closed
+    assert mcp_server.get_event_frame(cooling["id"])["open"] is False
+    fixed = mcp_server.link_transfer(cooling["id"], clear_source=True)
+    assert "cannot be cleared" in fixed["error"]
+
+
+def test_lineage_leaves_out_a_batch_type_on_request(seeded):
+    brew, ferm = brew_and_ferm(seeded)
+    mcp_server.create_event_frame(
+        seeded["wc"], seeded["cool_t"], "Wort cooling",
+        started_at="2026-07-17T08:00", ended_at="2026-07-17T09:00",
+        parent_id=brew["id"], destination_event_frame_id=ferm["id"],
+    )
+    whole = mcp_server.trace_batch_lineage(ferm["id"], direction="upstream")
+    assert {f["name"] for f in whole["frames"]} == {
+        "FV01 B123", "Wort cooling", "Brew #1"
+    }
+    assert whole["max_depth"] is None
+    skipped = mcp_server.trace_batch_lineage(
+        ferm["id"], direction="upstream",
+        exclude_event_frame_template_ids=[seeded["cool_t"]],
+    )
+    assert [f["name"] for f in skipped["frames"]] == ["FV01 B123"]
+    assert skipped["truncated"] is False
+
+
+def test_admin_sets_and_clears_a_batch_types_parent_flow(seeded):
+    shown = mcp_server.get_event_frame_template(seeded["cool_t"])
+    assert shown["parent_flow"] == "source"
+    cleared = mcp_server.update_event_frame_template(
+        seeded["cool_t"], clear_parent_flow=True
+    )
+    assert cleared["parent_flow"] is None
+    restored = mcp_server.update_event_frame_template(
+        seeded["cool_t"], parent_flow="source"
+    )
+    assert restored["parent_flow"] == "source"
+    refused = mcp_server.update_event_frame_template(
+        seeded["brew_t"], parent_flow="source"
+    )
+    assert "top-level" in refused["error"]
 
 
 def test_transfer_tools_are_on_the_operator_tier():

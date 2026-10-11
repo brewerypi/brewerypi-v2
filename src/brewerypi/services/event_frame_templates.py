@@ -14,6 +14,14 @@ rather than a step inside one, so its order is always 1 and callers need not
 pass it; nesting under a parent makes the order a real choice, so it is
 required there.
 
+A nested template may also carry a ``parent_flow``, for a step that moves
+beer: ``"source"`` when the step draws from the batch it sits inside (a Wort
+cooling inside a Brew), ``"destination"`` when it delivers into it (a Yeast
+pitch inside a Wort cooling). ``services.event_frames`` fills that end in on
+every frame of the template, so the nesting is recorded once here rather than
+re-entered on every batch. A top-level template has no parent to imply, so it
+never carries one.
+
 Each function takes an open Session and raises the service exceptions on rule
 violations. Callers own the transaction; these functions ``flush`` but never
 commit.
@@ -38,6 +46,8 @@ from brewerypi.services.exceptions import (
 )
 
 _UNSET = object()
+
+PARENT_FLOWS = ("source", "destination")
 
 
 def list_event_frame_templates(
@@ -77,6 +87,7 @@ def create_event_frame_template(
     step_order: int | None = None,
     description: str | None = None,
     parent_id: int | None = None,
+    parent_flow: str | None = None,
 ) -> EventFrameTemplate:
     """Create an event frame template on an element template.
 
@@ -85,6 +96,9 @@ def create_event_frame_template(
     and ``step_order`` is required -- it positions this step among its
     siblings. Without a parent the template is the process rather than a step
     inside one, so its order is always 1.
+
+    ``parent_flow`` (nested templates only) marks a step that moves beer and
+    names the end its parent batch is: ``"source"`` or ``"destination"``.
     """
     name = clean_str(name, "name", 45)
     element_template = session.get(ElementTemplate, element_template_id)
@@ -94,12 +108,14 @@ def create_event_frame_template(
         )
     _check_parent(session, element_template, parent_id)
     step_order = _resolve_step_order(step_order, parent_id)
+    parent_flow = _resolve_parent_flow(parent_flow, parent_id)
     _check_unique(session, element_template_id, name)
     _check_step_order(session, parent_id, step_order)
     template = EventFrameTemplate(
         element_template_id=element_template_id,
         name=name,
         step_order=step_order,
+        parent_flow=parent_flow,
         description=optional_str(description),
         parent_id=parent_id,
     )
@@ -115,6 +131,7 @@ def update_event_frame_template(
     description: str | None = None,
     parent_id: int | None = _UNSET,  # type: ignore[assignment]
     step_order: int | None = None,
+    parent_flow: str | None = _UNSET,  # type: ignore[assignment]
 ) -> EventFrameTemplate:
     """Update an event frame template; only provided fields change.
 
@@ -125,9 +142,21 @@ def update_event_frame_template(
     the current order unless ``step_order`` says otherwise, so a template
     moved into a parent whose slot is taken is refused -- pass the order it
     should occupy under its new parent.
+
+    ``parent_flow`` sets which end of a transfer the parent batch is, ``None``
+    clears it, omit to leave it. Promoting to top-level clears it too, since
+    there is no longer a parent to imply. Changing it never rewrites frames
+    that already exist: they keep the links they were given, and pick up the
+    new rule the next time they are linked.
     """
     template = get_event_frame_template(session, template_id)
     new_parent_id = template.parent_id if parent_id is _UNSET else parent_id
+    if parent_flow is _UNSET:
+        new_parent_flow = (
+            None if new_parent_id is None else template.parent_flow
+        )
+    else:
+        new_parent_flow = _resolve_parent_flow(parent_flow, new_parent_id)
     if step_order is None:
         new_step_order = 1 if new_parent_id is None else template.step_order
     else:
@@ -154,6 +183,7 @@ def update_event_frame_template(
         _check_parent(session, template.element_template, parent_id)
         template.parent_id = parent_id
     template.step_order = new_step_order
+    template.parent_flow = new_parent_flow
     session.flush()
     return template
 
@@ -253,6 +283,25 @@ def _resolve_step_order(
             f"step_order must be 1 or greater (got {step_order})"
         )
     return step_order
+
+
+def _resolve_parent_flow(
+    parent_flow: str | None, parent_id: int | None
+) -> str | None:
+    """Validate a parent flow against the parent it would imply."""
+    if parent_flow is None:
+        return None
+    if parent_flow not in PARENT_FLOWS:
+        raise ValidationError(
+            f"parent_flow must be one of {', '.join(PARENT_FLOWS)} "
+            f"(got {parent_flow!r})"
+        )
+    if parent_id is None:
+        raise ValidationError(
+            "parent_flow says which end of a transfer the parent batch is, "
+            "so a top-level event frame template cannot have one"
+        )
+    return parent_flow
 
 
 def _check_step_order(

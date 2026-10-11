@@ -146,8 +146,16 @@ delete guards.
   through is refused; deleting one is refused too (whole cascade subtree
   checked, via `transfers_blocking_delete`; `delete_element` checks the same).
   The rule makes frame boundaries a convention: a brew must stay open until
-  its knockout finishes and the fermentation must already be open — see
+  its wort has left and the fermentation must already be open — see
   `docs/design-decisions.md` before loosening it.
+  IMPLIED ENDS: a transfer that is a step INSIDE the batch at one end (Wort
+  cooling in a Brew, Yeast pitch in a Wort cooling) has that end fixed by its
+  template's `parent_flow`. `_apply_parent_flow` writes the parent in on
+  create and on `link_transfer`, and refuses to clear or redirect it; only
+  the other end is chosen. Such a frame is both nested in and linked to its
+  parent, so `close_event_frame` passes `closing_ids` to the linked-transfer
+  check — a descendant being closed in the same call must not block it. A
+  separate (non-descendant) transfer still does.
   Half-open intervals (touching allowed; open = +infinity).
   Open writes default START values as readings at `started_at`; close writes
   END values at `ended_at` and closes open descendants too. Reopen re-runs the
@@ -166,7 +174,11 @@ delete guards.
   and two top-level templates both at 1 is the intended outcome (they list
   alphabetically). The service requires `step_order` when nesting and rejects
   it (other than 1) at top level; promoting to top-level resets it to 1;
-  `list_` orders by `step_order, name`. A1
+  `list_` orders by `step_order, name`.
+  `parent_flow` (nullable `source`/`destination`, service-validated, nested
+  templates only, cleared on promote to top-level) declares which end of a
+  transfer the parent batch is; see IMPLIED ENDS under the event frame
+  lifecycle. Changing it never rewrites existing frames. A1
   nesting mirror + `default_start/end` attribute values + the instance side
   (overlap guard via `element_template.exclusive`, containment, open/close/
   reopen, tag wiring reuse) are being built table-by-table.
@@ -278,9 +290,12 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
   `event_frame_attribute_templates`, `event_frames`, plus
   `default_measurement_units` (not a table: the ported upstream default unit
   list) and `lineage` (not a table either: the flow-graph walk —
-  `trace_lineage(frame, direction, max_depth)` returns flat frames + edges,
-  visited-set guarded because the graph cycles, `truncated` when max_depth
-  cuts it) (shared `clean_str` /
+  `trace_lineage(frame, direction, max_depth=None, max_frames=500,
+  exclude_event_frame_template_ids=())` returns flat frames + edges,
+  visited-set guarded because the graph cycles. Unbounded in depth by
+  default: yeast repitching makes trails long, so size (`max_frames`) is the
+  bound and excluding the Yeast pitch template is how a caller asks the
+  wort-only question. `truncated` means a limit cut it, never an exclusion) (shared `clean_str` /
   `optional_str` /
   `clean_name_segment` in `_validation.py`; `clean_name_segment` is used for
   element and attribute-template names — trims, collapses internal whitespace,

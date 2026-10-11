@@ -289,3 +289,68 @@ def test_list_children_in_step_order(ctx):
     rows = list_event_frame_templates(session, parent_id=brew.id)
     # process order, not alphabetical
     assert [r.name for r in rows] == ["Mashing", "Lautering", "Boil"]
+
+
+def test_a_step_can_name_the_end_its_parent_is(ctx):
+    session, ids = ctx
+    brew = create_event_frame_template(session, ids["bh"], "Brew")
+    mashing = create_event_frame_template(
+        session, ids["mm"], "Mashing", step_order=1, parent_id=brew.id
+    )
+    cooling = create_event_frame_template(
+        session, ids["mm"], "Wort cooling",
+        step_order=2, parent_id=brew.id, parent_flow="source",
+    )
+    # a step that moves nothing has no flow; one that does records which end
+    assert mashing.parent_flow is None
+    assert cooling.parent_flow == "source"
+
+
+def test_parent_flow_must_be_a_known_end(ctx):
+    session, ids = ctx
+    brew = create_event_frame_template(session, ids["bh"], "Brew")
+    with pytest.raises(ValidationError, match="parent_flow must be one of"):
+        create_event_frame_template(
+            session, ids["mm"], "Wort cooling",
+            step_order=1, parent_id=brew.id, parent_flow="sideways",
+        )
+
+
+def test_top_level_template_cannot_have_a_parent_flow(ctx):
+    session, ids = ctx
+    with pytest.raises(ValidationError, match="top-level"):
+        create_event_frame_template(
+            session, ids["bh"], "Brew", parent_flow="source"
+        )
+
+
+def test_update_sets_and_clears_parent_flow(ctx):
+    session, ids = ctx
+    brew = create_event_frame_template(session, ids["bh"], "Brew")
+    cooling = create_event_frame_template(
+        session, ids["mm"], "Wort cooling", step_order=1, parent_id=brew.id
+    )
+    update_event_frame_template(session, cooling.id, parent_flow="source")
+    assert cooling.parent_flow == "source"
+    # untouched by an unrelated update
+    update_event_frame_template(session, cooling.id, name="Knockout")
+    assert cooling.parent_flow == "source"
+    update_event_frame_template(session, cooling.id, parent_flow=None)
+    assert cooling.parent_flow is None
+
+
+def test_promoting_to_top_level_clears_parent_flow(ctx):
+    session, ids = ctx
+    brew = create_event_frame_template(session, ids["bh"], "Brew")
+    cooling = create_event_frame_template(
+        session, ids["mm"], "Wort cooling",
+        step_order=1, parent_id=brew.id, parent_flow="source",
+    )
+    promoted = update_event_frame_template(
+        session, cooling.id, parent_id=None
+    )
+    assert promoted.parent_flow is None
+    with pytest.raises(ValidationError, match="top-level"):
+        update_event_frame_template(
+            session, cooling.id, parent_flow="source"
+        )

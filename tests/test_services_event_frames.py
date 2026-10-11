@@ -747,3 +747,142 @@ def test_list_filters_by_equipment_type(flow_ctx):
         session, element_template_id=ids["fv_t"], open_only=True
     )
     assert {f.name for f in found} == {"FV01 B123", "FV02 B124"}
+
+
+# -- flow: transfers that are steps inside a batch -------------------------
+#
+# A wort cooling is a step of the brew it empties, so its template's
+# parent_flow names the brew as its source; a yeast pitch is a step of the
+# wort cooling it doses, so its parent is its destination. Only the other
+# end is ever chosen.
+
+
+def wort_cooling(session, ids, brew_id, start=None, **kwargs):
+    return create_event_frame(
+        session, ids["wc1"], ids["cool_t"], "Wort cooling",
+        started_at=start or D(17, 8), parent_id=brew_id, **kwargs,
+    )
+
+
+def test_wort_cooling_draws_from_the_brew_it_sits_inside(brew_and_ferm):
+    session, ids, brew, ferm = brew_and_ferm
+    cooling = wort_cooling(
+        session, ids, brew.id, destination_event_frame_id=ferm.id
+    )
+    assert cooling.source_event_frame_id == brew.id
+    assert cooling.destination_event_frame_id == ferm.id
+
+
+def test_wort_cooling_has_its_source_before_a_destination_exists(
+    brew_and_ferm,
+):
+    session, ids, brew, _ = brew_and_ferm
+    cooling = wort_cooling(session, ids, brew.id)
+    assert cooling.source_event_frame_id == brew.id
+    assert cooling.destination_event_frame_id is None
+
+
+def test_yeast_pitch_delivers_into_its_wort_cooling(brew_and_ferm):
+    """Only the yeast's source is chosen; where it goes is the nesting."""
+    session, ids, brew, ferm = brew_and_ferm
+    yeast = create_event_frame(
+        session, ids["fv02"], ids["ferm_t"], "FV02 Prop", started_at=D(16, 5)
+    )
+    cooling = wort_cooling(
+        session, ids, brew.id, destination_event_frame_id=ferm.id
+    )
+    pitch = create_event_frame(
+        session, ids["yd1"], ids["pitch_t"], "Yeast pitch",
+        started_at=D(17, 8, 10), parent_id=cooling.id,
+        source_event_frame_id=yeast.id,
+    )
+    assert pitch.source_event_frame_id == yeast.id
+    assert pitch.destination_event_frame_id == cooling.id
+
+
+def test_an_implied_end_cannot_name_another_batch(brew_and_ferm):
+    session, ids, brew, ferm = brew_and_ferm
+    with pytest.raises(ValidationError, match="always the batch it sits"):
+        wort_cooling(session, ids, brew.id, source_event_frame_id=ferm.id)
+
+
+def test_an_implied_end_cannot_be_cleared_or_moved(brew_and_ferm):
+    session, ids, brew, ferm = brew_and_ferm
+    cooling = wort_cooling(session, ids, brew.id)
+    with pytest.raises(ValidationError, match="cannot be cleared"):
+        link_transfer(session, cooling.id, source_event_frame_id=None)
+    with pytest.raises(ValidationError, match="always the batch it sits"):
+        link_transfer(session, cooling.id, source_event_frame_id=ferm.id)
+    # the chosen end is still free to set and clear
+    link_transfer(session, cooling.id, destination_event_frame_id=ferm.id)
+    cleared = link_transfer(
+        session, cooling.id, destination_event_frame_id=None
+    )
+    assert cleared.source_event_frame_id == brew.id
+    assert cleared.destination_event_frame_id is None
+
+
+def test_linking_fills_the_implied_end_on_an_older_frame(brew_and_ferm):
+    """A frame recorded before its template had a parent_flow."""
+    session, ids, brew, ferm = brew_and_ferm
+    cooling = wort_cooling(session, ids, brew.id)
+    cooling.source_event_frame_id = None
+    session.flush()
+    linked = link_transfer(
+        session, cooling.id, destination_event_frame_id=ferm.id
+    )
+    assert linked.source_event_frame_id == brew.id
+
+
+def test_closing_the_brew_closes_the_transfers_inside_it(brew_and_ferm):
+    """The step is linked to the brew AND nested in it; nesting wins.
+
+    A separate transfer still running out of a brew blocks its close. A
+    step of the brew cannot, or no brew with a wort cooling could ever be
+    closed in one action: it ends at the same instant, so it still fits.
+    """
+    session, ids, brew, ferm = brew_and_ferm
+    yeast = create_event_frame(
+        session, ids["fv02"], ids["ferm_t"], "FV02 Prop", started_at=D(16, 5)
+    )
+    cooling = wort_cooling(
+        session, ids, brew.id, destination_event_frame_id=ferm.id
+    )
+    pitch = create_event_frame(
+        session, ids["yd1"], ids["pitch_t"], "Yeast pitch",
+        started_at=D(17, 8, 10), parent_id=cooling.id,
+        source_event_frame_id=yeast.id,
+    )
+    close_event_frame(session, brew.id, ended_at=D(17, 10))
+    assert brew.ended_at == cooling.ended_at == pitch.ended_at == D(17, 10)
+
+
+def test_a_separate_transfer_blocks_even_when_steps_close_along(
+    brew_and_ferm,
+):
+    session, ids, brew, ferm = brew_and_ferm
+    wort_cooling(session, ids, brew.id, destination_event_frame_id=ferm.id)
+    knockout(session, ids, brew.id, ferm.id, start=D(17, 9))
+    with pytest.raises(ConflictError, match="still running out of"):
+        close_event_frame(session, brew.id, ended_at=D(17, 10))
+
+
+def test_one_brew_cools_into_a_fermentation_and_a_propagation(
+    brew_and_ferm,
+):
+    """Two wort coolings in one brew, each to its own destination."""
+    session, ids, brew, ferm = brew_and_ferm
+    prop = create_event_frame(
+        session, ids["fv02"], ids["ferm_t"], "FV02 Prop", started_at=D(17, 5)
+    )
+    first = wort_cooling(
+        session, ids, brew.id, ended_at=D(17, 9),
+        destination_event_frame_id=ferm.id,
+    )
+    second = wort_cooling(
+        session, ids, brew.id, start=D(17, 9), ended_at=D(17, 9, 30),
+        destination_event_frame_id=prop.id,
+    )
+    assert first.source_event_frame_id == second.source_event_frame_id
+    assert second.source_event_frame_id == brew.id
+    assert second.destination_event_frame_id == prop.id
