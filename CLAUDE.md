@@ -101,8 +101,8 @@ delete guards.
   `name` (unique per template), `description`, and nullable
   `lookup_id`/`measurement_unit_id` — mutually exclusive (lookup/numeric/
   neither, like Tag), same-enterprise (service-enforced). Flat (no parent).
-  `ElementTemplate` cascades its attribute templates. Admin-only config. A
-  future `ElementAttribute` instance will carry the tag_id link.
+  `ElementTemplate` cascades its attribute templates. Admin-only config. An
+  `ElementAttribute` instance carries the tag_id link.
 - `ElementAttribute`: an attribute template realized on one element and wired
   to a `Tag` (required `element_id`, `element_attribute_template_id`, `tag_id`;
   unique `(element_id, element_attribute_template_id)`). `owns_tag` (bool)
@@ -161,7 +161,7 @@ delete guards.
   END values at `ended_at` and closes open descendants too. Reopen re-runs the
   guards and leaves readings alone. Boundary moves never touch readings — a
   frame is a lens over data it doesn't own.
-- `EventFrameTemplate` (event frames, in progress): a batch-window type defined
+- `EventFrameTemplate`: a batch-window type defined
   for an `element_template` (`element_template_id`), self-referential
   (`parent_id`) so a "Brew" on a Brewhouse nests a "Mashing" on the Mash Mixer
   child. Name unique per element template. `ElementTemplate` cascades them.
@@ -178,10 +178,9 @@ delete guards.
   `parent_flow` (nullable `source`/`destination`, service-validated, nested
   templates only, cleared on promote to top-level) declares which end of a
   transfer the parent batch is; see IMPLIED ENDS under the event frame
-  lifecycle. Changing it never rewrites existing frames. A1
-  nesting mirror + `default_start/end` attribute values + the instance side
-  (overlap guard via `element_template.exclusive`, containment, open/close/
-  reopen, tag wiring reuse) are being built table-by-table.
+  lifecycle. Changing it never rewrites existing frames. The A1 nesting
+  mirror, `default_start/end` attribute values and the instance side are
+  built — see the event frame LIFECYCLE entry above.
 - `EventFrameAttributeTemplate`: an attribute on an `event_frame_template` —
   same type pattern as `ElementAttributeTemplate` (lookup/numeric/neither,
   same-enterprise, unique per template) plus `default_start_value`/
@@ -195,7 +194,8 @@ delete guards.
   enforces `ended_at > started_at`. Times UTC, converted at the boundary.
   `Element` cascades its frames, a parent frame cascades children. Name is a
   free label. The overlap guard (via `element_template.exclusive`),
-  containment, tag wiring, and open/close/reopen are service-layer work.
+  containment, tag wiring, and open/close/reopen live in the service layer
+  (`services/event_frames.py`).
   Two more self-FKs, `source_event_frame_id` / `destination_event_frame_id`
   (both nullable, `ON DELETE RESTRICT`), make a frame a TRANSFER: beer moving
   out of one batch into another. That is FLOW, not containment — `parent_id`

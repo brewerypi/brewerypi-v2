@@ -16,7 +16,13 @@ ElementTemplate is a site-scoped, self-referential template tree
 template tree, and tag_area_id points at where its tags are stored.
 ElementAttributeTemplate defines an attribute on an element template
 (name + optional lookup or measurement unit, like Tag). ElementAttribute
-is not yet added; it will gain a tag_id FK when added.
+realizes one on an element and wires it to the Tag holding its readings.
+
+EventFrameTemplate is a batch type on an element template, self-referential
+like its element template (a Brew nests a Mashing). EventFrame is one batch
+window on an element; its source/destination self-FKs make it a transfer
+between batches. EventFrameAttributeTemplate defines a batch attribute, and
+EventFrameAttribute wires it, per element, to the Tag holding its readings.
 """
 
 from __future__ import annotations
