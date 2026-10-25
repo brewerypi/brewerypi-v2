@@ -2,25 +2,34 @@
 
 Exposes tools so that Claude (via a custom connector) can browse the
 enterprise -> site -> area -> tag hierarchy, query a tag's recorded values,
-and record new readings. All tools are read-only except ``record_tag_value``,
-which appends a single reading. There is no per-user auth — the deployment
-gates access with one shared secret path — so this is intended for a demo
-against a throwaway database that can be rebuilt from the seed.
+record readings, and run batches. ``MCP_ROLE`` picks the tier: the default
+operator tier, or ``admin``, which adds the configuration tools.
+
+Staff sign in with WorkOS AuthKit, and every tool call is checked against
+the Brewery Pi user list (see ``brewerypi.mcp_auth``). Scoping each call to
+the caller's enterprises and sites is not built yet, so one server should
+still hold one company's data.
 
 Run it with the ``brewerypi-mcp`` command (or
 ``python -m brewerypi.mcp_server``). Configuration is read from the
 environment:
 
-    DATABASE_URL   SQLAlchemy URL (default sqlite:///app.db)
-    MCP_HOST       bind address (default 127.0.0.1)
-    MCP_PORT       bind port (default 8000)
-    MCP_PATH       HTTP path for the MCP endpoint (default /mcp)
+    DATABASE_URL     SQLAlchemy URL (default sqlite:///app.db)
+    MCP_ROLE         operator (default) or admin
+    MCP_HOST         bind address (default 127.0.0.1)
+    MCP_PORT         bind port (default 8000)
+    MCP_PATH         HTTP path for the MCP endpoint (default /mcp)
+    MCP_AUTH         authkit (default) or none -- local development only
+    AUTHKIT_DOMAIN   WorkOS AuthKit domain (authkit mode)
+    MCP_BASE_URL     this tier's public URL (authkit mode)
+    WORKOS_API_KEY   WorkOS server key, for the sign-in email lookup
 
 In deployment the process binds to localhost and a reverse proxy
-terminates HTTPS and gates access with a secret path; see the deploy guide.
+terminates HTTPS, one hostname per tier; see the deploy guide.
 """
 
 import base64
+import logging
 import os
 from datetime import datetime, timezone
 
@@ -30,8 +39,9 @@ from sqlalchemy import create_engine, event, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from brewerypi import services, workbook
+from brewerypi import mcp_auth, services, workbook
 from brewerypi.config import DATABASE_URL
+from brewerypi.identity import TIERS
 from brewerypi.models import (
     Area,
     Element,
@@ -2974,15 +2984,35 @@ def _register_config_tools(server: FastMCP) -> None:
         server.tool(tool)
 
 
-# Config editing is gated by role. The default tier is "operator" (read +
-# record_tag_value); the admin tier (MCP_ROLE=admin) additionally exposes the
-# config CRUD tools. Run the admin tier on its own port and secret path.
+# The tier decides which tools are offered. The default "operator" tier reads
+# and runs batches; the admin tier (MCP_ROLE=admin) additionally exposes the
+# config CRUD tools, and its sign-in admits only admins. Run the admin tier
+# as its own process, on its own hostname.
 if os.getenv("MCP_ROLE", "operator") == "admin":
     _register_config_tools(mcp)
 
 
 def main() -> None:
-    """Run the MCP server over streamable HTTP."""
+    """Run the MCP server over streamable HTTP.
+
+    Sign-in is attached here rather than when the module is imported, so
+    tests (which call the tool functions directly) never need it. A server
+    with sign-in neither configured nor explicitly disabled refuses to
+    start.
+    """
+    tier = os.getenv("MCP_ROLE", "operator")
+    if tier not in TIERS:
+        raise SystemExit(f"MCP_ROLE must be one of {', '.join(TIERS)}")
+    if mcp_auth.auth_mode() == "authkit":
+        mcp.auth = mcp_auth.build_auth_provider()
+        mcp.add_middleware(
+            mcp_auth.SignInMiddleware(lambda: _Session(), tier)
+        )
+    else:
+        logging.getLogger(__name__).warning(
+            "MCP_AUTH=none: no sign-in -- every tool is open to anyone "
+            "who can reach this server. Local development only."
+        )
     host = os.getenv("MCP_HOST", "127.0.0.1")
     port = int(os.getenv("MCP_PORT", "8000"))
     path = os.getenv("MCP_PATH", "/mcp")

@@ -24,7 +24,7 @@ dev = [
     "ruff>=0.15",
     "pre-commit>=4.0",
 ]
-# Install with `pip install -e ".[mcp]"` to run the read-only MCP server.
+# Install with `pip install -e ".[mcp]"` to run the MCP server.
 mcp = [
     "fastmcp>=3.0",
 ]
@@ -37,6 +37,7 @@ migrations = [
 [project.scripts]
 brewerypi = "brewerypi.main:main"
 brewerypi-mcp = "brewerypi.mcp_server:main"
+brewerypi-users = "brewerypi.users_cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

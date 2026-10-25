@@ -7,6 +7,33 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- Sign-in and a user list (phase 1 of *Identity and access* in
+  `docs/design-decisions.md`). Staff sign in through WorkOS AuthKit (Google,
+  Microsoft or an email magic link); the MCP server verifies AuthKit's
+  tokens (FastMCP `AuthKitProvider`) and `SignInMiddleware` refuses every
+  tool call from someone not on the list, deactivated, without a
+  membership, or -- on the admin tier -- not an admin anywhere. New tables
+  `users`, `memberships` (role `operator`/`admin` per enterprise, CHECK
+  constrained) and `membership_sites` (an optional site restriction behind
+  `has_all_sites`, so a site delete fails closed); migration
+  `fc00cd54b37d`. A first sign-in is matched to the list by verified email
+  via the WorkOS API and linked by subject (`users.auth_subject`). Services
+  `users` / `memberships`; `brewerypi.identity` publishes the caller per
+  call. The `brewerypi-users` CLI is the bootstrap (first superuser) and
+  manages users and grants until admin tools arrive.
+  `resolve_timezone` now prefers the signed-in user's own `timezone` for
+  entry and display, falling back to the site's.
+
+### Changed
+- **The MCP server refuses to start without sign-in configured**
+  (`AUTHKIT_DOMAIN`, `MCP_BASE_URL`, `WORKOS_API_KEY`); set `MCP_AUTH=none`
+  explicitly to run open for local development. Deployments move from a
+  secret path to one hostname per tier -- see "Moving a shared-secret
+  deployment to sign-in" in `docs/deploy-mcp-hetzner.md`. Scoping each call
+  to the caller's enterprises and sites is not built yet: host one company
+  per server.
+
+### Added
 - Transfers that are steps inside a batch, and whole-trail lineage. Found by
   running the transfer work against a real brewhouse layout, where wort
   cooling is step 5 of the Brew rather than a separate knockout batch: the

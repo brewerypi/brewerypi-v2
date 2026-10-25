@@ -45,3 +45,17 @@ def optional_str(value: str | None) -> str | None:
         return None
     value = value.strip()
     return value or None
+
+
+def clean_timezone(value: str) -> str:
+    """Validate an IANA timezone name."""
+    # Imported here: brewerypi.timezones imports the service exceptions.
+    from brewerypi.timezones import is_valid_timezone
+
+    value = clean_str(value, "timezone", 64)
+    if not is_valid_timezone(value):
+        raise ValidationError(
+            f"{value!r} is not a valid IANA timezone (e.g. "
+            '"America/New_York" or "UTC")'
+        )
+    return value

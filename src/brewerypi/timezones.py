@@ -5,11 +5,10 @@ accept and display *local* times; these helpers do the conversion
 deterministically and DST-aware via :mod:`zoneinfo`, so the language model
 never does timezone math itself.
 
-The zone to use comes from :func:`resolve_timezone`. Today it returns the
-site's timezone; once OAuth gives us an authenticated user, that function is
-the single place that starts preferring the user's own zone (which, by design,
-will drive both entry and display) -- every caller already routes through it,
-so no tool changes.
+The zone to use comes from :func:`resolve_timezone`: the signed-in user's
+own zone when they have set one (it drives both entry and display), else the
+site's. Every caller routes through it, so this is the one place that knows
+the order.
 """
 
 from __future__ import annotations
@@ -19,6 +18,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy.orm import Session
 
+from brewerypi.identity import current_user
 from brewerypi.models import Site
 from brewerypi.services.exceptions import ValidationError
 
@@ -38,12 +38,14 @@ def is_valid_timezone(name: str) -> bool:
 def resolve_timezone(session: Session, site: Site) -> str:
     """Return the IANA zone to use for a site's readings.
 
-    Resolution order: (the authenticated user's zone -- not available until
-    OAuth; when it is, it will be preferred here for both entry and display)
-    -> the site's own timezone -> a system default. This is the one seam the
-    OAuth work fills in.
+    Resolution order: the signed-in user's own zone (for both entry and
+    display) -> the site's own timezone -> a system default. A user with no
+    zone of their own -- on-site staff, typically -- sees site-local time.
     """
-    # TODO(oauth): prefer the authenticated user's timezone here.
+    user = current_user()
+    if user is not None and user.timezone:
+        if is_valid_timezone(user.timezone):
+            return user.timezone
     if site.timezone and is_valid_timezone(site.timezone):
         return site.timezone
     return DEFAULT_TIMEZONE

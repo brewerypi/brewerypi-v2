@@ -20,3 +20,7 @@ class ValidationError(ServiceError):
 
 class ConflictError(ServiceError):
     """The operation would break a uniqueness or integrity constraint."""
+
+
+class PermissionDeniedError(ServiceError):
+    """The caller is not allowed to do this (or to sign in at all)."""
