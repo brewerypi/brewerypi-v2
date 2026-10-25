@@ -23,6 +23,10 @@ like its element template (a Brew nests a Mashing). EventFrame is one batch
 window on an element; its source/destination self-FKs make it a transfer
 between batches. EventFrameAttributeTemplate defines a batch attribute, and
 EventFrameAttribute wires it, per element, to the Tag holding its readings.
+
+Access:  User 1——* Membership *——1 Enterprise  (role operator | admin).
+  A Membership covers every site of its enterprise unless has_all_sites is
+  False, in which case only the sites in MembershipSite.
 """
 
 from __future__ import annotations
@@ -61,6 +65,10 @@ class Enterprise(Base):
         back_populates="enterprise",
         cascade="all, delete-orphan",
     )
+    memberships: Mapped[list[Membership]] = relationship(
+        back_populates="enterprise",
+        cascade="all, delete-orphan",
+    )
 
     def __repr__(self) -> str:
         return f"<Enterprise {self.name!r}>"
@@ -92,6 +100,10 @@ class Site(Base):
         cascade="all, delete-orphan",
     )
     element_templates: Mapped[list[ElementTemplate]] = relationship(
+        back_populates="site",
+        cascade="all, delete-orphan",
+    )
+    membership_sites: Mapped[list[MembershipSite]] = relationship(
         back_populates="site",
         cascade="all, delete-orphan",
     )
@@ -689,4 +701,113 @@ class EventFrameAttribute(Base):
         return (
             f"<EventFrameAttribute element_id={self.element_id!r}"
             f" tag_id={self.tag_id!r}>"
+        )
+
+
+#: The roles a membership can grant, least privileged first.
+MEMBERSHIP_ROLES = ("operator", "admin")
+
+
+class User(Base):
+    """A person allowed to sign in.
+
+    Identified by verified email: ``auth_subject`` (the identity provider's
+    user id) is NULL until their first sign-in links it, and is matched
+    alone after that. ``timezone`` (IANA), when set, overrides the site's
+    zone for entry and display. ``is_active = False`` is how someone leaves
+    without losing the record.
+    """
+
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # Stored lowercased by the service, so uniqueness is case-insensitive.
+    email: Mapped[str] = mapped_column(String(255), unique=True)
+    name: Mapped[str | None] = mapped_column(String(100))
+    auth_subject: Mapped[str | None] = mapped_column(
+        String(255), unique=True
+    )
+    timezone: Mapped[str | None] = mapped_column(String(64))
+    is_superuser: Mapped[bool] = mapped_column(
+        default=False, server_default=text("0")
+    )
+    is_active: Mapped[bool] = mapped_column(
+        default=True, server_default=text("1")
+    )
+
+    memberships: Mapped[list[Membership]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+
+    def __repr__(self) -> str:
+        return f"<User {self.email!r}>"
+
+
+class Membership(Base):
+    """One user's role in one enterprise.
+
+    ``has_all_sites`` (default True) covers every site, including ones
+    created later. When False the user sees only the sites listed in
+    ``membership_sites`` -- an explicit flag rather than "no rows means all",
+    so a site delete that empties the list fails closed instead of
+    promoting the user to every site.
+    """
+
+    __tablename__ = "memberships"
+    __table_args__ = (
+        UniqueConstraint("user_id", "enterprise_id"),
+        CheckConstraint(
+            "role IN ('operator', 'admin')", name="role_is_known"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    enterprise_id: Mapped[int] = mapped_column(
+        ForeignKey("enterprises.id"), index=True
+    )
+    role: Mapped[str] = mapped_column(String(8))
+    has_all_sites: Mapped[bool] = mapped_column(
+        default=True, server_default=text("1")
+    )
+
+    user: Mapped[User] = relationship(back_populates="memberships")
+    enterprise: Mapped[Enterprise] = relationship(
+        back_populates="memberships"
+    )
+    membership_sites: Mapped[list[MembershipSite]] = relationship(
+        back_populates="membership",
+        cascade="all, delete-orphan",
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<Membership user_id={self.user_id!r}"
+            f" enterprise_id={self.enterprise_id!r} role={self.role!r}>"
+        )
+
+
+class MembershipSite(Base):
+    """A site a restricted membership may see (same enterprise, enforced by
+    the service)."""
+
+    __tablename__ = "membership_sites"
+    __table_args__ = (UniqueConstraint("membership_id", "site_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    membership_id: Mapped[int] = mapped_column(
+        ForeignKey("memberships.id"), index=True
+    )
+    site_id: Mapped[int] = mapped_column(ForeignKey("sites.id"), index=True)
+
+    membership: Mapped[Membership] = relationship(
+        back_populates="membership_sites"
+    )
+    site: Mapped[Site] = relationship(back_populates="membership_sites")
+
+    def __repr__(self) -> str:
+        return (
+            f"<MembershipSite membership_id={self.membership_id!r}"
+            f" site_id={self.site_id!r}>"
         )

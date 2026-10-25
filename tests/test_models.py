@@ -19,9 +19,12 @@ from brewerypi.models import (
     Lookup,
     LookupValue,
     MeasurementUnit,
+    Membership,
+    MembershipSite,
     Site,
     Tag,
     TagValue,
+    User,
 )
 
 
@@ -397,3 +400,108 @@ def test_event_frame_template_parent_flow_is_optional_and_persists():
     with Session(engine) as session:
         cooling = session.get(EventFrameTemplate, cooling_id)
         assert cooling.parent_flow == "source"
+
+
+def _member_ctx(session):
+    enterprise = Enterprise(abbreviation="BRW", name="Brewery Co")
+    site = Site(abbreviation="HQ", name="Headquarters")
+    enterprise.sites.append(site)
+    user = User(email="brewer@example.com")
+    session.add_all([enterprise, user])
+    session.flush()
+    return enterprise, site, user
+
+
+def test_membership_role_must_be_known():
+    engine = make_engine()
+    with Session(engine) as session:
+        enterprise, _, user = _member_ctx(session)
+        session.add(
+            Membership(
+                user_id=user.id, enterprise_id=enterprise.id, role="owner"
+            )
+        )
+        with pytest.raises(IntegrityError):
+            session.flush()
+
+
+def test_one_membership_per_user_and_enterprise():
+    engine = make_engine()
+    with Session(engine) as session:
+        enterprise, _, user = _member_ctx(session)
+        for role in ("operator", "admin"):
+            session.add(
+                Membership(
+                    user_id=user.id, enterprise_id=enterprise.id, role=role
+                )
+            )
+        with pytest.raises(IntegrityError):
+            session.flush()
+
+
+def test_user_defaults_and_unique_email():
+    engine = make_engine()
+    with Session(engine) as session:
+        _, _, user = _member_ctx(session)
+        assert user.is_active is True
+        assert user.is_superuser is False
+        assert user.auth_subject is None
+        session.add(User(email="brewer@example.com"))
+        with pytest.raises(IntegrityError):
+            session.flush()
+
+
+def test_site_delete_leaves_a_restricted_membership_closed():
+    """Deleting a granted site removes the grant, never widens access."""
+    engine = make_engine()
+    with Session(engine) as session:
+        enterprise, site, user = _member_ctx(session)
+        membership = Membership(
+            user_id=user.id,
+            enterprise_id=enterprise.id,
+            role="operator",
+            has_all_sites=False,
+        )
+        membership.membership_sites.append(MembershipSite(site_id=site.id))
+        session.add(membership)
+        session.commit()
+
+        session.delete(site)
+        session.commit()
+        session.refresh(membership)
+        assert membership.membership_sites == []
+        assert membership.has_all_sites is False
+
+
+def test_user_and_enterprise_deletes_cascade_memberships():
+    engine = make_engine()
+    with Session(engine) as session:
+        enterprise, site, user = _member_ctx(session)
+        membership = Membership(
+            user_id=user.id,
+            enterprise_id=enterprise.id,
+            role="admin",
+            has_all_sites=False,
+        )
+        membership.membership_sites.append(MembershipSite(site_id=site.id))
+        session.add(membership)
+        session.commit()
+
+        session.delete(user)
+        session.commit()
+        assert session.scalar(select(func.count(Membership.id))) == 0
+        assert session.scalar(select(func.count(MembershipSite.id))) == 0
+
+        other = User(email="other@example.com")
+        session.add(other)
+        session.flush()
+        session.add(
+            Membership(
+                user_id=other.id, enterprise_id=enterprise.id, role="admin"
+            )
+        )
+        session.commit()
+        session.delete(enterprise)
+        session.commit()
+        assert session.scalar(select(func.count(Membership.id))) == 0
+        assert session.get(User, other.id) is not None

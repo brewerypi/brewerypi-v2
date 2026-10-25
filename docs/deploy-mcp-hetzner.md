@@ -1,20 +1,30 @@
 # Deploying the BreweryPi MCP server (Hetzner + Caddy)
 
 A step-by-step guide to running the BreweryPi MCP server on a small Hetzner
-VPS, behind HTTPS, so a few demo users can add it to Claude as a custom
-connector.
+VPS, behind HTTPS, so brewery staff can add it to Claude as a custom
+connector and sign in as themselves.
 
-**Architecture.** The MCP server runs as a `systemd` service bound to
-`127.0.0.1:8000` (never exposed directly). Caddy listens on 443, terminates
-HTTPS for `mcp.brewerypi.com` with an automatic Let's Encrypt certificate,
-and reverse-proxies a **secret path** to the local server. The secret path
-is the access credential: only people who have the full URL can reach the
-tools. All tools are read-only except `record_tag_value`, which appends a
-reading — so anyone with the URL can write. That is acceptable here only
-because the database is a rebuildable demo (see the reset note below).
+**Architecture.** Two MCP processes run as `systemd` services bound to
+localhost (never exposed directly): the **operator** tier on `127.0.0.1:8000`
+and the **admin** tier on `127.0.0.1:8001`. Caddy listens on 443, terminates
+HTTPS with automatic Let's Encrypt certificates, and proxies one hostname to
+each tier -- `mcp.brewerypi.com` and `admin.mcp.brewerypi.com`. (One hostname
+per tier, not a path prefix: OAuth discovery lives under `/.well-known/` at
+the host root, so two tiers cannot share a host.)
 
-Throughout, replace `mcp.brewerypi.com` with your subdomain and
-`REPLACE_WITH_SECRET` with a random token you generate in step 6.
+**Sign-in.** Staff sign in through **WorkOS AuthKit** (Google, Microsoft, or
+an emailed magic link). AuthKit proves who someone is; the server then checks
+them against its own **user list** and refuses everyone else, so signing up
+with AuthKit grants nothing. Users and their roles are managed with the
+`brewerypi-users` command on the server (step 8). The design is in
+`docs/design-decisions.md` under *Identity and access*.
+
+> **Not yet scoped per company.** Sign-in and the user list are enforced, but
+> every member currently sees every enterprise on the server. Host one
+> company per server until scoping lands.
+
+Throughout, replace `mcp.brewerypi.com` / `admin.mcp.brewerypi.com` with
+your hostnames.
 
 ---
 
@@ -34,20 +44,22 @@ Throughout, replace `mcp.brewerypi.com` with your subdomain and
    that is *not* enabled by default, and you need it for the DNS A record and
    SSH. Attach your SSH key. Create it, and note the public **IPv4** address.
 
-## 2. Point the subdomain at it
+## 2. Point the subdomains at it
 
-In the DNS settings for your domain, add an **A record**:
+In the DNS settings for your domain, add two **A records**:
 
-| Type | Name | Value             |
-| ---- | ---- | ----------------- |
-| A    | mcp  | `<server-ipv4>`   |
+| Type | Name      | Value             |
+| ---- | --------- | ----------------- |
+| A    | mcp       | `<server-ipv4>`   |
+| A    | admin.mcp | `<server-ipv4>`   |
 
-If your DNS is on Cloudflare, set this record to **DNS only** (grey cloud) so
-the certificate challenge is straightforward. Wait a couple of minutes, then
-confirm from your laptop:
+If your DNS is on Cloudflare, set these records to **DNS only** (grey cloud)
+so the certificate challenge is straightforward. Wait a couple of minutes,
+then confirm from your laptop:
 
 ```
 nslookup mcp.brewerypi.com
+nslookup admin.mcp.brewerypi.com
 ```
 
 ## 3. First login and basics
@@ -96,27 +108,63 @@ print(c.execute('PRAGMA journal_mode=WAL').fetchone()); c.close()"
 
 The last line switches SQLite into WAL mode for smoother concurrent reads.
 
-## 6. Run the MCP server as a service
+## 6. Set up WorkOS AuthKit
 
-Generate a secret token and keep it handy:
+WorkOS is free for this (AuthKit costs nothing up to 1 million monthly
+active users; paid extras such as enterprise SAML or a custom sign-in domain
+are not needed). Brewery staff never deal with WorkOS directly -- they only
+see its sign-in page. Dashboard labels move around; if one below doesn't
+match, WorkOS's MCP guide is at <https://workos.com/docs/authkit/mcp>.
+
+1. Sign up at <https://workos.com> and open the **Production** environment
+   (Staging works for a trial, with WorkOS's shared Google/Microsoft
+   credentials).
+2. **Authentication**: turn on **Email + Magic Auth**, **Google OAuth** and
+   **Microsoft OAuth**. In Production, Google and Microsoft each need your
+   own OAuth client -- the dashboard walks through creating one.
+3. **Applications -> Configuration**: enable **Dynamic Client
+   Registration**. This is what lets Claude register itself as a client when
+   someone adds the connector.
+4. Note the **AuthKit domain** (e.g. `https://your-app.authkit.app`).
+5. **Resource indicators**: add both tiers' URLs exactly as the server will
+   advertise them -- `https://mcp.brewerypi.com/mcp` and
+   `https://admin.mcp.brewerypi.com/mcp`. Tokens are minted for one of these
+   and the server rejects a token minted for anything else.
+6. **API Keys**: copy the **secret key** (`sk_...`). The server uses it only
+   to look up a person's email the first time they sign in.
+
+## 7. Run the MCP servers as services
+
+Keep the secrets out of the unit files, in one root-only file:
 
 ```
-openssl rand -hex 16
+mkdir -p /etc/brewerypi
+cat > /etc/brewerypi/mcp.env <<'EOF'
+DATABASE_URL=sqlite:////opt/brewerypi/app.db
+AUTHKIT_DOMAIN=https://your-app.authkit.app
+WORKOS_API_KEY=sk_live_REPLACE_ME
+EOF
+chmod 600 /etc/brewerypi/mcp.env
 ```
 
-Create `/etc/systemd/system/brewerypi-mcp.service`:
+Note the **four** slashes in the SQLite URL -- that is `sqlite://` plus the
+absolute path `/opt/brewerypi/app.db`.
+
+Create `/etc/systemd/system/brewerypi-mcp.service` (the operator tier):
 
 ```ini
 [Unit]
-Description=BreweryPi MCP server
+Description=BreweryPi MCP server (operator)
 After=network.target
 
 [Service]
 WorkingDirectory=/opt/brewerypi
+EnvironmentFile=/etc/brewerypi/mcp.env
+Environment=MCP_ROLE=operator
 Environment=MCP_HOST=127.0.0.1
 Environment=MCP_PORT=8000
 Environment=MCP_PATH=/mcp
-Environment=DATABASE_URL=sqlite:////opt/brewerypi/app.db
+Environment=MCP_BASE_URL=https://mcp.brewerypi.com
 ExecStart=/opt/brewerypi/.venv/bin/brewerypi-mcp
 Restart=on-failure
 User=root
@@ -125,16 +173,60 @@ User=root
 WantedBy=multi-user.target
 ```
 
-Note the **four** slashes in the SQLite URL — that is `sqlite://` plus the
-absolute path `/opt/brewerypi/app.db`. Then:
+and `/etc/systemd/system/brewerypi-mcp-admin.service`, identical except:
+
+```ini
+Description=BreweryPi MCP server (admin)
+Environment=MCP_ROLE=admin
+Environment=MCP_PORT=8001
+Environment=MCP_BASE_URL=https://admin.mcp.brewerypi.com
+```
+
+`MCP_BASE_URL` is each tier's **public** address; it must match the resource
+indicator from step 6. Then:
 
 ```
 systemctl daemon-reload
-systemctl enable --now brewerypi-mcp
-systemctl status brewerypi-mcp        # should show active (running)
+systemctl enable --now brewerypi-mcp brewerypi-mcp-admin
+systemctl status brewerypi-mcp brewerypi-mcp-admin   # both active (running)
 ```
 
-## 7. Install Caddy and configure HTTPS + the secret path
+A service that exits at once with *"sign-in is not configured"* is missing a
+setting from the env file. That refusal is deliberate: the server will not
+start open by accident. (`MCP_AUTH=none` disables sign-in entirely, for
+local development only -- never set it here.)
+
+## 8. Add the first users
+
+The admin tools need an admin to exist, so the first account is created
+here, on the server (the **bootstrap**). `--superuser` is server-wide access,
+including creating enterprises:
+
+```
+cd /opt/brewerypi
+set -a; . /etc/brewerypi/mcp.env; set +a
+.venv/bin/brewerypi-users add you@yourbrewery.com --name "Your Name" --superuser
+```
+
+Then everyone else -- by the email they will sign in with -- and their role
+in an enterprise (by id or abbreviation). No `--site` means every site,
+including ones added later; `--site` (repeatable) restricts them:
+
+```
+.venv/bin/brewerypi-users add brewer@yourbrewery.com
+.venv/bin/brewerypi-users grant brewer@yourbrewery.com BRW --role operator
+.venv/bin/brewerypi-users add cellar@yourbrewery.com
+.venv/bin/brewerypi-users grant cellar@yourbrewery.com BRW --role operator --site ATL
+.venv/bin/brewerypi-users list
+```
+
+Someone who has left: `update their@email --no-active` (keeps the record,
+blocks sign-in). Someone whose sign-in account was deleted and recreated:
+`reset-sign-in their@email`. A remote user who wants times in their own
+clock: `update their@email --timezone America/Denver`. Run
+`brewerypi-users --help` for the rest.
+
+## 9. Install Caddy and configure HTTPS
 
 ```
 apt install -y debian-keyring debian-archive-keyring apt-transport-https
@@ -147,134 +239,95 @@ apt update && apt install -y caddy
 
 (If that method has changed, see <https://caddyserver.com/docs/install>.)
 
-Replace `/etc/caddy/Caddyfile` with this, substituting your subdomain and the
-secret from step 6:
+Replace `/etc/caddy/Caddyfile` with:
 
 ```
 mcp.brewerypi.com {
-    @mcp path /REPLACE_WITH_SECRET/*
-    handle @mcp {
-        uri strip_prefix /REPLACE_WITH_SECRET
-        reverse_proxy 127.0.0.1:8000
-    }
-    handle {
-        respond "Not found" 404
-    }
+    reverse_proxy 127.0.0.1:8000
+}
+
+admin.mcp.brewerypi.com {
+    reverse_proxy 127.0.0.1:8001
 }
 ```
 
-Reload Caddy; it will obtain the certificate automatically:
+No secret paths any more -- sign-in is the credential. Reload Caddy; it will
+obtain both certificates automatically:
 
 ```
 systemctl reload caddy
 journalctl -u caddy --no-pager | tail -20   # watch for certificate success
 ```
 
-## 8. Test before handing it out
+## 10. Test before handing it out
 
-Run this **on the server** (it has a real `curl`), substituting your secret.
-An MCP `initialize` call should return `200`. This still exercises the whole
-public chain — DNS, certificate, secret path, proxy, and the MCP service:
+Run these **on the server** (it has a real `curl`). An unauthenticated call
+must be refused with `401` and point at the sign-in metadata:
 
 ```
-curl -s -o /dev/null -w "%{http_code}\n" \
-  -X POST https://mcp.brewerypi.com/REPLACE_WITH_SECRET/mcp \
+curl -s -i -X POST https://mcp.brewerypi.com/mcp \
   -H "Accept: application/json, text/event-stream" \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}'
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | head -5
 ```
 
-A path **without** the secret should return `404`. If the public URL fails,
-test the service directly (bypassing Caddy) — `http://127.0.0.1:8000/mcp`
-returning `200` means the issue is in Caddy (usually a secret mismatch or the
-certificate), while a failure there means the service isn't running
-(`systemctl status brewerypi-mcp`).
-
-> **Windows note:** don't run the above in PowerShell — there `curl` is an
-> alias for `Invoke-WebRequest`, with different syntax, so it will error. Test
-> from the server as shown, or use this PowerShell-native version, entering the
-> two statements as **separate** lines:
->
-> ```powershell
-> $body = '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}'
-> ```
-> ```powershell
-> try { (Invoke-WebRequest -Method Post -Uri "https://mcp.brewerypi.com/REPLACE_WITH_SECRET/mcp" -Headers @{ "Accept" = "application/json, text/event-stream" } -ContentType "application/json" -Body $body).StatusCode } catch { $_.Exception.Response.StatusCode.value__ }
-> ```
-
-## 9. Add it to Claude (each demo user)
-
-Give each user the full URL:
+Expect `HTTP/2 401` and a `www-authenticate: Bearer resource_metadata=...`
+header. Then the metadata itself should name your AuthKit domain:
 
 ```
-https://mcp.brewerypi.com/REPLACE_WITH_SECRET/mcp
+curl -s https://mcp.brewerypi.com/.well-known/oauth-protected-resource/mcp
 ```
 
-On **Pro or Max**: Customize → Connectors → **+** → **Add custom connector** →
-paste the URL → **Add**. Then enable it per conversation via the **+** menu in
-the chat. On **Team/Enterprise**, an Owner adds it once under Organization
-settings → Connectors, and members connect individually.
+Repeat both for `admin.mcp.brewerypi.com`. If the public URL fails, test the
+service directly (bypassing Caddy) -- `http://127.0.0.1:8000/mcp` returning
+`401` means the service is fine and the issue is in Caddy or DNS.
+
+> **Windows note:** in PowerShell `curl` is an alias for `Invoke-WebRequest`
+> with different syntax, so run the tests from the server.
+
+## 11. Add it to Claude (each user)
+
+Each person adds the connector themselves and signs in as themselves:
+
+- Operators: `https://mcp.brewerypi.com/mcp`
+- Admins, additionally: `https://admin.mcp.brewerypi.com/mcp`
+
+On **Pro or Max**: Customize -> Connectors -> **+** -> **Add custom
+connector** -> paste the URL -> **Add** -> **Connect**, which opens the
+AuthKit sign-in page. On **Team/Enterprise**, an Owner adds it once under
+Organization settings -> Connectors, and members connect (and sign in)
+individually.
+
+Whichever connector someone uses, their **role** decides what they may do:
+the admin tier refuses anyone who is not an admin, and someone not on the
+user list is refused on every call with a message telling them to ask an
+administrator. Admins will usually enable the lighter operator connector for
+day-to-day work and the admin one only when changing configuration.
 
 Try: *"Browse the brewery hierarchy,"* or *"What tags are in the Brewhouse,
 and what are the latest Mash Temp readings?"*
 
-## 10. (Optional) Admin endpoint for configuration editing
+## Moving a shared-secret deployment to sign-in
 
-The base (default) **operator** tier is read + record-value only. Configuration
-editing (full CRUD on measurement units, lookups, lookup values, tags, areas,
-sites, enterprises, element templates, element attribute templates, event
-frame templates, and event frame attribute templates; plus writing element
-instances and wiring their attributes, both of which operators can read) lives
-in
-a separate **admin tier**, gated by `MCP_ROLE=admin`, on its own port and its
-own secret path — so you hand the admin URL only to the handful of people who
-should edit configuration.
+For a box set up from an earlier version of this guide (secret paths, no
+sign-in):
 
-Generate a **second, different** secret (`openssl rand -hex 16`), then create
-`/etc/systemd/system/brewerypi-mcp-admin.service` — identical to the base unit
-but on port 8001 with the admin role:
-
-```ini
-[Unit]
-Description=BreweryPi MCP admin server
-After=network.target
-
-[Service]
-WorkingDirectory=/opt/brewerypi
-Environment=MCP_ROLE=admin
-Environment=MCP_HOST=127.0.0.1
-Environment=MCP_PORT=8001
-Environment=MCP_PATH=/mcp
-Environment=DATABASE_URL=sqlite:////opt/brewerypi/app.db
-ExecStart=/opt/brewerypi/.venv/bin/brewerypi-mcp
-Restart=on-failure
-User=root
-
-[Install]
-WantedBy=multi-user.target
-```
-
-```
-systemctl daemon-reload
-systemctl enable --now brewerypi-mcp-admin
-```
-
-Add a second route to `/etc/caddy/Caddyfile` inside the same site block,
-using the **admin** secret and pointing at port 8001:
-
-```
-    @admin path /ADMIN_SECRET/*
-    handle @admin {
-        uri strip_prefix /ADMIN_SECRET
-        reverse_proxy 127.0.0.1:8001
-    }
-```
-
-Reload Caddy (`systemctl reload caddy`). The admin connector URL is then
-`https://mcp.brewerypi.com/ADMIN_SECRET/mcp`, and it exposes the config CRUD
-tools on top of the read/write ones. Because auth is still a shared secret,
-guard the admin URL tightly and rotate it if anyone leaves the circle — this
-is the first thing to move to OAuth when you need per-user identity or audit.
+1. Add the `admin.mcp` DNS record (step 2) and set up WorkOS (step 6).
+2. Pull and migrate -- the release adds the user tables:
+   ```
+   cd /opt/brewerypi && git pull
+   .venv/bin/pip install -e ".[mcp,migrations]"
+   DATABASE_URL=sqlite:////opt/brewerypi/app.db .venv/bin/alembic upgrade head
+   ```
+   After this pull the services **refuse to start** until sign-in is
+   configured, so do the next steps straight away.
+3. Create `/etc/brewerypi/mcp.env` and rewrite both unit files (step 7),
+   then `systemctl daemon-reload` and restart both services.
+4. Add yourself and your users (step 8).
+5. Replace the Caddyfile (step 9) and `systemctl reload caddy`. The old
+   secret URLs stop working at this point.
+6. Ask everyone to remove the old connector in Claude and add the new URL
+   (step 11) -- connector URLs can't be edited in place.
 
 ## Updating later
 
@@ -320,18 +373,15 @@ failing, and renames nothing, so a second run adds 0 and is harmless.
 
 ## Notes
 
-- **Rotating the secret:** change it in the Caddyfile, `systemctl reload
-  caddy`, and re-share the new URL. (Removing the old connector and re-adding
-  is the user-side step, since connector URLs can't be edited in place.)
-- **Write access & the shared secret:** all tools are read-only except
-  `record_tag_value`, which appends a reading. Because auth is a single shared
-  secret path (not per-user), anyone with the URL can write. That is fine for
-  a throwaway demo — worst case is junk readings in a rebuildable database —
-  but before allowing anything sensitive or per-user, move to OAuth (Caddy in
-  front, or FastMCP enforcing it) instead of a shared secret.
+- **Revoking access:** `brewerypi-users update their@email --no-active`
+  takes effect on their next tool call; no URL needs to change.
+- **Write access:** operators can record and correct readings and run
+  batches; admins can also change configuration. Who did what is not yet
+  recorded (attribution is a later phase of *Identity and access*).
 - **Resetting the demo data:** to wipe accumulated writes, rebuild the DB —
   `systemctl stop brewerypi-mcp`, `rm -f app.db app.db-wal app.db-shm`,
   `.venv/bin/brewerypi`, `.venv/bin/python scripts/seed_sample_data.py`,
-  `systemctl start brewerypi-mcp`.
+  `systemctl start brewerypi-mcp`. The user list lives in the same file, so
+  re-add the users (step 8) before anyone signs in again.
 - **Backups:** the whole database is the single file `/opt/brewerypi/app.db`;
   copy it off the box to back it up.

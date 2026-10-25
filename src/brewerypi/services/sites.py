@@ -11,7 +11,11 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from brewerypi.models import Area, Enterprise, Site, Tag, TagValue
-from brewerypi.services._validation import clean_str, optional_str
+from brewerypi.services._validation import (
+    clean_str,
+    clean_timezone,
+    optional_str,
+)
 from brewerypi.services.exceptions import (
     ConflictError,
     NotFoundError,
@@ -48,7 +52,7 @@ def create_site(
     """Create a site under an enterprise (abbreviation/name unique per it)."""
     abbreviation = clean_str(abbreviation, "abbreviation", 10)
     name = clean_str(name, "name", 45)
-    timezone = _clean_timezone(timezone)
+    timezone = clean_timezone(timezone)
     if session.get(Enterprise, enterprise_id) is None:
         raise NotFoundError(f"no enterprise with id {enterprise_id}")
     _check_unique(session, enterprise_id, abbreviation, name)
@@ -88,22 +92,9 @@ def update_site(
     if description is not None:
         site.description = optional_str(description)
     if timezone is not None:
-        site.timezone = _clean_timezone(timezone)
+        site.timezone = clean_timezone(timezone)
     session.flush()
     return site
-
-
-def _clean_timezone(value: str) -> str:
-    """Validate an IANA timezone name."""
-    from brewerypi.timezones import is_valid_timezone
-
-    value = clean_str(value, "timezone", 64)
-    if not is_valid_timezone(value):
-        raise ValidationError(
-            f"{value!r} is not a valid IANA timezone (e.g. "
-            '"America/New_York" or "UTC")'
-        )
-    return value
 
 
 def delete_site(session: Session, site_id: int) -> None:

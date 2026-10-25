@@ -6,7 +6,7 @@ BreweryPi project (github.com/brewerypi/brewerypi, MIT), which the maintainer
 owns and has rights to. Keep the name `brewerypi` everywhere.
 
 Design decisions that are NOT visible in the code — the transfer/lineage
-model, the vocabulary layer, the OAuth seam, and the delete philosophy — live
+model, the vocabulary layer, identity and access, and the delete philosophy — live
 in `docs/design-decisions.md`. Read it before extending event frames or adding
 delete guards.
 
@@ -19,8 +19,10 @@ delete guards.
   selected by `MCP_ROLE`: the default **operator** tier (browse/query + one
   write tool `record_tag_value`), and an **admin** tier (`MCP_ROLE=admin`)
   that also exposes config CRUD tools (measurement units so far) wrapping the
-  service layer. The tiers run as separate processes on separate ports/secret
-  paths; built and deployed for demos. A Flask web app is still planned.
+  service layer. The tiers run as separate processes on separate ports, one
+  hostname each; built and deployed for demos. Both require WorkOS AuthKit
+  sign-in (`mcp_auth.py`) checked against the `users` allowlist. A Flask web
+  app is still planned.
 - `pyproject.toml` is the single source of build, dependency, and tool config.
 
 ## Commands
@@ -31,11 +33,15 @@ delete guards.
 - Lint (PEP 8): `ruff check .`  (auto-fix: `ruff check . --fix`)
 - Enable the commit hook: `pre-commit install`
 - Run the MCP server: `pip install -e ".[mcp]"` then `brewerypi-mcp`
+  (locally: `MCP_AUTH=none brewerypi-mcp` -- with sign-in neither
+  configured nor explicitly disabled it refuses to start)
+- Manage users / bootstrap the first superuser: `brewerypi-users --help`
 - Migrations (Alembic): `pip install -e ".[migrations]"`, then
   `alembic upgrade head` (new DB) or `alembic stamp head` (adopt on an
   existing create_all DB); `alembic revision --autogenerate -m "..."` for
   schema changes.
-  (env: `MCP_HOST`/`MCP_PORT`/`MCP_PATH`, `DATABASE_URL`). Deploy guide:
+  (env: `MCP_HOST`/`MCP_PORT`/`MCP_PATH`, `DATABASE_URL`, `MCP_AUTH`,
+  `AUTHKIT_DOMAIN`/`MCP_BASE_URL`/`WORKOS_API_KEY`). Deploy guide:
   `docs/deploy-mcp-hetzner.md`.
 
 ## Conventions (full detail in CONVENTIONS.md)
@@ -78,9 +84,9 @@ delete guards.
 - Timezones: readings are stored UTC; `Site.timezone` (IANA) is the display/
   entry zone. `brewerypi/timezones.py` converts at the tool boundary
   (`to_utc`/`from_utc`, DST-aware via `zoneinfo`); `resolve_timezone(session,
-  site)` is the seam that returns the site's zone now and the authenticated
-  user's once OAuth lands (driving both entry and display). The model never
-  does timezone math.
+  site)` is the seam: the signed-in user's own zone when set (via
+  `identity.current_user()`, driving both entry and display), else the
+  site's. The model never does timezone math.
 - `ElementTemplate`: site-scoped, self-referential template tree — `site_id`,
   nullable `parent_id` (NULL = top-level, e.g. a Brewhouse with Mash Tun /
   Lauter Tun children), `name` (unique per site), `description`, and
@@ -333,8 +339,22 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
   takes `confirm=true`) — on the operator tier so they can fix their own
   mis-entries.
 - MCP server built, tested (`tests/test_mcp_server.py`), and deployed for a
-  demo: Hetzner VPS + Caddy (HTTPS), added as a custom connector behind a
-  secret-path gate. All tools read-only except `record_tag_value` (write);
-  single shared secret = anyone with the URL can write, acceptable only
-  because the demo DB is a rebuildable throwaway. Guide:
-  `docs/deploy-mcp-hetzner.md`.
+  demo: Hetzner VPS + Caddy (HTTPS), added as a custom connector. The live
+  box still runs the old shared secret-path gate until it is moved to
+  sign-in (`docs/deploy-mcp-hetzner.md`, "Moving a shared-secret
+  deployment to sign-in").
+- Identity phase 1 (`docs/design-decisions.md`, Identity and access):
+  `User` (`email` unique, stored lowercased; `auth_subject` = the IdP's
+  `sub`, linked on first sign-in by verified email; nullable `timezone`;
+  `is_superuser`; `is_active`), `Membership` (user x enterprise, `role`
+  operator|admin under a CHECK, `has_all_sites`), `MembershipSite` (the
+  site list when `has_all_sites` is false -- an explicit flag, so a site
+  delete fails closed instead of widening access). Services `users` /
+  `memberships` (+ `PermissionDeniedError`); `identity.py` holds the
+  per-call `current_user()` contextvar and `authorize_tier`; `mcp_auth.py`
+  has the `AuthKitProvider` setup and `SignInMiddleware` (allowlist + tier
+  gate on every tool call). Both are attached in `main()`, so tests that
+  call tools directly run with no user. CLI `users_cli.py`
+  (`brewerypi-users`). NOT built: per-enterprise/site scoping of tool
+  results and writes (phase 2 -- until then a member sees every
+  enterprise), user-admin MCP tools, attribution (phase 3).

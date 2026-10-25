@@ -7,6 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from brewerypi.database import Base
+from brewerypi.identity import CurrentUser, signed_in_as
 from brewerypi.models import Enterprise
 from brewerypi.services import (
     ValidationError,
@@ -111,3 +112,30 @@ def test_resolve_timezone_returns_site_zone(session):
         s, eid, "HQ", "HQ", timezone="America/Los_Angeles"
     )
     assert resolve_timezone(s, site) == "America/Los_Angeles"
+
+
+def _user(timezone):
+    return CurrentUser(
+        id=1, email="sam@example.com", timezone=timezone, is_superuser=False
+    )
+
+
+def test_resolve_timezone_prefers_the_signed_in_users_zone(session):
+    s, eid = session
+    site = create_site(
+        s, eid, "HQ", "HQ", timezone="America/Los_Angeles"
+    )
+    with signed_in_as(_user("Europe/London")):
+        assert resolve_timezone(s, site) == "Europe/London"
+    assert resolve_timezone(s, site) == "America/Los_Angeles"
+
+
+def test_resolve_timezone_falls_back_to_site_without_a_user_zone(session):
+    s, eid = session
+    site = create_site(
+        s, eid, "HQ", "HQ", timezone="America/Los_Angeles"
+    )
+    # no zone of their own, or one that no longer loads
+    for zone in (None, "Mars/Olympus_Mons"):
+        with signed_in_as(_user(zone)):
+            assert resolve_timezone(s, site) == "America/Los_Angeles"

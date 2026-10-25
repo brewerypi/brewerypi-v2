@@ -259,18 +259,113 @@ the schema keeps its own names.
 
 ## Timezones and the OAuth seam
 
-**Status: built, with one branch deliberately left empty.**
+**Status: built.**
 
 Readings are stored UTC and converted at the MCP tool boundary; the model
 never does timezone arithmetic. `resolve_timezone(session, site)` in
-`brewerypi/timezones.py` is the single seam: today it returns the site's
-timezone, and it carries a `TODO(oauth)` branch for the authenticated user's
-own zone, which will drive **both** entry and display once identity exists.
+`brewerypi/timezones.py` is the single seam: the signed-in user's own zone
+(`users.timezone`) when they have set one, else the site's, else UTC. The
+user's zone drives **both** entry and display, so a remote brewmaster reads
+and types times in their own clock.
 
-Every tool routes through that function, so the OAuth cutover is a
-one-function change rather than a refactor. The interim gap is bounded and
-understood: on-site users are correct today; remote users see site-local time
-until identity lands.
+Every tool routes through that function, so the identity cutover was a
+one-function change rather than a refactor. A user with no zone set sees
+site-local time, which is right for on-site staff -- leave it blank for them.
+
+---
+
+## Identity and access
+
+**Status: decided; phase 1 (identity) built, phases 2-3 not built.**
+
+### Who signs in, and how
+
+Staff sign in through **WorkOS AuthKit**, which offers Google, Microsoft and
+an email magic link on one page -- breweries split between Gmail, Microsoft
+365 and plain email addresses, and no single social login covers all three.
+AuthKit runs the OAuth flow, including the dynamic client registration that
+Claude's custom connectors use; the MCP server is only a resource server
+that verifies AuthKit's JWTs (FastMCP's `AuthKitProvider`).
+
+A person is **their verified email**. The token carries only WorkOS's user
+id (`sub`), so the first time a subject is seen the server asks the WorkOS
+API for that user's email, requires it to be verified, matches it to a row
+in `users`, and stores the subject in `users.auth_subject`. Later calls
+match on the subject alone. The column is provider-neutral on purpose:
+switching identity providers means clearing the subjects, and everyone
+re-links by email on their next sign-in.
+
+### Provisioning: an allowlist
+
+AuthKit will authenticate anyone, so authentication grants nothing. A
+signed-in person with no `users` row, an inactive one, or no membership is
+refused on every tool call, with a message saying to ask an administrator.
+The first account is created on the server with the `brewerypi-users` CLI
+(the bootstrap: admin tools need an admin to exist); after that the CLI or,
+from phase 2, admin tools add people.
+
+`is_active = False` is how someone leaves. Deleting a user is possible today
+but will be refused once attribution exists -- a departed brewer's batches
+still need an author.
+
+### Roles: per enterprise, optionally narrowed to sites
+
+```
+users        1--* memberships *--1 enterprises      role: operator | admin
+memberships  1--* membership_sites *--1 sites       when has_all_sites = 0
+```
+
+A membership gives one user one role in one enterprise; a user may belong
+to several enterprises with a different role in each. `has_all_sites`
+(default true) means every site, including ones created later -- nobody has
+to be re-granted when a brewery opens a taproom. When false, the user sees
+only the sites listed in `membership_sites`.
+
+The explicit flag, rather than "no rows means all sites", is deliberate:
+deleting a site cascades its grants, and under the implicit rule a user
+restricted to just that site would silently be promoted to all of them.
+With the flag, an emptied restriction means no sites, which fails closed.
+
+Sites are a clean boundary because everything below one -- areas,
+equipment, readings, batches -- belongs to exactly one site, and transfers
+are already required to be same-site, so lineage never crosses it.
+Measurement units and lists are enterprise-wide: site-restricted members can
+read them, but changing them, creating sites, or changing the enterprise
+needs an **unrestricted admin**.
+
+`users.is_superuser` sits above enterprises. It exists because creating an
+enterprise cannot require being an admin *of* it; superusers also manage
+users server-wide.
+
+### Tiers stay two processes
+
+The operator and admin connectors remain separate processes. The tier
+decides **which tools are offered** (operators should not carry ~80 tools
+in context); the user's memberships decide **what they may do**. Everyone
+signs in as themselves on either connector. The admin process refuses
+anyone who is neither a superuser nor an admin somewhere.
+
+Each tier is its own OAuth protected resource, and discovery lives under
+`/.well-known/` at the host root, so in deployment each tier gets its own
+hostname rather than a path prefix.
+
+### Phases
+
+1. **Identity (built).** `users` / `memberships` / `membership_sites`, the
+   `brewerypi-users` CLI, AuthKit sign-in on both tiers, the allowlist and
+   admin-tier gate, and the user's timezone in `resolve_timezone`. Until
+   phase 2 a member sees **every** enterprise: do not host two companies on
+   one server yet.
+2. **Scoping.** Every list/get filters to the caller's enterprises and
+   sites; every write checks the caller's role where the row lives; user and
+   membership admin tools.
+3. **Attribution.** Who recorded a reading, who started or closed a batch.
+
+When `MCP_AUTH=none` the server runs with no sign-in at all -- every tool
+open, as before identity existed. It is for local development and tests
+only, and it must be set explicitly: a server with neither AuthKit
+configured nor `MCP_AUTH=none` refuses to start, so a forgotten environment
+variable fails closed instead of publishing an open database.
 
 ---
 
@@ -310,10 +405,6 @@ confirm preview is the only bulk path that removes them.
 
 ## Earmarked, not yet designed
 
-- **OAuth / per-user identity.** The next major workstream. Scopes the
-  operator write surface (event frames gave operators create/close/delete),
-  fills the timezone seam, and enables attribution -- batches in particular
-  want an author.
 - **Computed metric tools.** Define domain metrics once as deterministic MCP
   tools (temperature deviation, batch yield, attenuation) so the agent
   orchestrates trustworthy building blocks instead of improvising arithmetic.
@@ -334,7 +425,8 @@ confirm preview is the only bulk path that removes them.
   `browse_hierarchy` / `get_tag_values` / `tag_value_stats` for reads. Two
   things gate it. **Identity:** forms make writing easy and high-volume,
   which is exactly when a shared secret path with no attribution stops being
-  acceptable, so this waits on OAuth above. **Distribution:** a page
+  acceptable, so this waits on attribution (phase 3 of Identity and access
+  above). **Distribution:** a page
   declaring `mcp` cannot be shared publicly and each viewer must add the
   connector themselves, so every brewer authors their own page rather than
   the cellar sharing one URL. Worth doing first either way: the MCP tools
