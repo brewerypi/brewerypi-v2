@@ -8,9 +8,11 @@ connector and sign in as themselves.
 localhost (never exposed directly): the **operator** tier on `127.0.0.1:8000`
 and the **admin** tier on `127.0.0.1:8001`. Caddy listens on 443, terminates
 HTTPS with automatic Let's Encrypt certificates, and proxies one hostname to
-each tier -- `mcp.brewerypi.com` and `admin.mcp.brewerypi.com`. (One hostname
-per tier, not a path prefix: OAuth discovery lives under `/.well-known/` at
-the host root, so two tiers cannot share a host.)
+each tier -- `operator.mcp.brewerypi.com` and `admin.mcp.brewerypi.com`.
+(One hostname per tier, not a path prefix: OAuth discovery lives under
+`/.well-known/` at the host root, so two tiers cannot share a host. Both are
+named for their tier so that a connector's URL says which one it is -- a
+connector's display name in Claude says nothing about where it points.)
 
 **Sign-in.** Staff sign in through **WorkOS AuthKit** (Google, Microsoft, or
 an emailed magic link). AuthKit proves who someone is; the server then checks
@@ -23,8 +25,8 @@ with AuthKit grants nothing. Users and their roles are managed with the
 > every member currently sees every enterprise on the server. Host one
 > company per server until scoping lands.
 
-Throughout, replace `mcp.brewerypi.com` / `admin.mcp.brewerypi.com` with
-your hostnames.
+Throughout, replace `operator.mcp.brewerypi.com` /
+`admin.mcp.brewerypi.com` with your hostnames.
 
 ---
 
@@ -48,17 +50,17 @@ your hostnames.
 
 In the DNS settings for your domain, add two **A records**:
 
-| Type | Name      | Value             |
-| ---- | --------- | ----------------- |
-| A    | mcp       | `<server-ipv4>`   |
-| A    | admin.mcp | `<server-ipv4>`   |
+| Type | Name         | Value             |
+| ---- | ------------ | ----------------- |
+| A    | operator.mcp | `<server-ipv4>`   |
+| A    | admin.mcp    | `<server-ipv4>`   |
 
 If your DNS is on Cloudflare, set these records to **DNS only** (grey cloud)
 so the certificate challenge is straightforward. Wait a couple of minutes,
 then confirm from your laptop:
 
 ```
-nslookup mcp.brewerypi.com
+nslookup operator.mcp.brewerypi.com
 nslookup admin.mcp.brewerypi.com
 ```
 
@@ -127,7 +129,8 @@ match, WorkOS's MCP guide is at <https://workos.com/docs/authkit/mcp>.
    someone adds the connector.
 4. Note the **AuthKit domain** (e.g. `https://your-app.authkit.app`).
 5. **Resource indicators**: add both tiers' URLs exactly as the server will
-   advertise them -- `https://mcp.brewerypi.com/mcp` and
+   advertise them -- `https://operator.mcp.brewerypi.com/mcp` (make this
+   the default, since most people use it) and
    `https://admin.mcp.brewerypi.com/mcp`. Tokens are minted for one of these
    and the server rejects a token minted for anything else.
 6. **API Keys**: copy the **secret key** (`sk_...`). The server uses it only
@@ -164,7 +167,7 @@ Environment=MCP_ROLE=operator
 Environment=MCP_HOST=127.0.0.1
 Environment=MCP_PORT=8000
 Environment=MCP_PATH=/mcp
-Environment=MCP_BASE_URL=https://mcp.brewerypi.com
+Environment=MCP_BASE_URL=https://operator.mcp.brewerypi.com
 ExecStart=/opt/brewerypi/.venv/bin/brewerypi-mcp
 Restart=on-failure
 User=root
@@ -242,7 +245,7 @@ apt update && apt install -y caddy
 Replace `/etc/caddy/Caddyfile` with:
 
 ```
-mcp.brewerypi.com {
+operator.mcp.brewerypi.com {
     reverse_proxy 127.0.0.1:8000
 }
 
@@ -265,7 +268,7 @@ Run these **on the server** (it has a real `curl`). An unauthenticated call
 must be refused with `401` and point at the sign-in metadata:
 
 ```
-curl -s -i -X POST https://mcp.brewerypi.com/mcp \
+curl -s -i -X POST https://operator.mcp.brewerypi.com/mcp \
   -H "Accept: application/json, text/event-stream" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | head -5
@@ -275,7 +278,7 @@ Expect `HTTP/2 401` and a `www-authenticate: Bearer resource_metadata=...`
 header. Then the metadata itself should name your AuthKit domain:
 
 ```
-curl -s https://mcp.brewerypi.com/.well-known/oauth-protected-resource/mcp
+curl -s https://operator.mcp.brewerypi.com/.well-known/oauth-protected-resource/mcp
 ```
 
 Repeat both for `admin.mcp.brewerypi.com`. If the public URL fails, test the
@@ -289,7 +292,7 @@ service directly (bypassing Caddy) -- `http://127.0.0.1:8000/mcp` returning
 
 Each person adds the connector themselves and signs in as themselves:
 
-- Operators: `https://mcp.brewerypi.com/mcp`
+- Operators: `https://operator.mcp.brewerypi.com/mcp`
 - Admins, additionally: `https://admin.mcp.brewerypi.com/mcp`
 
 On **Pro or Max**: Customize -> Connectors -> **+** -> **Add custom
@@ -307,12 +310,17 @@ day-to-day work and the admin one only when changing configuration.
 Try: *"Browse the brewery hierarchy,"* or *"What tags are in the Brewhouse,
 and what are the latest Mash Temp readings?"*
 
+If a connector its user thinks of as the operator one refuses with *"… is
+not an administrator; use the operator connector"*, it was added with the
+admin URL: only the admin tier says that. Remove it and add the operator URL.
+
 ## Moving a shared-secret deployment to sign-in
 
 For a box set up from an earlier version of this guide (secret paths, no
 sign-in):
 
-1. Add the `admin.mcp` DNS record (step 2) and set up WorkOS (step 6).
+1. Add the `operator.mcp` and `admin.mcp` DNS records (step 2) and set up
+   WorkOS (step 6).
 2. Pull and migrate -- the release adds the user tables:
    ```
    cd /opt/brewerypi && git pull
@@ -325,7 +333,8 @@ sign-in):
    then `systemctl daemon-reload` and restart both services.
 4. Add yourself and your users (step 8).
 5. Replace the Caddyfile (step 9) and `systemctl reload caddy`. The old
-   secret URLs stop working at this point.
+   secret URLs stop working at this point, and the old `mcp` hostname is no
+   longer served -- remove its DNS record once nobody uses it.
 6. Ask everyone to remove the old connector in Claude and add the new URL
    (step 11) -- connector URLs can't be edited in place.
 

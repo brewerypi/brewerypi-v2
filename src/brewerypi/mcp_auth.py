@@ -16,7 +16,8 @@ Configuration (environment):
 
     MCP_AUTH         "authkit" (default) or "none" -- local development only
     AUTHKIT_DOMAIN   e.g. https://your-app.authkit.app
-    MCP_BASE_URL     this tier's public URL, e.g. https://mcp.brewerypi.com
+    MCP_BASE_URL     this tier's public URL, e.g.
+                     https://operator.mcp.brewerypi.com
     WORKOS_API_KEY   server-side key (sk_...) for the email lookup
 """
 

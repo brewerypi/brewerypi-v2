@@ -347,7 +347,11 @@ anyone who is neither a superuser nor an admin somewhere.
 
 Each tier is its own OAuth protected resource, and discovery lives under
 `/.well-known/` at the host root, so in deployment each tier gets its own
-hostname rather than a path prefix.
+hostname rather than a path prefix -- `operator.mcp` and `admin.mcp`, each
+named for its tier. A connector's display name in Claude is the user's own
+label and says nothing about where it points, so the URL has to: a bare
+`mcp` for the operator tier invited adding the admin URL under an
+"operator" name, which happened in the first test.
 
 ### Phases
 
