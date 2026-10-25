@@ -87,9 +87,22 @@ def build_auth_provider() -> AuthKitProvider:
             + " (or MCP_AUTH=none for local development only)"
         )
     return AuthKitProvider(
-        authkit_domain=os.environ["AUTHKIT_DOMAIN"],
+        authkit_domain=_with_scheme(os.environ["AUTHKIT_DOMAIN"]),
         base_url=os.environ["MCP_BASE_URL"],
     )
+
+
+def _with_scheme(domain: str) -> str:
+    """Accept an AuthKit domain with or without ``https://``.
+
+    The dashboard shows it bare (``your-app.authkit.app``), and FastMCP
+    refuses anything but a full URL -- with an error that names a pydantic
+    validator, not the setting.
+    """
+    domain = domain.strip().rstrip("/")
+    if not domain.startswith(("http://", "https://")):
+        domain = f"https://{domain}"
+    return domain
 
 
 async def fetch_workos_identity(subject: str) -> SignInIdentity:
