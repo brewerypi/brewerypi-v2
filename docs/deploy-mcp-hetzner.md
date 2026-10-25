@@ -316,27 +316,72 @@ admin URL: only the admin tier says that. Remove it and add the operator URL.
 
 ## Moving a shared-secret deployment to sign-in
 
-For a box set up from an earlier version of this guide (secret paths, no
-sign-in):
+For a box set up from an earlier version of this guide (secret paths on
+`mcp.brewerypi.com`, no sign-in). Do it once the sign-in release is on
+`main`. The order matters in one place: the old `mcp` hostname keeps
+serving the old connectors until everyone has moved, so its DNS record is
+removed **last**.
 
-1. Add the `operator.mcp` and `admin.mcp` DNS records (step 2) and set up
-   WorkOS (step 6).
-2. Pull and migrate -- the release adds the user tables:
+### Optional: test side by side first
+
+To try sign-in without disturbing the old connectors, run the new version
+from a second checkout (say `/opt/brewerypi-next`) against a **copy** of the
+database, as two extra services on ports 8010/8011 with their own env file,
+using the WorkOS **Staging** environment. In Caddy, add `operator.mcp` ->
+8010 and `admin.mcp` -> 8011 as new site blocks and leave the
+`mcp.brewerypi.com` block exactly as it is. Nothing the old connectors use
+changes, and backing out is stopping the two services and removing the two
+site blocks.
+
+The test's users do not carry over: they live in the copied database, and
+they are linked to **Staging** identities. Production is a separate WorkOS
+environment that gives every person a new id, so a user linked in Staging
+would be refused in Production as "already linked to a different sign-in"
+(`brewerypi-users reset-sign-in` fixes one such user).
+
+### The cutover
+
+1. **Before you start:** the `operator.mcp` and `admin.mcp` DNS records
+   exist (step 2). **Keep the `mcp` record** -- the old connectors still use
+   it.
+2. **WorkOS Production** (step 6): enable the same sign-in methods, with
+   your own Google and Microsoft OAuth clients; enable Dynamic Client
+   Registration; add both resource indicators with `operator.mcp` as the
+   default; note the Production AuthKit domain and the `sk_live_...` key.
+3. **Back up, pull and migrate** the live database:
    ```
+   cp /opt/brewerypi/app.db /root/app.db.before-sign-in
    cd /opt/brewerypi && git pull
    .venv/bin/pip install -e ".[mcp,migrations]"
    DATABASE_URL=sqlite:////opt/brewerypi/app.db .venv/bin/alembic upgrade head
    ```
-   After this pull the services **refuse to start** until sign-in is
-   configured, so do the next steps straight away.
-3. Create `/etc/brewerypi/mcp.env` and rewrite both unit files (step 7),
-   then `systemctl daemon-reload` and restart both services.
-4. Add yourself and your users (step 8).
-5. Replace the Caddyfile (step 9) and `systemctl reload caddy`. The old
-   secret URLs stop working at this point, and the old `mcp` hostname is no
-   longer served -- remove its DNS record once nobody uses it.
-6. Ask everyone to remove the old connector in Claude and add the new URL
-   (step 11) -- connector URLs can't be edited in place.
+   From here the old services **refuse to start** until sign-in is
+   configured, so carry straight on.
+4. **Settings and services** (step 7): create `/etc/brewerypi/mcp.env` with
+   the **Production** values, rewrite `brewerypi-mcp` and
+   `brewerypi-mcp-admin` (ports 8000/8001, `MCP_BASE_URL` `operator.mcp` /
+   `admin.mcp`), then `systemctl daemon-reload` and restart both.
+5. **Users** (step 8): add yourself as superuser, then everyone else with
+   their roles. This is a fresh list in the live database.
+6. **Caddy** (step 9): add the `operator.mcp` -> 8000 and `admin.mcp` ->
+   8001 site blocks (or repoint them from 8010/8011 if you tested side by
+   side), and **delete the whole `mcp.brewerypi.com` block**. `caddy validate
+   --config /etc/caddy/Caddyfile && systemctl reload caddy`. The old secret
+   URLs stop working at this point.
+7. **Test** (step 10) on both hostnames.
+8. **Tell everyone to move:** remove the old connector in Claude and add
+   the new URL (step 11) -- connector URLs can't be edited in place.
+9. **If you tested side by side, tear it down:**
+   ```
+   systemctl disable --now brewerypi-next-mcp brewerypi-next-mcp-admin
+   rm /etc/systemd/system/brewerypi-next-mcp*.service /etc/brewerypi/next.env
+   systemctl daemon-reload
+   rm -rf /opt/brewerypi-next
+   ```
+10. **Last: delete the `mcp` A record** at your DNS provider, once nobody
+    is still using an old connector. Nothing on the server answers for it
+    after step 6, so this only tidies DNS -- but deleting it earlier would
+    have cut the old connectors off mid-move.
 
 ## Updating later
 
