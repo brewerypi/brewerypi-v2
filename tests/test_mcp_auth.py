@@ -99,6 +99,19 @@ def test_provider_builds_from_the_environment(monkeypatch):
     assert provider.authkit_domain == _AUTHKIT_ENV["AUTHKIT_DOMAIN"]
 
 
+@pytest.mark.parametrize(
+    "domain",
+    ["example.authkit.app", " https://example.authkit.app/ "],
+)
+def test_provider_accepts_a_bare_or_slashed_domain(monkeypatch, domain):
+    """The dashboard shows the domain without a scheme; take it as shown."""
+    for name, value in _AUTHKIT_ENV.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv("AUTHKIT_DOMAIN", domain)
+    provider = mcp_auth.build_auth_provider()
+    assert provider.authkit_domain == "https://example.authkit.app"
+
+
 @pytest.fixture
 def fake_server(monkeypatch):
     """Swap the module's server for a blank one whose run() is recorded."""
