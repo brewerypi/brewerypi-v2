@@ -27,6 +27,11 @@ dev = [
 # Install with `pip install -e ".[mcp]"` to run the MCP server.
 mcp = [
     "fastmcp>=3.0",
+    # Imported directly by mcp_auth (the WorkOS lookup and the threadpool
+    # hop), so declared here rather than trusted to arrive transitively --
+    # fastmcp itself declares neither.
+    "anyio>=4.5",
+    "httpx>=0.27",
 ]
 # Install with `pip install -e ".[migrations]"` to run Alembic.
 migrations = [
