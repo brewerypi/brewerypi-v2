@@ -153,7 +153,8 @@ chmod 600 /etc/brewerypi/mcp.env
 Note the **four** slashes in the SQLite URL -- that is `sqlite://` plus the
 absolute path `/opt/brewerypi/app.db`.
 
-Create `/etc/systemd/system/brewerypi-mcp.service` (the operator tier):
+Create `/etc/systemd/system/brewerypi-mcp-operator.service` (the operator
+tier). Each unit is named for its tier, like the hostnames:
 
 ```ini
 [Unit]
@@ -190,8 +191,8 @@ indicator from step 6. Then:
 
 ```
 systemctl daemon-reload
-systemctl enable --now brewerypi-mcp brewerypi-mcp-admin
-systemctl status brewerypi-mcp brewerypi-mcp-admin   # both active (running)
+systemctl enable --now brewerypi-mcp-operator brewerypi-mcp-admin
+systemctl status brewerypi-mcp-operator brewerypi-mcp-admin   # both active (running)
 ```
 
 A service that exits at once with *"sign-in is not configured"* is missing a
@@ -326,7 +327,8 @@ removed **last**.
 
 To try sign-in without disturbing the old connectors, run the new version
 from a second checkout (say `/opt/brewerypi-next`) against a **copy** of the
-database, as two extra services on ports 8010/8011 with their own env file,
+database, as two extra services (`brewerypi-next-mcp-operator` on 8010,
+`brewerypi-next-mcp-admin` on 8011) with their own env file,
 using the WorkOS **Staging** environment. In Caddy, add `operator.mcp` ->
 8010 and `admin.mcp` -> 8011 as new site blocks and leave the
 `mcp.brewerypi.com` block exactly as it is. Nothing the old connectors use
@@ -358,9 +360,17 @@ would be refused in Production as "already linked to a different sign-in"
    From here the old services **refuse to start** until sign-in is
    configured, so carry straight on.
 4. **Settings and services** (step 7): create `/etc/brewerypi/mcp.env` with
-   the **Production** values, rewrite `brewerypi-mcp` and
-   `brewerypi-mcp-admin` (ports 8000/8001, `MCP_BASE_URL` `operator.mcp` /
-   `admin.mcp`), then `systemctl daemon-reload` and restart both.
+   the **Production** values. The operator unit gets its tier in its name,
+   so retire the old one first:
+   ```
+   systemctl disable --now brewerypi-mcp
+   rm /etc/systemd/system/brewerypi-mcp.service
+   ```
+   Then create `brewerypi-mcp-operator.service` and rewrite
+   `brewerypi-mcp-admin.service` (ports 8000/8001, `MCP_BASE_URL`
+   `operator.mcp` / `admin.mcp`), run `systemctl daemon-reload`, and
+   `systemctl enable --now brewerypi-mcp-operator`, then
+   `systemctl restart brewerypi-mcp-admin`.
 5. **Users** (step 8): add yourself as superuser, then everyone else with
    their roles. This is a fresh list in the live database.
 6. **Caddy** (step 9): add the `operator.mcp` -> 8000 and `admin.mcp` ->
@@ -373,7 +383,7 @@ would be refused in Production as "already linked to a different sign-in"
    the new URL (step 11) -- connector URLs can't be edited in place.
 9. **If you tested side by side, tear it down:**
    ```
-   systemctl disable --now brewerypi-next-mcp brewerypi-next-mcp-admin
+   systemctl disable --now brewerypi-next-mcp-operator brewerypi-next-mcp-admin
    rm /etc/systemd/system/brewerypi-next-mcp*.service /etc/brewerypi/next.env
    systemctl daemon-reload
    rm -rf /opt/brewerypi-next
@@ -390,8 +400,7 @@ cd /opt/brewerypi
 git pull
 .venv/bin/pip install -e ".[mcp,migrations]"
 DATABASE_URL=sqlite:////opt/brewerypi/app.db .venv/bin/alembic upgrade head
-systemctl restart brewerypi-mcp
-systemctl restart brewerypi-mcp-admin   # if the admin tier is running
+systemctl restart brewerypi-mcp-operator brewerypi-mcp-admin
 ```
 
 The `alembic upgrade head` applies any new migrations; it's a no-op when
@@ -433,9 +442,11 @@ failing, and renames nothing, so a second run adds 0 and is harmless.
   batches; admins can also change configuration. Who did what is not yet
   recorded (attribution is a later phase of *Identity and access*).
 - **Resetting the demo data:** to wipe accumulated writes, rebuild the DB —
-  `systemctl stop brewerypi-mcp`, `rm -f app.db app.db-wal app.db-shm`,
-  `.venv/bin/brewerypi`, `.venv/bin/python scripts/seed_sample_data.py`,
-  `systemctl start brewerypi-mcp`. The user list lives in the same file, so
+  `systemctl stop brewerypi-mcp-operator brewerypi-mcp-admin`,
+  `rm -f app.db app.db-wal app.db-shm`, `.venv/bin/brewerypi`,
+  `.venv/bin/python scripts/seed_sample_data.py`,
+  `systemctl start brewerypi-mcp-operator brewerypi-mcp-admin`. The user
+  list lives in the same file, so
   re-add the users (step 8) before anyone signs in again.
 - **Backups:** the whole database is the single file `/opt/brewerypi/app.db`;
   copy it off the box to back it up.
