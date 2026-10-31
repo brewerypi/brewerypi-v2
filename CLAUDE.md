@@ -339,10 +339,9 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
   takes `confirm=true`) — on the operator tier so they can fix their own
   mis-entries.
 - MCP server built, tested (`tests/test_mcp_server.py`), and deployed for a
-  demo: Hetzner VPS + Caddy (HTTPS), added as a custom connector. The live
-  box still runs the old shared secret-path gate until it is moved to
-  sign-in (`docs/deploy-mcp-hetzner.md`, "Moving a shared-secret
-  deployment to sign-in").
+  demo: Hetzner VPS + Caddy (HTTPS), added as a custom connector. Moved
+  to WorkOS Production sign-in on 2026-10-31 (`operator.mcp` /
+  `admin.mcp`); the old secret-path host `mcp.brewerypi.com` is retired.
 - Identity phase 1 (`docs/design-decisions.md`, Identity and access):
   `User` (`email` unique, stored lowercased; `auth_subject` = the IdP's
   `sub`, linked on first sign-in by verified email; nullable `timezone`;
