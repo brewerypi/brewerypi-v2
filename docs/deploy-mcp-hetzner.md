@@ -114,7 +114,8 @@ The last line switches SQLite into WAL mode for smoother concurrent reads.
 
 WorkOS is free for this (AuthKit costs nothing up to 1 million monthly
 active users; paid extras such as enterprise SAML or a custom sign-in domain
-are not needed). Brewery staff never deal with WorkOS directly -- they only
+are not needed), though enabling the Production environment asks for a
+payment method on file. Brewery staff never deal with WorkOS directly -- they only
 see its sign-in page. Dashboard labels move around; if one below doesn't
 match, WorkOS's MCP guide is at <https://workos.com/docs/authkit/mcp>.
 
@@ -133,8 +134,12 @@ match, WorkOS's MCP guide is at <https://workos.com/docs/authkit/mcp>.
    the default, since most people use it) and
    `https://admin.mcp.brewerypi.com/mcp`. Tokens are minted for one of these
    and the server rejects a token minted for anything else.
-6. **API Keys**: copy the **secret key** (`sk_...`). The server uses it only
-   to look up a person's email the first time they sign in.
+6. **API Keys**: create a key in the environment you are deploying against
+   and copy it (`sk_...`; it is shown once). The server uses it only to
+   look up a person's email the first time they sign in. Newer keys no
+   longer say `live`/`test` in the prefix, so check which environment a key
+   belongs to by where the dashboard lists it -- a Staging key against the
+   Production AuthKit domain fails every first sign-in.
 
 ## 7. Run the MCP servers as services
 
@@ -145,7 +150,7 @@ mkdir -p /etc/brewerypi
 cat > /etc/brewerypi/mcp.env <<'EOF'
 DATABASE_URL=sqlite:////opt/brewerypi/app.db
 AUTHKIT_DOMAIN=https://your-app.authkit.app
-WORKOS_API_KEY=sk_live_REPLACE_ME
+WORKOS_API_KEY=sk_REPLACE_ME
 EOF
 chmod 600 /etc/brewerypi/mcp.env
 ```
@@ -349,7 +354,9 @@ would be refused in Production as "already linked to a different sign-in"
 2. **WorkOS Production** (step 6): enable the same sign-in methods, with
    your own Google and Microsoft OAuth clients; enable Dynamic Client
    Registration; add both resource indicators with `operator.mcp` as the
-   default; note the Production AuthKit domain and the `sk_live_...` key.
+   default; note the Production AuthKit domain and create a Production
+   API key (listed under Production's API Keys -- the prefix no longer
+   shows the environment).
 3. **Back up, pull and migrate** the live database:
    ```
    cp /opt/brewerypi/app.db /root/app.db.before-sign-in
