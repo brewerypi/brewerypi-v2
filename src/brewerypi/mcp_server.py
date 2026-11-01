@@ -6,9 +6,10 @@ record readings, and run batches. ``MCP_ROLE`` picks the tier: the default
 operator tier, or ``admin``, which adds the configuration tools.
 
 Staff sign in with WorkOS AuthKit, and every tool call is checked against
-the Brewery Pi user list (see ``brewerypi.mcp_auth``). Scoping each call to
-the caller's enterprises and sites is not built yet, so one server should
-still hold one company's data.
+the Brewery Pi user list (see ``brewerypi.mcp_auth``). Each tool is then
+scoped to the caller's enterprises and sites: ``_guard`` checks the rows a
+call names before it runs, and lists keep only what the caller may read
+(see ``brewerypi.access``).
 
 Run it with the ``brewerypi-mcp`` command (or
 ``python -m brewerypi.mcp_server``). Configuration is read from the
@@ -29,6 +30,8 @@ terminates HTTPS, one hostname per tier; see the deploy guide.
 """
 
 import base64
+import functools
+import inspect
 import logging
 import os
 from datetime import datetime, timezone
@@ -39,9 +42,15 @@ from sqlalchemy import create_engine, event, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from brewerypi import mcp_auth, services, workbook
+from brewerypi import access, mcp_auth, services, workbook
+from brewerypi.access import (
+    CONFIGURE,
+    CONFIGURE_ENTERPRISE,
+    OPERATE,
+    READ,
+)
 from brewerypi.config import DATABASE_URL
-from brewerypi.identity import TIERS
+from brewerypi.identity import TIERS, current_user
 from brewerypi.models import (
     Area,
     Element,
@@ -56,9 +65,11 @@ from brewerypi.models import (
     Lookup,
     LookupValue,
     MeasurementUnit,
+    Membership,
     Site,
     Tag,
     TagValue,
+    User,
 )
 from brewerypi.services import ServiceError
 from brewerypi.timezones import (
@@ -130,6 +141,12 @@ HOW TO TALK
   defer to the user on whether a number is acceptable.
 - Ask when a request is ambiguous (twenty fermenters, one "the fermenter"),
   and confirm before writing anything.
+
+WHAT THE PERSON CAN SEE
+Everything you see is limited to the companies and sites the signed-in
+person has been given. If something they expect is missing -- a site, a
+vessel, a batch -- they may simply not have access to it: say so and point
+them at an administrator, rather than concluding it does not exist.
 """
 
 _OPERATOR_INSTRUCTIONS = _SHARED_INSTRUCTIONS + """
@@ -177,6 +194,16 @@ A SENSIBLE SETUP ORDER
 Work in bulk when the user describes their brewery in bulk ("twelve
 fermenters") -- create them all rather than asking one at a time. Confirm the
 shape back to them briefly when you are done with a step.
+
+PEOPLE
+To let someone in: add them to the sign-in list with `create_user`, then
+give them a role in the company with `create_membership` -- "operator" to
+record readings and run batches, "admin" to change the setup too -- either
+at every site (the default, and it covers sites opened later) or at named
+sites only. Changes take effect on their next request. Someone leaving the
+company loses access with `delete_membership`. Changing the company itself,
+its lists and units, its sites, or its people needs an administrator of
+every site; an administrator of one site sets up that site.
 """
 
 mcp = FastMCP(
@@ -187,6 +214,58 @@ mcp = FastMCP(
         else _OPERATOR_INSTRUCTIONS
     ),
 )
+
+
+def _guard(superuser: bool = False, **checks: tuple[type, str]):
+    """Check what a tool call names against the caller's access first.
+
+    Each keyword maps one of the tool's id arguments to the model it names
+    and the access level the call needs on that row, e.g.
+    ``_guard(tag_id=(Tag, OPERATE))``. An id that names no row is let
+    through for the tool to report in its own words; one outside the
+    caller's enterprises and sites gets the same "not found", and one they
+    can see but not change is refused. ``superuser=True`` admits only
+    superusers. Lists name no row: they filter their results with
+    ``_visible`` instead, but still carry ``@_guard()``, because
+    ``test_every_tool_is_guarded`` refuses a tool without one -- a new
+    tool must decide its access to be offered at all.
+    """
+
+    def decorate(fn):
+        signature = inspect.signature(fn)
+
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            user = current_user()
+            if user is not None and not user.is_superuser:
+                if superuser:
+                    return {"error": "only a Brewery Pi superuser can do that"}
+                bound = signature.bind(*args, **kwargs)
+                bound.apply_defaults()
+                with _Session() as session:
+                    try:
+                        for arg, (model, level) in checks.items():
+                            row_id = bound.arguments.get(arg)
+                            row = (
+                                session.get(model, row_id)
+                                if row_id is not None
+                                else None
+                            )
+                            if row is not None:
+                                access.check(session, user, row, level)
+                    except ServiceError as exc:
+                        return {"error": str(exc)}
+            return fn(*args, **kwargs)
+
+        wrapper.guarded = True
+        return wrapper
+
+    return decorate
+
+
+def _visible(session: Session, rows):
+    """Keep the rows the caller may read (all of them when unrestricted)."""
+    return access.visible(session, current_user(), rows)
 
 
 def _zone_for_tag(session: Session, tag: Tag) -> str:
@@ -201,12 +280,14 @@ def _zone_for_tag(session: Session, tag: Tag) -> str:
 
 
 @mcp.tool
+@_guard()
 def list_enterprises() -> list[dict]:
-    """List every enterprise (the top of the BreweryPi hierarchy)."""
+    """List the enterprises you belong to (the top of the hierarchy)."""
     with _Session() as session:
-        rows = session.scalars(
-            select(Enterprise).order_by(Enterprise.name)
-        ).all()
+        rows = _visible(
+            session,
+            session.scalars(select(Enterprise).order_by(Enterprise.name)),
+        )
         return [
             {
                 "id": e.id,
@@ -219,6 +300,7 @@ def list_enterprises() -> list[dict]:
 
 
 @mcp.tool
+@_guard()
 def list_sites(enterprise_id: int | None = None) -> list[dict]:
     """List sites, optionally filtered to one enterprise by id."""
     with _Session() as session:
@@ -233,11 +315,12 @@ def list_sites(enterprise_id: int | None = None) -> list[dict]:
                 "name": s.name,
                 "description": s.description,
             }
-            for s in session.scalars(stmt).all()
+            for s in _visible(session, session.scalars(stmt))
         ]
 
 
 @mcp.tool
+@_guard()
 def list_areas(site_id: int) -> list[dict]:
     """List the areas within a site."""
     with _Session() as session:
@@ -252,11 +335,12 @@ def list_areas(site_id: int) -> list[dict]:
                 "name": a.name,
                 "description": a.description,
             }
-            for a in session.scalars(stmt).all()
+            for a in _visible(session, session.scalars(stmt))
         ]
 
 
 @mcp.tool
+@_guard()
 def list_tags(area_id: int) -> list[dict]:
     """List the tags in an area.
 
@@ -270,7 +354,7 @@ def list_tags(area_id: int) -> list[dict]:
             select(Tag).where(Tag.area_id == area_id).order_by(Tag.name)
         )
         out = []
-        for t in session.scalars(stmt).all():
+        for t in _visible(session, session.scalars(stmt)):
             unit = (
                 t.measurement_unit.abbreviation
                 if t.measurement_unit is not None
@@ -290,6 +374,7 @@ def list_tags(area_id: int) -> list[dict]:
 
 
 @mcp.tool
+@_guard(tag_id=(Tag, READ))
 def get_tag_values(
     tag_id: int,
     start: str | None = None,
@@ -348,6 +433,7 @@ def get_tag_values(
 
 
 @mcp.tool
+@_guard(tag_id=(Tag, READ))
 def tag_value_stats(
     tag_id: int,
     start: str | None = None,
@@ -394,20 +480,22 @@ def tag_value_stats(
 
 
 @mcp.tool
+@_guard()
 def browse_hierarchy() -> list[dict]:
     """Return the whole tree: enterprises -> sites -> areas with tag counts.
 
     A compact overview to orient yourself before drilling in with the other
-    tools.
+    tools. Shows only the companies and sites you have access to.
     """
     with _Session() as session:
         out = []
-        enterprises = session.scalars(
-            select(Enterprise).order_by(Enterprise.name)
-        ).all()
+        enterprises = _visible(
+            session,
+            session.scalars(select(Enterprise).order_by(Enterprise.name)),
+        )
         for e in enterprises:
             sites = []
-            for s in sorted(e.sites, key=lambda s: s.name):
+            for s in _visible(session, sorted(e.sites, key=lambda s: s.name)):
                 areas = [
                     {"id": a.id, "name": a.name, "tag_count": len(a.tags)}
                     for a in sorted(s.areas, key=lambda a: a.name)
@@ -418,6 +506,7 @@ def browse_hierarchy() -> list[dict]:
 
 
 @mcp.tool
+@_guard(tag_id=(Tag, OPERATE))
 def record_tag_value(
     tag_id: int,
     value: float | None = None,
@@ -531,6 +620,7 @@ def _reading_dict(session: Session, tv: TagValue) -> dict:
 
 
 @mcp.tool
+@_guard(value_id=(TagValue, READ))
 def get_tag_value(value_id: int) -> dict:
     """Return one recorded reading by id.
 
@@ -546,6 +636,7 @@ def get_tag_value(value_id: int) -> dict:
 
 
 @mcp.tool
+@_guard(value_id=(TagValue, OPERATE))
 def update_tag_value(
     value_id: int,
     value: float | None = None,
@@ -583,6 +674,7 @@ def update_tag_value(
 
 
 @mcp.tool
+@_guard(value_id=(TagValue, OPERATE))
 def delete_tag_value(value_id: int, confirm: bool = False) -> dict:
     """Delete a single recorded reading (e.g. one logged to the wrong tag).
 
@@ -624,6 +716,7 @@ def _element_dict(e: Element) -> dict:
 
 
 @mcp.tool
+@_guard()
 def list_elements(
     element_template_id: int | None = None,
     site_id: int | None = None,
@@ -640,10 +733,11 @@ def list_elements(
         rows = services.list_elements(
             session, element_template_id, site_id, parent_id
         )
-        return [_element_dict(e) for e in rows]
+        return [_element_dict(e) for e in _visible(session, rows)]
 
 
 @mcp.tool
+@_guard(element_id=(Element, READ))
 def get_element(element_id: int) -> dict:
     """Return one element by id."""
     with _Session() as session:
@@ -677,6 +771,7 @@ def _element_attribute_dict(
 
 
 @mcp.tool
+@_guard()
 def list_element_attributes(
     element_id: int | None = None,
     element_attribute_template_id: int | None = None,
@@ -693,10 +788,14 @@ def list_element_attributes(
         rows = services.list_element_attributes(
             session, element_id, element_attribute_template_id
         )
-        return [_element_attribute_dict(session, ea) for ea in rows]
+        return [
+            _element_attribute_dict(session, ea)
+            for ea in _visible(session, rows)
+        ]
 
 
 @mcp.tool
+@_guard(element_attribute_id=(ElementAttribute, READ))
 def get_element_attribute(element_attribute_id: int) -> dict:
     """Return one element attribute (with its name and wired tag)."""
     with _Session() as session:
@@ -722,6 +821,7 @@ def _event_frame_template_dict(t: EventFrameTemplate) -> dict:
 
 
 @mcp.tool
+@_guard()
 def list_event_frame_templates(
     element_template_id: int | None = None,
     parent_id: int | None = None,
@@ -737,10 +837,13 @@ def list_event_frame_templates(
         rows = services.list_event_frame_templates(
             session, element_template_id, parent_id
         )
-        return [_event_frame_template_dict(t) for t in rows]
+        return [
+            _event_frame_template_dict(t) for t in _visible(session, rows)
+        ]
 
 
 @mcp.tool
+@_guard(template_id=(EventFrameTemplate, READ))
 def get_event_frame_template(template_id: int) -> dict:
     """Return one event frame template by id."""
     with _Session() as session:
@@ -795,6 +898,7 @@ def _event_frame_dict(session: Session, f: EventFrame) -> dict:
 
 
 @mcp.tool
+@_guard()
 def list_event_frames(
     element_id: int | None = None,
     event_frame_template_id: int | None = None,
@@ -830,10 +934,13 @@ def list_event_frames(
             source_event_frame_id,
             destination_event_frame_id,
         )
-        return [_event_frame_dict(session, f) for f in rows]
+        return [
+            _event_frame_dict(session, f) for f in _visible(session, rows)
+        ]
 
 
 @mcp.tool
+@_guard(event_frame_id=(EventFrame, READ))
 def get_event_frame(event_frame_id: int) -> dict:
     """Return one event frame (batch) by id."""
     with _Session() as session:
@@ -845,6 +952,13 @@ def get_event_frame(event_frame_id: int) -> dict:
 
 
 @mcp.tool
+@_guard(
+    element_id=(Element, OPERATE),
+    event_frame_template_id=(EventFrameTemplate, READ),
+    parent_id=(EventFrame, OPERATE),
+    source_event_frame_id=(EventFrame, READ),
+    destination_event_frame_id=(EventFrame, READ),
+)
 def create_event_frame(
     element_id: int,
     event_frame_template_id: int,
@@ -915,6 +1029,7 @@ def create_event_frame(
 
 
 @mcp.tool
+@_guard(event_frame_id=(EventFrame, OPERATE))
 def close_event_frame(
     event_frame_id: int, ended_at: str | None = None
 ) -> dict:
@@ -944,6 +1059,7 @@ def close_event_frame(
 
 
 @mcp.tool
+@_guard(event_frame_id=(EventFrame, OPERATE))
 def reopen_event_frame(event_frame_id: int) -> dict:
     """Reopen a closed event frame, making it running again.
 
@@ -965,6 +1081,7 @@ def reopen_event_frame(event_frame_id: int) -> dict:
 
 
 @mcp.tool
+@_guard(event_frame_id=(EventFrame, OPERATE))
 def update_event_frame(
     event_frame_id: int,
     name: str | None = None,
@@ -1001,6 +1118,7 @@ def update_event_frame(
 
 
 @mcp.tool
+@_guard(event_frame_id=(EventFrame, OPERATE))
 def delete_event_frame(
     event_frame_id: int, confirm: bool = False
 ) -> dict:
@@ -1058,6 +1176,11 @@ def delete_event_frame(
 
 
 @mcp.tool
+@_guard(
+    event_frame_id=(EventFrame, OPERATE),
+    source_event_frame_id=(EventFrame, READ),
+    destination_event_frame_id=(EventFrame, READ),
+)
 def link_transfer(
     event_frame_id: int,
     source_event_frame_id: int | None = None,
@@ -1103,6 +1226,7 @@ def link_transfer(
 
 
 @mcp.tool
+@_guard(event_frame_id=(EventFrame, READ))
 def trace_batch_lineage(
     event_frame_id: int,
     direction: str = "both",
@@ -1184,6 +1308,7 @@ def _event_frame_attribute_dict(
 
 
 @mcp.tool
+@_guard()
 def list_event_frame_attributes(
     element_id: int | None = None,
     event_frame_attribute_template_id: int | None = None,
@@ -1198,10 +1323,14 @@ def list_event_frame_attributes(
         rows = services.list_event_frame_attributes(
             session, element_id, event_frame_attribute_template_id
         )
-        return [_event_frame_attribute_dict(session, a) for a in rows]
+        return [
+            _event_frame_attribute_dict(session, a)
+            for a in _visible(session, rows)
+        ]
 
 
 @mcp.tool
+@_guard(event_frame_attribute_id=(EventFrameAttribute, READ))
 def get_event_frame_attribute(event_frame_attribute_id: int) -> dict:
     """Return one event frame attribute wiring (with its name and tag)."""
     with _Session() as session:
@@ -1224,13 +1353,15 @@ def _unit_dict(unit: MeasurementUnit) -> dict:
     }
 
 
+@_guard()
 def list_measurement_units(enterprise_id: int | None = None) -> list[dict]:
     """List measurement units, optionally filtered by enterprise (admin)."""
     with _Session() as session:
         units = services.list_measurement_units(session, enterprise_id)
-        return [_unit_dict(u) for u in units]
+        return [_unit_dict(u) for u in _visible(session, units)]
 
 
+@_guard(enterprise_id=(Enterprise, CONFIGURE))
 def create_measurement_unit(
     enterprise_id: int,
     abbreviation: str,
@@ -1255,6 +1386,7 @@ def create_measurement_unit(
             return {"error": str(exc)}
 
 
+@_guard(unit_id=(MeasurementUnit, CONFIGURE))
 def update_measurement_unit(
     unit_id: int,
     abbreviation: str | None = None,
@@ -1275,6 +1407,7 @@ def update_measurement_unit(
             return {"error": str(exc)}
 
 
+@_guard(unit_id=(MeasurementUnit, CONFIGURE))
 def delete_measurement_unit(unit_id: int, confirm: bool = False) -> dict:
     """Delete a measurement unit (admin, destructive).
 
@@ -1305,6 +1438,7 @@ def delete_measurement_unit(unit_id: int, confirm: bool = False) -> dict:
             return {"error": str(exc)}
 
 
+@_guard(enterprise_id=(Enterprise, CONFIGURE))
 def add_default_measurement_units(enterprise_id: int) -> dict:
     """Add the standard brewing measurement units to a company (admin).
 
@@ -1341,13 +1475,15 @@ def _lookup_dict(lookup: Lookup) -> dict:
     }
 
 
+@_guard()
 def list_lookups(enterprise_id: int | None = None) -> list[dict]:
     """List lookups, optionally filtered by enterprise (admin)."""
     with _Session() as session:
         rows = services.list_lookups(session, enterprise_id)
-        return [_lookup_dict(lk) for lk in rows]
+        return [_lookup_dict(lk) for lk in _visible(session, rows)]
 
 
+@_guard(enterprise_id=(Enterprise, CONFIGURE))
 def create_lookup(enterprise_id: int, name: str) -> dict:
     """Create a list of text options (admin, write).
 
@@ -1365,6 +1501,7 @@ def create_lookup(enterprise_id: int, name: str) -> dict:
             return {"error": str(exc)}
 
 
+@_guard(lookup_id=(Lookup, CONFIGURE))
 def update_lookup(lookup_id: int, name: str | None = None) -> dict:
     """Rename a lookup (admin, write)."""
     with _Session() as session:
@@ -1378,6 +1515,7 @@ def update_lookup(lookup_id: int, name: str | None = None) -> dict:
             return {"error": str(exc)}
 
 
+@_guard(lookup_id=(Lookup, CONFIGURE))
 def delete_lookup(lookup_id: int, confirm: bool = False) -> dict:
     """Delete a lookup and its values (admin, destructive).
 
@@ -1416,6 +1554,7 @@ def _lookup_value_dict(value: LookupValue) -> dict:
     }
 
 
+@_guard()
 def list_lookup_values(lookup_id: int) -> list[dict]:
     """List the options on a list.
 
@@ -1424,9 +1563,10 @@ def list_lookup_values(lookup_id: int) -> list[dict]:
     """
     with _Session() as session:
         rows = services.list_lookup_values(session, lookup_id)
-        return [_lookup_value_dict(v) for v in rows]
+        return [_lookup_value_dict(v) for v in _visible(session, rows)]
 
 
+@_guard(lookup_id=(Lookup, CONFIGURE))
 def create_lookup_value(
     lookup_id: int, name: str, is_selectable: bool = True
 ) -> dict:
@@ -1444,6 +1584,7 @@ def create_lookup_value(
             return {"error": str(exc)}
 
 
+@_guard(value_id=(LookupValue, CONFIGURE))
 def update_lookup_value(
     value_id: int,
     name: str | None = None,
@@ -1463,6 +1604,7 @@ def update_lookup_value(
             return {"error": str(exc)}
 
 
+@_guard(value_id=(LookupValue, CONFIGURE))
 def delete_lookup_value(value_id: int, confirm: bool = False) -> dict:
     """Delete a lookup value (admin, destructive).
 
@@ -1503,6 +1645,7 @@ def _tag_dict(tag: Tag) -> dict:
     }
 
 
+@_guard(tag_id=(Tag, READ))
 def get_tag(tag_id: int) -> dict:
     """Return one tag's full configuration by id (admin).
 
@@ -1516,6 +1659,11 @@ def get_tag(tag_id: int) -> dict:
             return {"error": str(exc)}
 
 
+@_guard(
+    area_id=(Area, CONFIGURE),
+    lookup_id=(Lookup, READ),
+    measurement_unit_id=(MeasurementUnit, READ),
+)
 def create_tag(
     area_id: int,
     name: str,
@@ -1547,6 +1695,7 @@ def create_tag(
             return {"error": str(exc)}
 
 
+@_guard(tag_id=(Tag, CONFIGURE))
 def update_tag(
     tag_id: int,
     name: str | None = None,
@@ -1567,6 +1716,7 @@ def update_tag(
             return {"error": str(exc)}
 
 
+@_guard(tag_id=(Tag, CONFIGURE))
 def delete_tag(tag_id: int, confirm: bool = False) -> dict:
     """Delete a tag and all of its recorded readings (admin, destructive).
 
@@ -1629,6 +1779,7 @@ def _area_dict(area: Area) -> dict:
     }
 
 
+@_guard(area_id=(Area, READ))
 def get_area(area_id: int) -> dict:
     """Return one area's full configuration by id (admin).
 
@@ -1641,6 +1792,7 @@ def get_area(area_id: int) -> dict:
             return {"error": str(exc)}
 
 
+@_guard(site_id=(Site, CONFIGURE))
 def create_area(
     site_id: int,
     abbreviation: str,
@@ -1666,6 +1818,7 @@ def create_area(
             return {"error": str(exc)}
 
 
+@_guard(area_id=(Area, CONFIGURE))
 def update_area(
     area_id: int,
     abbreviation: str | None = None,
@@ -1686,6 +1839,7 @@ def update_area(
             return {"error": str(exc)}
 
 
+@_guard(area_id=(Area, CONFIGURE))
 def delete_area(area_id: int, confirm: bool = False) -> dict:
     """Delete an area and its tags (admin, destructive).
 
@@ -1733,6 +1887,7 @@ def _site_dict(site: Site) -> dict:
     }
 
 
+@_guard(site_id=(Site, READ))
 def get_site(site_id: int) -> dict:
     """Return one site's full configuration by id (admin).
 
@@ -1745,6 +1900,7 @@ def get_site(site_id: int) -> dict:
             return {"error": str(exc)}
 
 
+@_guard(enterprise_id=(Enterprise, CONFIGURE_ENTERPRISE))
 def create_site(
     enterprise_id: int,
     abbreviation: str,
@@ -1777,6 +1933,7 @@ def create_site(
             return {"error": str(exc)}
 
 
+@_guard(site_id=(Site, CONFIGURE))
 def update_site(
     site_id: int,
     abbreviation: str | None = None,
@@ -1806,6 +1963,7 @@ def update_site(
             return {"error": str(exc)}
 
 
+@_guard(site_id=(Site, CONFIGURE_ENTERPRISE))
 def delete_site(site_id: int, confirm: bool = False) -> dict:
     """Delete a site and its areas/tags (admin, destructive).
 
@@ -1858,6 +2016,7 @@ def _enterprise_dict(ent: Enterprise) -> dict:
     }
 
 
+@_guard(enterprise_id=(Enterprise, READ))
 def get_enterprise(enterprise_id: int) -> dict:
     """Return one enterprise's full configuration by id (admin).
 
@@ -1872,6 +2031,7 @@ def get_enterprise(enterprise_id: int) -> dict:
             return {"error": str(exc)}
 
 
+@_guard(superuser=True)
 def create_enterprise(
     abbreviation: str,
     name: str,
@@ -1896,6 +2056,7 @@ def create_enterprise(
             return {"error": str(exc)}
 
 
+@_guard(enterprise_id=(Enterprise, CONFIGURE))
 def update_enterprise(
     enterprise_id: int,
     abbreviation: str | None = None,
@@ -1916,6 +2077,7 @@ def update_enterprise(
             return {"error": str(exc)}
 
 
+@_guard(superuser=True)
 def delete_enterprise(enterprise_id: int, confirm: bool = False) -> dict:
     """Delete an enterprise and its entire subtree (admin, destructive).
 
@@ -1994,6 +2156,7 @@ def _element_template_dict(t: ElementTemplate) -> dict:
     }
 
 
+@_guard()
 def list_element_templates(site_id: int | None = None) -> list[dict]:
     """List element templates, optionally filtered by site (admin).
 
@@ -2002,9 +2165,13 @@ def list_element_templates(site_id: int | None = None) -> list[dict]:
     """
     with _Session() as session:
         rows = services.list_element_templates(session, site_id)
-        return [_element_template_dict(t) for t in rows]
+        return [_element_template_dict(t) for t in _visible(session, rows)]
 
 
+@_guard(
+    site_id=(Site, CONFIGURE),
+    parent_id=(ElementTemplate, CONFIGURE),
+)
 def create_element_template(
     site_id: int,
     name: str,
@@ -2037,6 +2204,10 @@ def create_element_template(
             return {"error": str(exc)}
 
 
+@_guard(
+    template_id=(ElementTemplate, CONFIGURE),
+    parent_id=(ElementTemplate, CONFIGURE),
+)
 def update_element_template(
     template_id: int,
     name: str | None = None,
@@ -2088,6 +2259,7 @@ def update_element_template(
             return {"error": str(exc)}
 
 
+@_guard(template_id=(ElementTemplate, CONFIGURE))
 def delete_element_template(
     template_id: int, confirm: bool = False
 ) -> dict:
@@ -2127,6 +2299,11 @@ def delete_element_template(
             return {"error": str(exc)}
 
 
+@_guard(
+    element_template_id=(ElementTemplate, CONFIGURE),
+    tag_area_id=(Area, CONFIGURE),
+    parent_id=(Element, CONFIGURE),
+)
 def create_element(
     element_template_id: int,
     name: str,
@@ -2161,6 +2338,11 @@ def create_element(
             return {"error": str(exc)}
 
 
+@_guard(
+    element_id=(Element, CONFIGURE),
+    tag_area_id=(Area, CONFIGURE),
+    parent_id=(Element, CONFIGURE),
+)
 def update_element(
     element_id: int,
     name: str | None = None,
@@ -2197,6 +2379,7 @@ def update_element(
             return {"error": str(exc)}
 
 
+@_guard(element_id=(Element, CONFIGURE))
 def delete_element(element_id: int, confirm: bool = False) -> dict:
     """Delete an element (admin, destructive).
 
@@ -2244,6 +2427,7 @@ def _attribute_template_dict(t: ElementAttributeTemplate) -> dict:
     }
 
 
+@_guard()
 def list_element_attribute_templates(
     element_template_id: int | None = None,
 ) -> list[dict]:
@@ -2256,9 +2440,14 @@ def list_element_attribute_templates(
         rows = services.list_element_attribute_templates(
             session, element_template_id
         )
-        return [_attribute_template_dict(t) for t in rows]
+        return [_attribute_template_dict(t) for t in _visible(session, rows)]
 
 
+@_guard(
+    element_template_id=(ElementTemplate, CONFIGURE),
+    lookup_id=(Lookup, READ),
+    measurement_unit_id=(MeasurementUnit, READ),
+)
 def create_element_attribute_template(
     element_template_id: int,
     name: str,
@@ -2292,6 +2481,7 @@ def create_element_attribute_template(
             return {"error": str(exc)}
 
 
+@_guard(attribute_template_id=(ElementAttributeTemplate, CONFIGURE))
 def update_element_attribute_template(
     attribute_template_id: int,
     name: str | None = None,
@@ -2314,6 +2504,7 @@ def update_element_attribute_template(
             return {"error": str(exc)}
 
 
+@_guard(attribute_template_id=(ElementAttributeTemplate, CONFIGURE))
 def delete_element_attribute_template(
     attribute_template_id: int, confirm: bool = False
 ) -> dict:
@@ -2349,6 +2540,11 @@ def delete_element_attribute_template(
             return {"error": str(exc)}
 
 
+@_guard(
+    element_id=(Element, CONFIGURE),
+    element_attribute_template_id=(ElementAttributeTemplate, READ),
+    tag_id=(Tag, CONFIGURE),
+)
 def wire_element_attribute(
     element_id: int,
     element_attribute_template_id: int,
@@ -2379,6 +2575,7 @@ def wire_element_attribute(
             return {"error": str(exc)}
 
 
+@_guard(element_attribute_id=(ElementAttribute, CONFIGURE))
 def unwire_element_attribute(
     element_attribute_id: int, confirm: bool = False
 ) -> dict:
@@ -2431,6 +2628,10 @@ def unwire_element_attribute(
             return {"error": str(exc)}
 
 
+@_guard(
+    element_template_id=(ElementTemplate, CONFIGURE),
+    parent_id=(EventFrameTemplate, CONFIGURE),
+)
 def create_event_frame_template(
     element_template_id: int,
     name: str,
@@ -2478,6 +2679,10 @@ def create_event_frame_template(
             return {"error": str(exc)}
 
 
+@_guard(
+    template_id=(EventFrameTemplate, CONFIGURE),
+    parent_id=(EventFrameTemplate, CONFIGURE),
+)
 def update_event_frame_template(
     template_id: int,
     name: str | None = None,
@@ -2524,6 +2729,7 @@ def update_event_frame_template(
             return {"error": str(exc)}
 
 
+@_guard(template_id=(EventFrameTemplate, CONFIGURE))
 def delete_event_frame_template(
     template_id: int, confirm: bool = False
 ) -> dict:
@@ -2579,6 +2785,7 @@ def _event_frame_attribute_template_dict(
     }
 
 
+@_guard()
 def list_event_frame_attribute_templates(
     event_frame_template_id: int | None = None,
 ) -> list[dict]:
@@ -2593,10 +2800,18 @@ def list_event_frame_attribute_templates(
             session, event_frame_template_id
         )
         return [
-            _event_frame_attribute_template_dict(t) for t in rows
+            _event_frame_attribute_template_dict(t)
+            for t in _visible(session, rows)
         ]
 
 
+@_guard(
+    event_frame_template_id=(EventFrameTemplate, CONFIGURE),
+    lookup_id=(Lookup, READ),
+    measurement_unit_id=(MeasurementUnit, READ),
+    default_start_lookup_value_id=(LookupValue, READ),
+    default_end_lookup_value_id=(LookupValue, READ),
+)
 def create_event_frame_attribute_template(
     event_frame_template_id: int,
     name: str,
@@ -2640,6 +2855,11 @@ def create_event_frame_attribute_template(
             return {"error": str(exc)}
 
 
+@_guard(
+    attribute_template_id=(EventFrameAttributeTemplate, CONFIGURE),
+    default_start_lookup_value_id=(LookupValue, READ),
+    default_end_lookup_value_id=(LookupValue, READ),
+)
 def update_event_frame_attribute_template(
     attribute_template_id: int,
     name: str | None = None,
@@ -2679,6 +2899,7 @@ def update_event_frame_attribute_template(
             return {"error": str(exc)}
 
 
+@_guard(attribute_template_id=(EventFrameAttributeTemplate, CONFIGURE))
 def delete_event_frame_attribute_template(
     attribute_template_id: int, confirm: bool = False
 ) -> dict:
@@ -2716,6 +2937,11 @@ def delete_event_frame_attribute_template(
             return {"error": str(exc)}
 
 
+@_guard(
+    element_id=(Element, CONFIGURE),
+    event_frame_attribute_template_id=(EventFrameAttributeTemplate, READ),
+    tag_id=(Tag, CONFIGURE),
+)
 def wire_event_frame_attribute(
     element_id: int,
     event_frame_attribute_template_id: int,
@@ -2745,6 +2971,7 @@ def wire_event_frame_attribute(
             return {"error": str(exc)}
 
 
+@_guard(event_frame_attribute_id=(EventFrameAttribute, CONFIGURE))
 def unwire_event_frame_attribute(
     event_frame_attribute_id: int, confirm: bool = False
 ) -> dict:
@@ -2822,7 +3049,9 @@ def _existing_lists(
                     )
                 ),
             )
-            for lookup in services.list_lookups(session, enterprise_id)
+            for lookup in _visible(
+                session, services.list_lookups(session, enterprise_id)
+            )
         ]
     return found or None
 
@@ -2837,7 +3066,7 @@ def _company_name(enterprise_id: int | None) -> str | None:
     where a guess is a site attached to the wrong business.
     """
     with _Session() as session:
-        rows = list(session.scalars(select(Enterprise)).all())
+        rows = _visible(session, session.scalars(select(Enterprise)))
         if enterprise_id is not None:
             match = next(
                 (e for e in rows if e.id == enterprise_id), None
@@ -2857,12 +3086,14 @@ def _existing_units(enterprise_id: int | None) -> list[tuple[str, str]]:
     with _Session() as session:
         return [
             (unit.abbreviation, unit.name)
-            for unit in services.list_measurement_units(
-                session, enterprise_id
+            for unit in _visible(
+                session,
+                services.list_measurement_units(session, enterprise_id),
             )
         ]
 
 
+@_guard(enterprise_id=(Enterprise, READ))
 def get_configuration_workbook(
     scope: str = "all",
     example: bool = False,
@@ -2925,6 +3156,326 @@ def get_configuration_workbook(
     )
 
 
+def _people_scope() -> set[int] | None:
+    """Enterprises whose people the caller manages; None means all of them.
+
+    Managing who belongs to a company takes an admin of every site in it --
+    a site-restricted admin could otherwise grant themselves the rest.
+    """
+    user = current_user()
+    if user is None or user.is_superuser:
+        return None
+    return {
+        g.enterprise_id
+        for g in user.grants
+        if g.role == "admin" and g.site_ids is None
+    }
+
+
+_NO_PEOPLE_ACCESS = (
+    "managing people needs an administrator of every site in a company, "
+    "or a Brewery Pi superuser"
+)
+
+
+def _membership_dict(m: Membership) -> dict:
+    return {
+        "id": m.id,
+        "user_id": m.user_id,
+        "email": m.user.email,
+        "enterprise_id": m.enterprise_id,
+        "role": m.role,
+        "site_ids": services.membership_site_ids(m),
+    }
+
+
+def _user_dict(user: User, scope: set[int] | None) -> dict:
+    """A user, with only the memberships the caller manages."""
+    return {
+        "id": user.id,
+        "email": user.email,
+        "name": user.name,
+        "timezone": user.timezone,
+        "is_superuser": user.is_superuser,
+        "is_active": user.is_active,
+        "signed_in": user.auth_subject is not None,
+        "memberships": [
+            _membership_dict(m)
+            for m in user.memberships
+            if scope is None or m.enterprise_id in scope
+        ],
+    }
+
+
+def _sees_user(user: User, scope: set[int] | None) -> bool:
+    me = current_user()
+    return (
+        scope is None
+        or (me is not None and me.id == user.id)
+        or any(m.enterprise_id in scope for m in user.memberships)
+    )
+
+
+@_guard()
+def list_users(enterprise_id: int | None = None) -> list[dict]:
+    """List the people who can sign in, optionally for one company (admin).
+
+    You see the people in the companies you administer. Each row says
+    whether they have signed in yet and lists their access.
+    """
+    scope = _people_scope()
+    with _Session() as session:
+        return [
+            _user_dict(u, scope)
+            for u in services.list_users(session)
+            if _sees_user(u, scope)
+            and (
+                enterprise_id is None
+                or any(m.enterprise_id == enterprise_id for m in u.memberships)
+            )
+        ]
+
+
+@_guard()
+def get_user(user_id: int) -> dict:
+    """Return one person, with the access they have (admin)."""
+    scope = _people_scope()
+    with _Session() as session:
+        try:
+            user = services.get_user(session, user_id)
+        except ServiceError as exc:
+            return {"error": str(exc)}
+        if not _sees_user(user, scope):
+            return {"error": f"no user with id {user_id}"}
+        return _user_dict(user, scope)
+
+
+@_guard()
+def create_user(
+    email: str,
+    name: str | None = None,
+    timezone: str | None = None,
+    is_superuser: bool = False,
+) -> dict:
+    """Add someone to the list of people who can sign in (admin, write).
+
+    They sign in with this email -- Google, Microsoft, or a code sent to
+    it. Being on the list grants nothing: give them access to a company
+    with `create_membership` next. Leave ``timezone`` unset for on-site
+    staff (they see each site's own time); set an IANA zone for someone
+    who works remotely. Only a superuser can create another superuser.
+    """
+    scope = _people_scope()
+    if scope is not None and (not scope or is_superuser):
+        return {
+            "error": (
+                "only a Brewery Pi superuser can create a superuser"
+                if is_superuser and scope
+                else _NO_PEOPLE_ACCESS
+            )
+        }
+    with _Session() as session:
+        try:
+            user = services.create_user(
+                session, email, name, timezone, is_superuser
+            )
+            result = _user_dict(user, scope)
+            session.commit()
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+    result["message"] = (
+        f"{result['email']} can now sign in, but has no access yet; give "
+        "them a role with create_membership."
+    )
+    return result
+
+
+@_guard()
+def update_user(
+    user_id: int,
+    name: str | None = None,
+    timezone: str | None = None,
+    is_superuser: bool | None = None,
+    is_active: bool | None = None,
+    reset_sign_in: bool = False,
+) -> dict:
+    """Change someone's details or standing (admin, write).
+
+    Anyone can change their own ``name`` and ``timezone``; a blank value
+    clears it. Everything else is server-wide, so it needs a superuser:
+    ``is_active=false`` locks someone out of every company (to remove them
+    from just yours, use `delete_membership`), ``is_superuser``, and
+    ``reset_sign_in=true``, for when someone's Google or Microsoft account
+    was recreated and their next sign-in must link afresh by email.
+    """
+    me = current_user()
+    if me is not None and not me.is_superuser and (
+        user_id != me.id
+        or is_superuser is not None
+        or is_active is not None
+        or reset_sign_in
+    ):
+        return {
+            "error": (
+                "only a Brewery Pi superuser can change that; you can "
+                "change your own name and timezone, and remove someone "
+                "from your company with delete_membership"
+            )
+        }
+    with _Session() as session:
+        try:
+            user = services.update_user(
+                session, user_id, name, timezone, is_superuser, is_active
+            )
+            if reset_sign_in:
+                services.reset_sign_in(session, user_id)
+            result = _user_dict(user, _people_scope())
+            session.commit()
+            return result
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
+@_guard(superuser=True)
+def delete_user(user_id: int, confirm: bool = False) -> dict:
+    """Delete someone and all their access (superuser, destructive).
+
+    Prefer `update_user` with ``is_active=false`` for someone who has
+    left. Without ``confirm=true`` this only previews.
+    """
+    with _Session() as session:
+        try:
+            user = services.get_user(session, user_id)
+        except ServiceError as exc:
+            return {"error": str(exc)}
+        if not confirm:
+            return {
+                "confirm_required": True,
+                "user": _user_dict(user, None),
+                "message": (
+                    f"Would delete {user.email} and their "
+                    f"{len(user.memberships)} membership(s). Deactivating "
+                    "keeps the record; call again with confirm=true to "
+                    "delete anyway."
+                ),
+            }
+        try:
+            services.delete_user(session, user_id)
+            session.commit()
+            return {"deleted": user_id}
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
+@_guard()
+def list_memberships(
+    enterprise_id: int | None = None, user_id: int | None = None
+) -> list[dict]:
+    """List who has access to which company, and their role (admin).
+
+    ``site_ids`` is null when the access covers every site, including ones
+    opened later; otherwise it lists the only sites the person sees.
+    """
+    scope = _people_scope()
+    with _Session() as session:
+        return [
+            _membership_dict(m)
+            for m in services.list_memberships(session, user_id, enterprise_id)
+            if scope is None or m.enterprise_id in scope
+        ]
+
+
+@_guard(enterprise_id=(Enterprise, CONFIGURE_ENTERPRISE))
+def create_membership(
+    email: str,
+    enterprise_id: int,
+    role: str,
+    site_ids: list[int] | None = None,
+) -> dict:
+    """Give someone a role in a company (admin, write).
+
+    ``role`` is "operator" (reads, records readings, runs batches) or
+    "admin" (also changes the setup). Leave ``site_ids`` out for every
+    site, including ones opened later; pass a list to restrict them to
+    those sites. The person must already be on the sign-in list (see
+    `create_user`). Takes effect on their next request -- no reconnect.
+    """
+    with _Session() as session:
+        try:
+            user = services.get_user_by_email(session, email)
+        except ServiceError as exc:
+            return {"error": f"{exc}; add them first with create_user"}
+        try:
+            membership = services.create_membership(
+                session, user.id, enterprise_id, role, site_ids
+            )
+            result = _membership_dict(membership)
+            session.commit()
+            return result
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
+@_guard(membership_id=(Membership, CONFIGURE_ENTERPRISE))
+def update_membership(
+    membership_id: int,
+    role: str | None = None,
+    has_all_sites: bool | None = None,
+    site_ids: list[int] | None = None,
+) -> dict:
+    """Change someone's role or sites in a company (admin, write).
+
+    ``site_ids`` replaces their site list; ``has_all_sites=true`` opens
+    every site to them again. Only what you pass changes.
+    """
+    with _Session() as session:
+        try:
+            membership = services.update_membership(
+                session, membership_id, role, has_all_sites, site_ids
+            )
+            result = _membership_dict(membership)
+            session.commit()
+            return result
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
+@_guard(membership_id=(Membership, CONFIGURE_ENTERPRISE))
+def delete_membership(membership_id: int, confirm: bool = False) -> dict:
+    """Remove someone's access to a company (admin, destructive).
+
+    They stay on the sign-in list and keep any access elsewhere. Without
+    ``confirm=true`` this only previews.
+    """
+    with _Session() as session:
+        try:
+            membership = services.get_membership(session, membership_id)
+        except ServiceError as exc:
+            return {"error": str(exc)}
+        if not confirm:
+            return {
+                "confirm_required": True,
+                "membership": _membership_dict(membership),
+                "message": (
+                    f"Would remove {membership.user.email}'s access to "
+                    f"enterprise {membership.enterprise_id}. Call again "
+                    "with confirm=true."
+                ),
+            }
+        try:
+            services.delete_membership(session, membership_id)
+            session.commit()
+            return {"deleted": membership_id}
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
 def _register_config_tools(server: FastMCP) -> None:
     """Register the admin-only configuration CRUD tools on a server."""
     for tool in (
@@ -2980,6 +3531,15 @@ def _register_config_tools(server: FastMCP) -> None:
         delete_event_frame_attribute_template,
         wire_event_frame_attribute,
         unwire_event_frame_attribute,
+        list_users,
+        get_user,
+        create_user,
+        update_user,
+        delete_user,
+        list_memberships,
+        create_membership,
+        update_membership,
+        delete_membership,
     ):
         server.tool(tool)
 

@@ -7,6 +7,21 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- Per-company, per-site scoping (phase 2 of *Identity and access*). Every
+  MCP tool now acts only within the signed-in person's memberships:
+  lists and the browse tree show only their companies and sites, a row
+  elsewhere answers "not found" exactly as a missing id does, and writes
+  check the role where the row lives -- operators record readings and run
+  batches at their sites; an admin configures their sites; the company
+  itself, its lists and units, creating or deleting sites, and its people
+  need an admin of every site; creating or deleting a company needs a
+  superuser. Decisions live in the new `brewerypi.access`; each tool
+  declares what it touches with `@_guard`, and a test refuses any tool
+  without one. Memberships are snapshotted per call, so a change applies
+  on the person's next request. Admin-tier people tools: `list_users`,
+  `get_user`, `create_user`, `update_user`, `delete_user`,
+  `list_memberships`, `create_membership` (by email), `update_membership`,
+  `delete_membership`. One server can now hold several companies.
 - Sign-in and a user list (phase 1 of *Identity and access* in
   `docs/design-decisions.md`). Staff sign in through WorkOS AuthKit (Google,
   Microsoft or an email magic link); the MCP server verifies AuthKit's
