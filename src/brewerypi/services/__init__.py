@@ -143,6 +143,7 @@ from brewerypi.services.tags import (
     update_tag,
 )
 from brewerypi.services.users import (
+    attributed_counts,
     create_user,
     delete_user,
     get_user,
@@ -156,6 +157,7 @@ from brewerypi.services.users import (
 )
 
 __all__ = [
+    "attributed_counts",
     "DEFAULT_MEASUREMENT_UNITS",
     "ConflictError",
     "NotFoundError",

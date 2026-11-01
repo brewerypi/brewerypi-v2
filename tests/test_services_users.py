@@ -1,15 +1,19 @@
 """Tests for the user service functions, including sign-in linking."""
 
+from datetime import datetime
+
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from brewerypi.database import Base
+from brewerypi.models import Area, Enterprise, Site, Tag, TagValue
 from brewerypi.services import (
     ConflictError,
     NotFoundError,
     PermissionDeniedError,
     ValidationError,
+    attributed_counts,
     create_user,
     delete_user,
     get_user,
@@ -28,6 +32,36 @@ def session():
     Base.metadata.create_all(engine)
     with Session(engine) as session:
         yield session
+
+
+def test_delete_is_refused_for_someone_a_reading_names(session):
+    author = create_user(session, "author@example.com")
+    corrector = create_user(session, "corrector@example.com")
+    bystander = create_user(session, "bystander@example.com")
+    site = Site(abbreviation="S", name="Site", timezone="UTC")
+    site.areas.append(Area(abbreviation="A", name="Area"))
+    session.add(Enterprise(abbreviation="E", name="Co", sites=[site]))
+    session.flush()
+    tag = Tag(name="T", area_id=site.areas[0].id)
+    session.add(tag)
+    session.flush()
+    session.add(
+        TagValue(
+            tag_id=tag.id,
+            observed_at=datetime(2026, 1, 1),
+            value=1.0,
+            recorded_by_id=author.id,
+            updated_by_id=corrector.id,
+        )
+    )
+    session.flush()
+
+    assert attributed_counts(session, author.id) == (1, 0)
+    for person in (author, corrector):
+        with pytest.raises(ConflictError, match="deactivate"):
+            delete_user(session, person.id)
+    delete_user(session, bystander.id)
+    assert attributed_counts(session, bystander.id) == (0, 0)
 
 
 def test_create_normalizes_email_and_defaults(session):

@@ -53,6 +53,13 @@ matching upstream BreweryPi). Moving a boundary later leaves already-written
 readings where they are -- they are independent facts, and the frame is only a
 window over them.
 
+Attribution: the writes take the acting user's id (None when nobody is signed
+in). Readings a frame writes at its boundaries belong to whoever opened or
+closed it, and closing a frame closes its open descendants in that person's
+name. A change after the fact keeps the original author and records
+``updated_by_id``, so nobody is shown as the author of what someone else
+changed.
+
 Each function takes an open Session and raises the service exceptions on rule
 violations. Callers own the transaction; these functions ``flush`` but never
 commit.
@@ -152,6 +159,7 @@ def create_event_frame(
     parent_id: int | None = None,
     source_event_frame_id: int | None = None,
     destination_event_frame_id: int | None = None,
+    started_by_id: int | None = None,
 ) -> EventFrame:
     """Start an event frame on an element.
 
@@ -207,17 +215,22 @@ def create_event_frame(
         ended_at=ended_at,
         source_event_frame_id=source_event_frame_id,
         destination_event_frame_id=destination_event_frame_id,
+        started_by_id=started_by_id,
+        ended_by_id=started_by_id if ended_at is not None else None,
     )
     session.add(frame)
     session.flush()
-    _write_boundary_values(session, frame, "start", started_at)
+    _write_boundary_values(session, frame, "start", started_at, started_by_id)
     if ended_at is not None:
-        _write_boundary_values(session, frame, "end", ended_at)
+        _write_boundary_values(session, frame, "end", ended_at, started_by_id)
     return frame
 
 
 def close_event_frame(
-    session: Session, event_frame_id: int, ended_at: datetime | None = None
+    session: Session,
+    event_frame_id: int,
+    ended_at: datetime | None = None,
+    ended_by_id: int | None = None,
 ) -> EventFrame:
     """Close a running frame, writing its default end values.
 
@@ -267,13 +280,16 @@ def close_event_frame(
             closing_ids=closing_ids,
         )
         open_frame.ended_at = ended_at
+        open_frame.ended_by_id = ended_by_id
         session.flush()
-        _write_boundary_values(session, open_frame, "end", ended_at)
+        _write_boundary_values(
+            session, open_frame, "end", ended_at, ended_by_id
+        )
     return frame
 
 
 def reopen_event_frame(
-    session: Session, event_frame_id: int
+    session: Session, event_frame_id: int, updated_by_id: int | None = None
 ) -> EventFrame:
     """Reopen a closed frame (clear ``ended_at``), leaving readings alone.
 
@@ -308,6 +324,8 @@ def reopen_event_frame(
         None,
     )
     frame.ended_at = None
+    frame.ended_by_id = None
+    frame.updated_by_id = updated_by_id
     session.flush()
     return frame
 
@@ -318,6 +336,7 @@ def update_event_frame(
     name: str | None = None,
     started_at: datetime | None = None,
     ended_at: datetime | None = _UNSET,  # type: ignore[assignment]
+    updated_by_id: int | None = None,
 ) -> EventFrame:
     """Update a frame's name and/or window.
 
@@ -325,9 +344,11 @@ def update_event_frame(
     that children still fit, that this frame still sits inside any batch it
     transfers between, and that every transfer linked to this frame still sits
     inside the new window). Readings already written at the old boundaries
-    stay where they are.
+    stay where they are. Setting an end on a running frame closes it, so
+    that person also becomes who ended it.
     """
     frame = get_event_frame(session, event_frame_id)
+    before = (frame.name, frame.started_at, frame.ended_at)
     if name is not None:
         frame.name = clean_str(name, "name", 45)
     new_start = frame.started_at if started_at is None else started_at
@@ -355,6 +376,12 @@ def update_event_frame(
         _check_linked_transfers_fit(session, frame, new_start, new_end)
         frame.started_at = new_start
         frame.ended_at = new_end
+    if (frame.name, frame.started_at, frame.ended_at) != before:
+        frame.updated_by_id = updated_by_id
+        if frame.ended_at is None:
+            frame.ended_by_id = None
+        elif before[2] is None:
+            frame.ended_by_id = updated_by_id
     session.flush()
     return frame
 
@@ -366,6 +393,7 @@ def link_transfer(
     destination_event_frame_id: (
         int | None
     ) = _UNSET,  # type: ignore[assignment]
+    updated_by_id: int | None = None,
 ) -> EventFrame:
     """Set or clear this frame's transfer source and/or destination.
 
@@ -410,6 +438,11 @@ def link_transfer(
         frame.started_at,
         frame.ended_at,
     )
+    if (source, destination) != (
+        frame.source_event_frame_id,
+        frame.destination_event_frame_id,
+    ):
+        frame.updated_by_id = updated_by_id
     frame.source_event_frame_id = source
     frame.destination_event_frame_id = destination
     session.flush()
@@ -846,6 +879,7 @@ def _write_boundary_values(
     frame: EventFrame,
     which: str,
     at: datetime,
+    recorded_by_id: int | None,
 ) -> list[TagValue]:
     """Write the template's default start/end values as readings.
 
@@ -882,6 +916,7 @@ def _write_boundary_values(
             observed_at=at,
             value=value,
             lookup_value_id=lookup_value_id,
+            recorded_by_id=recorded_by_id,
         )
         session.add(reading)
         written.append(reading)

@@ -446,8 +446,9 @@ failing, and renames nothing, so a second run adds 0 and is harmless.
 - **Revoking access:** `brewerypi-users update their@email --no-active`
   takes effect on their next tool call; no URL needs to change.
 - **Write access:** operators can record and correct readings and run
-  batches; admins can also change configuration. Who did what is not yet
-  recorded (attribution is a later phase of *Identity and access*).
+  batches; admins can also change configuration. Readings and batches record
+  who made them and who last changed them, so someone who has recorded
+  anything can only be deactivated, not deleted.
 - **Resetting the demo data:** to wipe accumulated writes, rebuild the DB —
   `systemctl stop brewerypi-mcp-operator brewerypi-mcp-admin`,
   `rm -f app.db app.db-wal app.db-shm`, `.venv/bin/brewerypi`,

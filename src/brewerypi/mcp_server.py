@@ -147,6 +147,12 @@ Everything you see is limited to the companies and sites the signed-in
 person has been given. If something they expect is missing -- a site, a
 vessel, a batch -- they may simply not have access to it: say so and point
 them at an administrator, rather than concluding it does not exist.
+
+WHO DID WHAT
+Readings and batches name who recorded, started or closed them, and who last
+changed them afterwards. A blank means it was not recorded, usually because
+the entry is older than this: say so rather than guessing. Only the most
+recent change is kept, and a deleted entry leaves no trace.
 """
 
 _OPERATOR_INSTRUCTIONS = _SHARED_INSTRUCTIONS + """
@@ -268,6 +274,25 @@ def _visible(session: Session, rows):
     return access.visible(session, current_user(), rows)
 
 
+def _caller_id() -> int | None:
+    """The signed-in user's id, to record as the author of a write."""
+    user = current_user()
+    return user.id if user is not None else None
+
+
+def _person(session: Session, user_id: int | None) -> str | None:
+    """How to name the author of a row: their name, else their email."""
+    user = session.get(User, user_id) if user_id is not None else None
+    return (user.name or user.email) if user is not None else None
+
+
+def _reading_authors(session: Session, tv: TagValue) -> dict:
+    return {
+        "recorded_by": _person(session, tv.recorded_by_id),
+        "updated_by": _person(session, tv.updated_by_id),
+    }
+
+
 def _zone_for_tag(session: Session, tag: Tag) -> str:
     """Resolve the IANA timezone for a tag's readings (via its site)."""
     area = session.get(Area, tag.area_id)
@@ -385,9 +410,10 @@ def get_tag_values(
 
     ``start`` and ``end`` are optional ISO 8601 times in the site's local
     timezone that bound the range. ``limit`` caps the number of readings
-    (1-1000). Each reading has an ``observed_at`` (local time) and a ``value``
+    (1-1000). Each reading has an ``observed_at`` (local time), a ``value``
     that is a number for numeric tags or the selected lookup value's name for
-    lookup-typed tags.
+    lookup-typed tags, and who recorded and last corrected it (``recorded_by``,
+    ``updated_by``; null when not known).
     """
     limit = max(1, min(limit, 1000))
     with _Session() as session:
@@ -421,6 +447,7 @@ def get_tag_values(
                     "observed_at": from_utc(tv.observed_at, zone),
                     "value": value,
                     "type": vtype,
+                    **_reading_authors(session, tv),
                 }
             )
         return {
@@ -565,7 +592,10 @@ def record_tag_value(
                     "allowed": list(allowed),
                 }
             reading = TagValue(
-                tag_id=tag_id, observed_at=when, lookup_value_id=lv.id
+                tag_id=tag_id,
+                observed_at=when,
+                lookup_value_id=lv.id,
+                recorded_by_id=_caller_id(),
             )
             stored: object = lv.name
             vtype = "lookup"
@@ -577,7 +607,12 @@ def record_tag_value(
                         "'value'"
                     )
                 }
-            reading = TagValue(tag_id=tag_id, observed_at=when, value=value)
+            reading = TagValue(
+                tag_id=tag_id,
+                observed_at=when,
+                value=value,
+                recorded_by_id=_caller_id(),
+            )
             stored = value
             vtype = "numeric"
 
@@ -596,6 +631,7 @@ def record_tag_value(
             "timezone": zone,
             "value": stored,
             "type": vtype,
+            **_reading_authors(session, reading),
         }
 
 
@@ -616,6 +652,7 @@ def _reading_dict(session: Session, tv: TagValue) -> dict:
         "timezone": zone,
         "value": value,
         "type": vtype,
+        **_reading_authors(session, tv),
     }
 
 
@@ -663,7 +700,12 @@ def update_tag_value(
                 )
                 observed_at = to_utc(observed_at, zone).isoformat()
             tv = services.update_tag_value(
-                session, value_id, value, lookup_value, observed_at
+                session,
+                value_id,
+                value,
+                lookup_value,
+                observed_at,
+                updated_by_id=_caller_id(),
             )
             result = _reading_dict(session, tv)
             session.commit()
@@ -894,6 +936,9 @@ def _event_frame_dict(session: Session, f: EventFrame) -> dict:
         ),
         "open": f.ended_at is None,
         "timezone": zone,
+        "started_by": _person(session, f.started_by_id),
+        "ended_by": _person(session, f.ended_by_id),
+        "updated_by": _person(session, f.updated_by_id),
     }
 
 
@@ -1019,6 +1064,7 @@ def create_event_frame(
                 parent_id,
                 source_event_frame_id,
                 destination_event_frame_id,
+                started_by_id=_caller_id(),
             )
             result = _event_frame_dict(session, frame)
             session.commit()
@@ -1048,7 +1094,7 @@ def close_event_frame(
         try:
             end_dt = to_utc(ended_at, zone) if ended_at is not None else None
             frame = services.close_event_frame(
-                session, event_frame_id, end_dt
+                session, event_frame_id, end_dt, ended_by_id=_caller_id()
             )
             result = _event_frame_dict(session, frame)
             session.commit()
@@ -1071,7 +1117,9 @@ def reopen_event_frame(event_frame_id: int) -> dict:
     """
     with _Session() as session:
         try:
-            frame = services.reopen_event_frame(session, event_frame_id)
+            frame = services.reopen_event_frame(
+                session, event_frame_id, updated_by_id=_caller_id()
+            )
             result = _event_frame_dict(session, frame)
             session.commit()
             return result
@@ -1107,7 +1155,11 @@ def update_event_frame(
             if ended_at is not None:
                 kwargs["ended_at"] = to_utc(ended_at, zone)
             frame = services.update_event_frame(
-                session, event_frame_id, name, **kwargs
+                session,
+                event_frame_id,
+                name,
+                updated_by_id=_caller_id(),
+                **kwargs,
             )
             result = _event_frame_dict(session, frame)
             session.commit()
@@ -1215,7 +1267,7 @@ def link_transfer(
             kwargs["destination_event_frame_id"] = destination_event_frame_id
         try:
             frame = services.link_transfer(
-                session, event_frame_id, **kwargs
+                session, event_frame_id, updated_by_id=_caller_id(), **kwargs
             )
             result = _event_frame_dict(session, frame)
             session.commit()
@@ -3342,8 +3394,9 @@ def update_user(
 def delete_user(user_id: int, confirm: bool = False) -> dict:
     """Delete someone and all their access (superuser, destructive).
 
-    Prefer `update_user` with ``is_active=false`` for someone who has
-    left. Without ``confirm=true`` this only previews.
+    Refused once any reading or batch names them: use `update_user` with
+    ``is_active=false`` for someone who has left. Without ``confirm=true``
+    this only previews.
     """
     with _Session() as session:
         try:
@@ -3351,14 +3404,24 @@ def delete_user(user_id: int, confirm: bool = False) -> dict:
         except ServiceError as exc:
             return {"error": str(exc)}
         if not confirm:
+            readings, batches = services.attributed_counts(session, user_id)
+            if readings or batches:
+                return {
+                    "confirm_required": False,
+                    "user": _user_dict(user, None),
+                    "message": (
+                        f"Cannot delete {user.email}: {readings} reading(s) "
+                        f"and {batches} batch(es) name them. Deactivate them "
+                        "instead."
+                    ),
+                }
             return {
                 "confirm_required": True,
                 "user": _user_dict(user, None),
                 "message": (
                     f"Would delete {user.email} and their "
-                    f"{len(user.memberships)} membership(s). Deactivating "
-                    "keeps the record; call again with confirm=true to "
-                    "delete anyway."
+                    f"{len(user.memberships)} membership(s). Call again "
+                    "with confirm=true."
                 ),
             }
         try:

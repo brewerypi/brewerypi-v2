@@ -265,6 +265,15 @@ class TagValue(Base):
     lookup_value_id: Mapped[int | None] = mapped_column(
         ForeignKey("lookup_values.id", ondelete="RESTRICT"), index=True
     )
+    # Who entered it, and who last corrected it. NULL means not known: a row
+    # from before attribution, or a server run without sign-in. RESTRICT: a
+    # departed brewer's readings still need an author, so deactivate them.
+    recorded_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), index=True
+    )
+    updated_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), index=True
+    )
 
     tag: Mapped[Tag] = relationship(back_populates="tag_values")
     lookup_value: Mapped[LookupValue | None] = relationship(
@@ -624,6 +633,17 @@ class EventFrame(Base):
     name: Mapped[str] = mapped_column(String(45))
     started_at: Mapped[datetime] = mapped_column()
     ended_at: Mapped[datetime | None] = mapped_column()
+    # Who started it, closed it, and last changed it afterwards; see the same
+    # columns on TagValue. Reopening a frame clears ended_by_id.
+    started_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), index=True
+    )
+    ended_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), index=True
+    )
+    updated_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), index=True
+    )
 
     element: Mapped[Element] = relationship(back_populates="event_frames")
     event_frame_template: Mapped[EventFrameTemplate] = relationship()

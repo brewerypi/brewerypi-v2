@@ -276,8 +276,7 @@ site-local time, which is right for on-site staff -- leave it blank for them.
 
 ## Identity and access
 
-**Status: decided; phases 1 (identity) and 2 (scoping) built, phase 3 not
-built.**
+**Status: built (identity, scoping and attribution).**
 
 ### Who signs in, and how
 
@@ -305,9 +304,10 @@ The first account is created on the server with the `brewerypi-users` CLI
 (the bootstrap: admin tools need an admin to exist); after that the CLI or,
 from phase 2, admin tools add people.
 
-`is_active = False` is how someone leaves. Deleting a user is possible today
-but will be refused once attribution exists -- a departed brewer's batches
-still need an author.
+`is_active = False` is how someone leaves. Deleting a user is refused once
+any reading or batch names them -- a departed brewer's batches still need an
+author. Someone who never recorded anything, such as a mistyped email, can
+still be deleted.
 
 ### Roles: per enterprise, optionally narrowed to sites
 
@@ -362,7 +362,9 @@ label and says nothing about where it points, so the URL has to: a bare
 2. **Scoping (built).** Every list/get filters to the caller's enterprises
    and sites; every write checks the caller's role where the row lives;
    user and membership admin tools. See *How scoping is enforced* below.
-3. **Attribution.** Who recorded a reading, who started or closed a batch.
+3. **Attribution (built).** Who recorded a reading, who started or closed a
+   batch, and who last changed either. See *How attribution is recorded*
+   below.
 
 ### How scoping is enforced
 
@@ -409,6 +411,50 @@ open, as before identity existed. It is for local development and tests
 only, and it must be set explicitly: a server with neither AuthKit
 configured nor `MCP_AUTH=none` refuses to start, so a forgotten environment
 variable fails closed instead of publishing an open database.
+
+### How attribution is recorded
+
+Authorship lives in columns on the rows themselves, not in a separate log:
+
+| Table | Columns |
+|---|---|
+| `tag_values` | `recorded_by_id`, `updated_by_id` |
+| `event_frames` | `started_by_id`, `ended_by_id`, `updated_by_id` |
+
+All are nullable foreign keys to `users`. **NULL means not known**, never
+"nobody": rows from before attribution stay NULL rather than being credited
+to someone by guesswork, and a server run with `MCP_AUTH=none` has nobody to
+name.
+
+**A change keeps the author.** Correcting a reading or moving a batch's times
+leaves `recorded_by_id` / `started_by_id` alone and sets `updated_by_id`.
+Otherwise someone would be shown as having recorded a value they never
+entered, or the corrector would erase who took the original reading. A call
+that changes nothing records nothing. Reopening a batch clears `ended_by_id`:
+it is no longer ended, so nobody ended it. Linking a transfer counts as a
+change, even when it is the routine late link.
+
+**Automatic work belongs to whoever triggered it.** Default values a batch
+writes at its boundaries are recorded by the person who opened or closed it,
+and closing a batch closes its open nested batches in that person's name.
+
+**The services take a user id** (`started_by_id=...`) instead of reading
+`current_user()`. They stay usable by any consumer and free of request state,
+and importing `identity` from a service would be circular anyway. The cost
+is that a tool can forget to pass it, so the tests sign in and check each
+write.
+
+**What this does not answer.** Only the latest change is kept, with no time
+and no previous value, and a deleted reading or batch leaves no trace. If a
+brewery needs a full history -- who changed what, from what, and when --
+that is an append-only log alongside these columns, not a replacement for
+them; it has not been built. Readings don't record when they were entered,
+only `observed_at`.
+
+Tools show authors as the person's name, or their email if they have none.
+That means operators see the names and addresses of colleagues who share
+their rows, which is the point of attribution and no wider than the rows
+themselves; the people tools remain admin-only.
 
 ---
 
@@ -466,9 +512,8 @@ confirm preview is the only bulk path that removes them.
   operator/admin connectors, the capability, and a tool surface covering both
   halves -- `record_tag_value` and the event frame lifecycle for writes,
   `browse_hierarchy` / `get_tag_values` / `tag_value_stats` for reads. Two
-  things gate it. **Identity:** forms make writing easy and high-volume,
-  which is exactly when a shared secret path with no attribution stops being
-  acceptable, so this waits on attribution (phase 3 of Identity and access
+  things gated it. **Identity:** forms make writing easy and high-volume,
+  which needed sign-in and attribution; both now exist (*Identity and access*
   above). **Distribution:** a page
   declaring `mcp` cannot be shared publicly and each viewer must add the
   connector themselves, so every brewer authors their own page rather than
