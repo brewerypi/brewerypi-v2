@@ -161,5 +161,14 @@ def test_config_tools_registered_by_helper():
         "delete_event_frame_attribute_template",
         "wire_event_frame_attribute",
         "unwire_event_frame_attribute",
+        "list_users",
+        "get_user",
+        "create_user",
+        "update_user",
+        "delete_user",
+        "list_memberships",
+        "create_membership",
+        "update_membership",
+        "delete_membership",
     }
     assert expected <= registered

@@ -276,7 +276,8 @@ site-local time, which is right for on-site staff -- leave it blank for them.
 
 ## Identity and access
 
-**Status: decided; phase 1 (identity) built, phases 2-3 not built.**
+**Status: decided; phases 1 (identity) and 2 (scoping) built, phase 3 not
+built.**
 
 ### Who signs in, and how
 
@@ -357,13 +358,51 @@ label and says nothing about where it points, so the URL has to: a bare
 
 1. **Identity (built).** `users` / `memberships` / `membership_sites`, the
    `brewerypi-users` CLI, AuthKit sign-in on both tiers, the allowlist and
-   admin-tier gate, and the user's timezone in `resolve_timezone`. Until
-   phase 2 a member sees **every** enterprise: do not host two companies on
-   one server yet.
-2. **Scoping.** Every list/get filters to the caller's enterprises and
-   sites; every write checks the caller's role where the row lives; user and
-   membership admin tools.
+   admin-tier gate, and the user's timezone in `resolve_timezone`.
+2. **Scoping (built).** Every list/get filters to the caller's enterprises
+   and sites; every write checks the caller's role where the row lives;
+   user and membership admin tools. See *How scoping is enforced* below.
 3. **Attribution.** Who recorded a reading, who started or closed a batch.
+
+### How scoping is enforced
+
+Every row lives at a **place** -- an enterprise, and for everything below
+a site, one site. `brewerypi.access.locate` finds it by walking foreign keys
+upward, and one function, `allowed`, compares the place with the caller's
+grants. Keeping the decision in one module, rather than in each tool,
+means one table of rules to read and one to test.
+
+| Level | Needs | Used for |
+|---|---|---|
+| read | any membership; the site, if the row has one | lists, gets |
+| operate | read (every role) | readings, batches, transfers |
+| configure | admin at the row's site; an admin of **all** sites when the row has none | setup below the company; the company, its lists and units |
+| configure enterprise | admin of all sites | creating or deleting a site, managing people |
+| superuser | `is_superuser` | creating or deleting a company, server-wide user fields |
+
+A row outside the caller's companies or sites is reported as **not found**,
+in the same words as a missing id, so another company's ids reveal nothing.
+A row they can see but not change is refused with a reason. Site-restricted
+admins configure their own site, but deleting it is company-level: it
+changes what everyone else in the company can see.
+
+Each MCP tool declares the rows it names, with the level it needs on each
+(`@_guard(tag_id=(Tag, OPERATE))`), and lists filter their results. A test
+fails any tool that declares nothing, so a new tool cannot ship unscoped by
+omission. Checking only the named rows is enough because the services
+already require referenced rows to be in the same site or company -- a
+transfer's ends, a tag's list, an element's tag area -- so a call cannot
+reach across the boundary through a row it did not name.
+
+**People.** Managing who belongs to a company takes an admin of every site:
+a site-restricted admin able to grant memberships could grant themselves
+the rest. Admins see only the people in companies they administer, and
+add someone in two steps -- `create_user` (the sign-in list, which grants
+nothing) then `create_membership` by email. Fields that apply across every
+company -- deactivation, superuser, resetting a sign-in -- need a
+superuser; anyone may change their own name and timezone. Memberships are
+snapshotted at the start of each call, so a change applies on the person's
+next request without reconnecting.
 
 When `MCP_AUTH=none` the server runs with no sign-in at all -- every tool
 open, as before identity existed. It is for local development and tests

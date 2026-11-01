@@ -320,7 +320,8 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
   operators browse batch types to start instances, and run the whole event
   frame lifecycle: create/close/reopen/update/delete_event_frame, plus
   `link_transfer` and `trace_batch_lineage`), admin tier
-  80 (adds
+  89 (adds the people tools -- `list`/`get`/`create`/`update`/
+  `delete_user`, `list`/`create`/`update`/`delete_membership` --
   `create`/`update`/`delete_element`, the config tables' CRUD, the element
   attribute template tools, `wire`/`unwire_element_attribute`,
   `add_default_measurement_units`,
@@ -354,6 +355,19 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
   has the `AuthKitProvider` setup and `SignInMiddleware` (allowlist + tier
   gate on every tool call). Both are attached in `main()`, so tests that
   call tools directly run with no user. CLI `users_cli.py`
-  (`brewerypi-users`). NOT built: per-enterprise/site scoping of tool
-  results and writes (phase 2 -- until then a member sees every
-  enterprise), user-admin MCP tools, attribution (phase 3).
+  (`brewerypi-users`).
+- Identity phase 2 (scoping): `access.py` decides what the caller may do
+  -- `locate(session, row)` walks FKs up to `Place(enterprise_id,
+  site_id)`, `allowed`/`check`/`visible` compare it with
+  `CurrentUser.grants` (a per-call snapshot of memberships). Levels READ <
+  OPERATE (every role) < CONFIGURE (admin at the row's site; a site-less
+  row needs an ALL-sites admin) < CONFIGURE_ENTERPRISE (all-sites admin:
+  create/delete site, people) < SUPERUSER (create/delete enterprise,
+  server-wide user fields). Out of scope = "not found" (no leak); visible
+  but forbidden = PermissionDeniedError. Every MCP tool carries
+  `@_guard(arg=(Model, LEVEL), ...)` (`superuser=True` for superuser-only)
+  checking each id it names; list tools carry `@_guard()` and filter with
+  `_visible`. `test_every_tool_is_guarded` fails any tool without one --
+  a new tool must declare its access. Cross-row rules (same site/
+  enterprise) stay in the services, which is why checking the named rows
+  suffices. NOT built: attribution (phase 3).

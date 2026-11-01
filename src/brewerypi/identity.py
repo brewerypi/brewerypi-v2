@@ -17,8 +17,9 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
+from brewerypi.access import Grant
 from brewerypi.models import User
 from brewerypi.services.exceptions import PermissionDeniedError
 
@@ -29,12 +30,17 @@ TIERS = ("operator", "admin")
 
 @dataclass(frozen=True)
 class CurrentUser:
-    """The signed-in user, as of the start of this call."""
+    """The signed-in user, as of the start of this call.
+
+    ``grants`` snapshots their memberships, so a change an administrator
+    makes takes effect on the user's next tool call, with no reconnect.
+    """
 
     id: int
     email: str
     timezone: str | None
     is_superuser: bool
+    grants: tuple[Grant, ...] = field(default=())
 
     @classmethod
     def from_user(cls, user: User) -> CurrentUser:
@@ -43,6 +49,9 @@ class CurrentUser:
             email=user.email,
             timezone=user.timezone,
             is_superuser=user.is_superuser,
+            grants=tuple(
+                Grant.from_membership(m) for m in user.memberships
+            ),
         )
 
 
@@ -71,8 +80,8 @@ def authorize_tier(user: User, tier: str) -> None:
 
     Operator tier: an active superuser, or anyone with a membership. Admin
     tier: an active superuser, or an admin of at least one enterprise.
-    Which enterprise a call touches is checked per tool (phase 2); this is
-    only the door.
+    Which enterprise and site a call touches is checked per tool (see
+    ``brewerypi.access``); this is only the door.
     """
     if tier not in TIERS:
         raise ValueError(f"unknown tier {tier!r}")

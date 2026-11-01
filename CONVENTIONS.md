@@ -232,6 +232,20 @@ Destructive admin tools (`delete_*`) take a `confirm: bool = False` and only
 preview until called again with `confirm=true`. Operator-tier destructive
 tools (`delete_event_frame`, `delete_tag_value`) follow the same rule.
 
+Every tool declares its access with `@_guard`, directly under `@mcp.tool`
+(or as the outermost decorator on a config tool): one keyword per id
+argument, naming the model and the level the call needs on it --
+`@_guard(element_id=(Element, OPERATE), parent_id=(EventFrame, OPERATE))`.
+Check every id the tool takes, not just the main one. A list tool takes
+`@_guard()` and passes its rows through `_visible`. A tool without a guard
+fails `test_every_tool_is_guarded`; see `brewerypi/access.py` for the
+levels.
+
+`users` and `memberships` follow the reference-table pattern (the admin
+tier owns `list_`). `create_membership` takes the person's `email` rather
+than a `user_id`, because an admin cannot see someone who has no access
+yet -- so cannot look up their id -- but knows who they are inviting.
+
 ## When to deviate
 
 Override any of these only for a deliberate reason: an existing schema or codebase you
