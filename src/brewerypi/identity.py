@@ -3,8 +3,9 @@
 The MCP sign-in middleware resolves the caller to a ``User`` and publishes a
 snapshot of them for the duration of one tool call (``signed_in_as``).
 Anything below the tool boundary that needs to know who is asking -- today
-``resolve_timezone``; later the scoping and attribution work -- reads
-``current_user()`` rather than threading a user through every signature.
+``resolve_timezone`` and the access checks -- reads ``current_user()`` rather
+than threading a user through every signature. Attribution is the exception:
+the services stay free of request state, so the tools pass them a user id.
 It is None when nobody is signed in: tests, scripts, and a server run with
 ``MCP_AUTH=none``.
 

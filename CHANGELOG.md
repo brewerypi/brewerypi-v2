@@ -6,7 +6,19 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Changed
+- `delete_user` and `brewerypi-users remove` now refuse anyone a reading or
+  batch names; deactivate them instead.
+
 ### Added
+- Attribution (phase 3 of *Identity and access*). Readings now record who
+  recorded them and who last corrected them (`recorded_by_id`,
+  `updated_by_id`), and batches who started, closed and last changed them
+  (`started_by_id`, `ended_by_id`, `updated_by_id`). Tools show these as the
+  person's name, or email if they have none. Default values written at a
+  batch's boundaries belong to whoever opened or closed it. Existing rows
+  stay blank rather than guessed at. **Requires `alembic upgrade head`**,
+  which rebuilds `tag_values` and `event_frames`; back up first.
 - Per-company, per-site scoping (phase 2 of *Identity and access*). Every
   MCP tool now acts only within the signed-in person's memberships:
   lists and the browse tree show only their companies and sites, a row

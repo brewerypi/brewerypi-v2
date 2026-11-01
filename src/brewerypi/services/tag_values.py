@@ -35,14 +35,17 @@ def update_tag_value(
     value: float | None = None,
     lookup_value: str | None = None,
     observed_at: str | None = None,
+    updated_by_id: int | None = None,
 ) -> TagValue:
     """Correct a reading's value and/or observed_at.
 
     The value kind must match the reading's tag: numeric tags take ``value``,
     lookup-typed tags take ``lookup_value`` (the name of a selectable value).
-    A reading's type cannot be switched. Passing nothing is a no-op.
+    A reading's type cannot be switched. Passing nothing is a no-op, and so
+    is changing nothing: only a real change records ``updated_by_id``.
     """
     tv = get_tag_value(session, value_id)
+    before = (tv.value, tv.lookup_value_id, tv.observed_at)
     tag = session.get(Tag, tv.tag_id)
     if tag.lookup_id is not None:
         if value is not None:
@@ -64,6 +67,8 @@ def update_tag_value(
             tv.value = value
     if observed_at is not None:
         tv.observed_at = _parse_timestamp(observed_at)
+    if (tv.value, tv.lookup_value_id, tv.observed_at) != before:
+        tv.updated_by_id = updated_by_id
     session.flush()
     return tv
 

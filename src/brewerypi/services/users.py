@@ -12,10 +12,10 @@ never commit.
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from brewerypi.models import User
+from brewerypi.models import EventFrame, TagValue, User
 from brewerypi.services._validation import (
     clean_str,
     clean_timezone,
@@ -128,11 +128,46 @@ def reset_sign_in(session: Session, user_id: int) -> User:
 def delete_user(session: Session, user_id: int) -> None:
     """Delete a user and their memberships.
 
-    Prefer ``update_user(is_active=False)`` for someone who has left: once
-    readings and batches record who made them, the record has to stay.
+    Refused once any reading or batch names them: a departed brewer's work
+    still needs an author, so ``update_user(is_active=False)`` is how someone
+    leaves. Checked here as well as by the foreign keys, because only the MCP
+    server turns on SQLite's enforcement.
     """
-    session.delete(get_user(session, user_id))
+    user = get_user(session, user_id)
+    readings, batches = attributed_counts(session, user_id)
+    if readings or batches:
+        raise ConflictError(
+            f"cannot delete {user.email}: {readings} reading(s) and "
+            f"{batches} batch(es) name them; deactivate them instead"
+        )
+    session.delete(user)
     session.flush()
+
+
+def attributed_counts(session: Session, user_id: int) -> tuple[int, int]:
+    """Count the (readings, batches) that name this user as an author."""
+    readings = session.scalar(
+        select(func.count())
+        .select_from(TagValue)
+        .where(
+            or_(
+                TagValue.recorded_by_id == user_id,
+                TagValue.updated_by_id == user_id,
+            )
+        )
+    )
+    batches = session.scalar(
+        select(func.count())
+        .select_from(EventFrame)
+        .where(
+            or_(
+                EventFrame.started_by_id == user_id,
+                EventFrame.ended_by_id == user_id,
+                EventFrame.updated_by_id == user_id,
+            )
+        )
+    )
+    return readings or 0, batches or 0
 
 
 def link_sign_in(

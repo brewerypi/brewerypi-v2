@@ -80,7 +80,9 @@ delete guards.
   `lookup_value_id` uses `ON DELETE RESTRICT` + `passive_deletes=True` so
   historical readings can't be silently deleted. This is the high-volume table
   that motivates the
-  eventual Postgres/Timescale move.
+  eventual Postgres/Timescale move. Nullable `recorded_by_id`/`updated_by_id`
+  (→ `users`, RESTRICT) say who entered it and who last corrected it; NULL
+  means not known.
 - Timezones: readings are stored UTC; `Site.timezone` (IANA) is the display/
   entry zone. `brewerypi/timezones.py` converts at the tool boundary
   (`to_utc`/`from_utc`, DST-aware via `zoneinfo`); `resolve_timezone(session,
@@ -211,7 +213,8 @@ delete guards.
   self-FKs means every self-relationship needs an explicit `foreign_keys=`.
   Multiplicity is the number of transfers: two brews into one fermentation is
   two knockout frames sharing a destination. Volume is an attribute, not a
-  column.
+  column. Nullable `started_by_id`/`ended_by_id`/`updated_by_id` (→ `users`,
+  RESTRICT) are attribution; reopening clears `ended_by_id`.
 - `EventFrameAttribute`: wiring from an **element** to the tag backing one
   event frame attribute (`element_id`, `event_frame_attribute_template_id`,
   `tag_id`, `owns_tag`; unique per element+template). Element-scoped, NOT
@@ -277,6 +280,11 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
 - Repo split (e.g. `brewerypi-db`) intentionally deferred until a second
   consumer exists and the schema stabilizes.
 - Schema-naming decision (see above) is still open.
+- Decide whether numeric tags and attribute templates should need a
+  measurement unit. Optional for now, deliberately: counts and ratios have no
+  natural unit. Options: keep optional; have the admin instructions ask "what
+  unit?" when one is omitted; or require it, which forces a decision on every
+  existing unitless row, plus a migration if the database enforces it.
 
 ## In place
 - MIT `LICENSE`, CI (GitHub Actions: ruff + pytest on 3.10–3.13 on Linux plus
@@ -370,4 +378,13 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
   `_visible`. `test_every_tool_is_guarded` fails any tool without one --
   a new tool must declare its access. Cross-row rules (same site/
   enterprise) stay in the services, which is why checking the named rows
-  suffices. NOT built: attribution (phase 3).
+  suffices.
+- Identity phase 3 (attribution; `docs/design-decisions.md`, *How attribution
+  is recorded*): authors are columns on `tag_values` and `event_frames`, and a
+  change keeps the author and sets `updated_by_id`. Services take the user id
+  as a parameter and the tools pass `_caller_id()`, so a NEW write path must
+  pass it too and get a test in `tests/test_mcp_attribution.py`. `delete_user`
+  refuses anyone named (`attributed_counts`); it checks in the service because
+  only the MCP server turns on SQLite's foreign key enforcement, so the CLI
+  would otherwise leave dangling ids. Only the latest change is kept and
+  deletes leave no trace: a full history would be a separate log, not built.
