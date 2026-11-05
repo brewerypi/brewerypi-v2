@@ -35,7 +35,7 @@ jobs:
           cache: pip
 
       - name: Install package and dev tools
-        run: pip install -e ".[dev,mcp]"
+        run: pip install -e ".[dev,mcp,web]"
 
       - name: Lint with ruff (PEP 8)
         run: ruff check .

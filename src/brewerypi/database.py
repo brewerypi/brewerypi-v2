@@ -6,7 +6,7 @@ index is named predictably (and Alembic autogenerate produces clean,
 stable migrations).
 """
 
-from sqlalchemy import MetaData
+from sqlalchemy import Engine, MetaData, create_engine, event
 from sqlalchemy.orm import DeclarativeBase
 
 NAMING_CONVENTION = {
@@ -20,3 +20,22 @@ NAMING_CONVENTION = {
 
 class Base(DeclarativeBase):
     metadata = MetaData(naming_convention=NAMING_CONVENTION)
+
+
+def create_app_engine(url: str) -> Engine:
+    """Build the engine for a running server.
+
+    On SQLite this enforces foreign keys and waits on locks, which writes
+    need and SQLite leaves off by default.
+    """
+    engine = create_engine(url)
+    if engine.dialect.name == "sqlite":
+
+        @event.listens_for(engine, "connect")
+        def _sqlite_pragmas(dbapi_conn, _record):
+            cur = dbapi_conn.cursor()
+            cur.execute("PRAGMA foreign_keys=ON")
+            cur.execute("PRAGMA busy_timeout=5000")
+            cur.close()
+
+    return engine
