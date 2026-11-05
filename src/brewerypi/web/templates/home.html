@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Your breweries{% endblock %}
+{% block content %}
+<h1>Your breweries</h1>
+{% for company in companies %}
+<section class="section">
+  <h2>{{ company.name }}</h2>
+  {% for site in company.sites %}
+  <a class="tile" href="/sites/{{ site.id }}">
+    <span>{{ site.name }}</span>
+    <span class="pill{% if not site.running %} idle{% endif %}">
+      {%- if site.running == 1 -%}1 batch running{%- else -%}{{ site.running }} batches running{%- endif -%}
+    </span>
+  </a>
+  {% else %}
+  <div class="empty">No sites yet.</div>
+  {% endfor %}
+</section>
+{% else %}
+<div class="empty">You have no breweries to see yet. Ask a Brewery Pi administrator.</div>
+{% endfor %}
+{% endblock %}

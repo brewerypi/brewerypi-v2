@@ -1,0 +1,39 @@
+{# Shared pieces of the batch pages. #}
+{% macro batch_card(batch, with_steps=False) %}
+<a class="batch{% if not batch.open %} closed{% endif %}" href="/batches/{{ batch.id }}">
+  <span class="batch-head">
+    <span class="vessel">{{ batch.element_name or "Unknown equipment" }}</span>
+    <span class="batch-name">{{ batch.name }}</span>
+    <span class="pill{% if not batch.open %} idle{% endif %}">{{ batch.type_name }}</span>
+  </span>
+  <span class="meta">
+    {%- if batch.open -%}
+    Started {{ batch.started_at | local_time }} · running {{ batch.elapsed }}
+    {%- else -%}
+    {{ batch.started_at | local_time }} to {{ batch.ended_at | local_time }} · ran {{ batch.elapsed }}
+    {%- endif -%}
+  </span>
+</a>
+{% if with_steps and batch.steps %}
+<div class="steps">
+  {% for step in batch.steps %}{{ batch_card(step, True) }}{% endfor %}
+</div>
+{% endif %}
+{% endmacro %}
+
+{% macro batch_list(batches, empty) %}
+{% if batches %}
+{% for batch in batches %}{{ batch_card(batch) }}{% endfor %}
+{% else %}
+<div class="empty">{{ empty }}</div>
+{% endif %}
+{% endmacro %}
+
+{% macro paging(page_number, has_older) %}
+{% if page_number > 1 or has_older %}
+<div class="chips">
+  {% if page_number > 1 %}<a class="btn quiet" href="?page={{ page_number - 1 }}">Newer</a>{% endif %}
+  {% if has_older %}<a class="btn quiet" href="?page={{ page_number + 1 }}">Older</a>{% endif %}
+</div>
+{% endif %}
+{% endmacro %}

@@ -886,3 +886,62 @@ def test_one_brew_cools_into_a_fermentation_and_a_propagation(
     assert first.source_event_frame_id == second.source_event_frame_id
     assert second.source_event_frame_id == brew.id
     assert second.destination_event_frame_id == prop.id
+
+
+# -- listing filters -------------------------------------------------------
+
+def test_list_filters_by_site(ctx):
+    session, ids = ctx
+    brew = create_event_frame(
+        session, ids["bh"], ids["brew_t"], "Here", started_at=D(17, 6)
+    )
+    other = Site(
+        abbreviation="O", name="Other", enterprise_id=ids["ent"],
+        timezone="UTC",
+    )
+    session.add(other)
+    session.flush()
+    tank_t = create_element_template(session, other.id, "Tank")
+    batch_t = create_event_frame_template(session, tank_t.id, "Batch")
+    tank = create_element(session, tank_t.id, "T1")
+    create_event_frame(
+        session, tank.id, batch_t.id, "There", started_at=D(17, 6)
+    )
+    here_site = session.get(Area, ids["area"]).site_id
+    assert list_event_frames(session, site_id=here_site) == [brew]
+
+
+def test_list_can_keep_only_finished_or_top_level_batches(ctx):
+    session, ids = ctx
+    brew = create_event_frame(
+        session, ids["bh"], ids["brew_t"], "Brew", started_at=D(17, 6)
+    )
+    mash = create_event_frame(
+        session, ids["mm"], ids["mash_t"], "Mash",
+        started_at=D(17, 7), parent_id=brew.id,
+    )
+    done = create_event_frame(
+        session, ids["bh"], ids["brew_t"], "Done",
+        started_at=D(16, 6), ended_at=D(16, 8),
+    )
+    assert list_event_frames(session, closed_only=True) == [done]
+    assert list_event_frames(session, top_level_only=True) == [brew, done]
+    assert mash in list_event_frames(session)
+
+
+def test_list_pages_through_history_without_repeats(ctx):
+    session, ids = ctx
+    # All at the same moment, so only the tie-break keeps the order stable.
+    made = [
+        create_event_frame(
+            session, ids["bh"], ids["brew_t"], f"Brew {n}",
+            started_at=D(17, 6),
+        )
+        for n in range(5)
+    ]
+    newest_first = list(reversed(made))
+    first = list_event_frames(session, limit=2)
+    second = list_event_frames(session, limit=2, offset=2)
+    third = list_event_frames(session, limit=2, offset=4)
+    assert first + second + third == newest_first
+

@@ -24,8 +24,8 @@ delete guards.
   sign-in (`mcp_auth.py`) checked against the `users` allowlist. A web app
   (`src/brewerypi/web/`, FastAPI + HTMX) is being built for brewery staff,
   because an artifact shared from one Claude account gets no connector access
-  for viewers outside its organization. So far it has sign-in and a page
-  listing what you can reach; batch screens come next. It shares `access.py`,
+  for viewers outside its organization. So far it has sign-in and read-only
+  batch screens (`web/batches.py`); writes come next. It shares `access.py`,
   `identity.py`, `timezones.py` and `serializers.py` with the MCP tools, so a
   consumer never needs its own copy of the access rules, time conversion or
   result format.
@@ -408,4 +408,9 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
   with `signed_in_as`, so `current_user()`, `access` and `resolve_timezone`
   work unchanged in routes. It is ASGI middleware rather than a FastAPI
   dependency because a sync dependency runs in a copied context, so the user
-  wouldn't reach the route. Pages use `Depends(_signed_in_user)`.
+  wouldn't reach the route. Pages use `Depends(signed_in_user)`.
+- Web batch screens (`web/batches.py`, Jinja templates in `web/templates/`,
+  autoescaped): a page checks the row its address names with `_readable`, and
+  lists filter through `access.visible`. Anything missing or out of scope gets
+  the same 404 page, byte for byte. Only `base.html` holds CSS, and it holds
+  the script that reloads a page restored on Back.

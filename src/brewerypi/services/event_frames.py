@@ -102,15 +102,24 @@ def list_event_frames(
     element_template_id: int | None = None,
     source_event_frame_id: int | None = None,
     destination_event_frame_id: int | None = None,
+    site_id: int | None = None,
+    closed_only: bool = False,
+    top_level_only: bool = False,
+    limit: int | None = None,
+    offset: int = 0,
 ) -> list[EventFrame]:
     """Return event frames, newest first, optionally filtered.
 
     ``element_template_id`` narrows to frames on elements instancing that
     template ("every fermentation-vessel batch"), which is how a caller
     populates a source/destination picker. The two flow filters answer the
-    other half: what moved out of, or into, a given batch.
+    other half: what moved out of, or into, a given batch. ``limit`` and
+    ``offset`` page through a long history, which is why the order breaks
+    ties on id: a page must not repeat or skip a batch.
     """
-    stmt = select(EventFrame).order_by(EventFrame.started_at.desc())
+    stmt = select(EventFrame).order_by(
+        EventFrame.started_at.desc(), EventFrame.id.desc()
+    )
     if element_id is not None:
         stmt = stmt.where(EventFrame.element_id == element_id)
     if event_frame_template_id is not None:
@@ -138,6 +147,25 @@ def list_event_frames(
             EventFrame.destination_event_frame_id
             == destination_event_frame_id
         )
+    if site_id is not None:
+        stmt = stmt.where(
+            EventFrame.element_id.in_(
+                select(Element.id)
+                .join(
+                    ElementTemplate,
+                    Element.element_template_id == ElementTemplate.id,
+                )
+                .where(ElementTemplate.site_id == site_id)
+            )
+        )
+    if closed_only:
+        stmt = stmt.where(EventFrame.ended_at.is_not(None))
+    if top_level_only:
+        stmt = stmt.where(EventFrame.parent_id.is_(None))
+    if offset:
+        stmt = stmt.offset(offset)
+    if limit is not None:
+        stmt = stmt.limit(limit)
     return list(session.scalars(stmt).all())
 
 

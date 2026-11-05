@@ -391,7 +391,9 @@ curl -s http://127.0.0.1:8002/healthz    # {"status":"ok"}
 ```
 
 A service that exits at once with *"web sign-in is not configured"* is missing
-a setting from the env file. There is no way to run it with sign-in off.
+a setting from the env file, and one that says *"still set to the deploy guide's
+placeholder"* needs the real value put in. There is no way to run it with
+sign-in off.
 
 **5. Add it to Caddy.** Add this to `/etc/caddy/Caddyfile`, then run
 `systemctl reload caddy`:
