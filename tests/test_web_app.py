@@ -357,6 +357,14 @@ def test_pages_are_never_cached(client):
     assert client.get("/").headers["cache-control"] == "no-store"
 
 
+def test_pages_recheck_with_the_server_when_restored_by_back(client):
+    _sign_in(client)
+    home = client.get("/").text
+    assert 'addEventListener("pageshow"' in home
+    assert "event.persisted" in home
+    assert "location.reload()" in home
+
+
 def test_no_api_docs_are_exposed(client):
     for path in ("/docs", "/redoc", "/openapi.json"):
         assert client.get(path).status_code == 404

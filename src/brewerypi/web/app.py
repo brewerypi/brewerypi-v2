@@ -71,6 +71,18 @@ ul { margin: 0; padding-left: 20px; }
   text-decoration: none; cursor: pointer; }
 """
 
+# ``no-store`` doesn't stop a browser restoring a page from memory on Back, so
+# a signed-out tablet could still show the last person's page. Reloading asks
+# the server, which sends a signed-out visitor to sign in.
+_RECHECK_ON_BACK = """
+window.addEventListener("pageshow", (event) => {
+  const nav = performance.getEntriesByType("navigation")[0];
+  if (event.persisted || (nav && nav.type === "back_forward")) {
+    location.reload();
+  }
+});
+"""
+
 _SIGN_OUT = (
     '<form method="post" action="/logout">'
     '<button class="btn" type="submit">Sign out</button></form>'
@@ -94,7 +106,7 @@ def _page(title: str, body: str, status_code: int = 200) -> HTMLResponse:
         '<meta name="viewport" content="width=device-width, '
         'initial-scale=1">'
         f"<title>{escape(title)} - Brewery Pi</title>"
-        f"<style>{_STYLE}</style></head>"
+        f"<style>{_STYLE}</style><script>{_RECHECK_ON_BACK}</script></head>"
         f"<body><main><h1>{escape(title)}</h1>{body}</main></body></html>",
         status_code=status_code,
         headers={"Cache-Control": "no-store"},
