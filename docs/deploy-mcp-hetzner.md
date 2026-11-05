@@ -334,8 +334,9 @@ server's IP, as in step 2.
 labels move around; the [AuthKit docs](https://workos.com/docs/authkit) have
 the current ones):
 
-- **Redirects -> Redirect URIs**: add `https://app.brewerypi.com/callback`.
-- **Redirects -> Sign-out redirects**: add
+- **Applications -> your application -> Redirects -> Redirect URIs**: add
+  `https://app.brewerypi.com/callback`.
+- **Redirects -> Sign-out URIs**: add
   `https://app.brewerypi.com/signed-out`. WorkOS sends people back here after
   they sign out.
 - **Client ID**: copy it (`client_...`). It is from the same environment as

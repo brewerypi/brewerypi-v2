@@ -312,7 +312,9 @@ can't go stale.
 
 **Signing out ends the AuthKit session too.** Clearing only our cookie would
 leave AuthKit signed in, and on a tablet shared across a shift the next person
-to press Sign in would become the previous person without being asked.
+to press Sign in would become the previous person without being asked. Pages
+are `no-store` and also reload themselves when the browser restores them on
+Back, because a restore from memory never reaches the server.
 
 **No way to run it with sign-in off.** `MCP_AUTH=none` exists for local work on
 the tools, and it means "unrestricted". A browser app on a shared network is a
