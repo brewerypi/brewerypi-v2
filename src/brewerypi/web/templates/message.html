@@ -5,5 +5,6 @@
 {% if message %}<p{% if tone %} class="{{ tone }}"{% endif %}>{{ message }}</p>{% endif %}
 {% if sign_in %}<p><a class="btn" href="/login">Sign in</a></p>{% endif %}
 {% if sign_out %}<form method="post" action="/logout"><button class="btn" type="submit">Sign out</button></form>{% endif %}
-{% if signed_in_user %}<p><a class="btn" href="/">Go to your breweries</a></p>{% endif %}
+{% if link %}<p><a class="btn" href="{{ link }}">{{ link_text }}</a></p>
+{% elif signed_in_user %}<p><a class="btn" href="/">Go to your breweries</a></p>{% endif %}
 {% endblock %}

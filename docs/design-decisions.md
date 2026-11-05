@@ -321,6 +321,25 @@ the tools, and it means "unrestricted". A browser app on a shared network is a
 worse place for that switch, so the web app doesn't have one. Local work signs
 in through the WorkOS Staging environment.
 
+### Changing batches from the web
+
+Every web write is a form, then a review page, then a confirmation.
+
+**The review runs the real write and rolls it back.** A refusal then appears
+before the person confirms, in the service's own words, and the web layer holds
+no copy of the batch rules to drift from them. The services leave the
+transaction to their callers, which is what makes this safe.
+
+**The confirm button carries a token spent on use**, kept in the session and
+issued only by a review page. One mechanism covers three risks: a double tap
+can't start two batches, another site can't submit the form, and no write can
+skip its review. The cost is that reviewing in a second tab invalidates the
+first tab's token. That fails safely with a message to check the batch.
+
+**Plain forms, no HTMX.** HTMX was the plan, but a form followed by a full page
+does this job with no JavaScript dependency to keep current. It remains an easy
+addition if a screen ever needs to update in place.
+
 ### Provisioning: an allowlist
 
 AuthKit will authenticate anyone, so authentication grants nothing. A

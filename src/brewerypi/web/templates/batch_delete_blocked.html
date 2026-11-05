@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Can't delete {{ frame.name }}{% endblock %}
+{% block content %}
+<h1>Can't delete “{{ frame.name }}” yet</h1>
+<p>These transfers still record beer moving to or from it. Unlink or delete them first, so that no batch loses track of where its beer came from.</p>
+<section class="section">
+  {% for blocker in blockers %}<a class="tile" href="/batches/{{ blocker.id }}">{{ blocker.label }}</a>{% endfor %}
+</section>
+<p><a class="btn quiet" href="/batches/{{ frame.id }}">Back to the batch</a></p>
+{% endblock %}

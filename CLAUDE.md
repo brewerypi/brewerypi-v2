@@ -22,10 +22,11 @@ delete guards.
   service layer. The tiers run as separate processes on separate ports, one
   hostname each; built and deployed for demos. Both require WorkOS AuthKit
   sign-in (`mcp_auth.py`) checked against the `users` allowlist. A web app
-  (`src/brewerypi/web/`, FastAPI + HTMX) is being built for brewery staff,
+  (`src/brewerypi/web/`, FastAPI + Jinja) is being built for brewery staff,
   because an artifact shared from one Claude account gets no connector access
-  for viewers outside its organization. So far it has sign-in and read-only
-  batch screens (`web/batches.py`); writes come next. It shares `access.py`,
+  for viewers outside its organization. So far it has sign-in and batch
+  screens that view and change batches; reading entry comes next. It shares
+  `access.py`,
   `identity.py`, `timezones.py` and `serializers.py` with the MCP tools, so a
   consumer never needs its own copy of the access rules, time conversion or
   result format.
@@ -409,6 +410,13 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
   work unchanged in routes. It is ASGI middleware rather than a FastAPI
   dependency because a sync dependency runs in a copied context, so the user
   wouldn't reach the route. Pages use `Depends(signed_in_user)`.
+- Web batch writes (`web/batch_actions.py`; `docs/design-decisions.md`,
+  *Signing in to the web app*): form, then review, then confirm. The review runs
+  the real service call and rolls back, so refusals show before confirming and
+  no rule is copied into the web layer. The confirm button's one-use token, kept
+  in the session, stops double taps and cross-site posts, and only review pages
+  mint it. A NEW web write must follow this pattern, pass `caller_id()`, and get
+  a test in `tests/test_web_batch_actions.py`.
 - Web batch screens (`web/batches.py`, Jinja templates in `web/templates/`,
   autoescaped): a page checks the row its address names with `_readable`, and
   lists filter through `access.visible`. Anything missing or out of scope gets

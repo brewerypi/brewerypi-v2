@@ -49,18 +49,33 @@ def elapsed(started_at: datetime, ended_at: datetime) -> str:
     return f"{minutes} minute{'' if minutes == 1 else 's'}"
 
 
+#: What a write's redirect says happened. Fixed text keyed by the address, so
+#: a crafted link can't put words on the page.
+_NOTICES = {
+    "started": "Batch started.",
+    "closed": "Batch closed.",
+    "reopened": "Batch reopened.",
+    "updated": "Changes saved.",
+    "linked": "Transfer saved.",
+    "deleted": "Batch deleted.",
+}
+
 _templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 _templates.env.filters["local_time"] = local_time
 
 
 def page(
-    request: Request, template: str, status_code: int = 200, **context
+    request: Request, template_name: str, status_code: int = 200, **context
 ) -> HTMLResponse:
     """Render a whole page, never cached: tablets on the floor are shared."""
     return _templates.TemplateResponse(
         request,
-        template,
-        {"signed_in_user": current_user(), **context},
+        template_name,
+        {
+            "signed_in_user": current_user(),
+            "notice": _NOTICES.get(request.query_params.get("done", "")),
+            **context,
+        },
         status_code=status_code,
         headers={"Cache-Control": "no-store"},
     )
@@ -74,6 +89,8 @@ def message_page(
     sign_in: bool = False,
     sign_out: bool = False,
     tone: str | None = None,
+    link: str | None = None,
+    link_text: str | None = None,
 ) -> HTMLResponse:
     """Render a page that only says something, with an optional next step."""
     return page(
@@ -85,4 +102,6 @@ def message_page(
         sign_in=sign_in,
         sign_out=sign_out,
         tone=tone,
+        link=link,
+        link_text=link_text,
     )

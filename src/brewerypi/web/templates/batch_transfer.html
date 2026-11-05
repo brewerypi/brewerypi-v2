@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Transfer for {{ frame.name }}{% endblock %}
+{% block content %}
+<nav class="crumbs" aria-label="Breadcrumb"><a href="/batches/{{ frame.id }}">{{ frame.name }}</a></nav>
+<h1>Where “{{ frame.name }}” drew from and moved into</h1>
+{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+<form method="post" action="/batches/{{ frame.id }}/transfer" class="fields">
+  {% if implied == "source" %}
+  <p class="muted">It draws from the batch it's part of: {{ parent_label }}.</p>
+  {% else %}
+  <label class="field" for="source_id">Drew from
+    <select id="source_id" name="source_id">
+      <option value="">Nothing recorded</option>
+      {% for choice in choices %}<option value="{{ choice.id }}"{% if choice.id|string == source_id %} selected{% endif %}>{{ choice.label }}</option>{% endfor %}
+    </select>
+  </label>
+  {% endif %}
+  {% if implied == "destination" %}
+  <p class="muted">It moves into the batch it's part of: {{ parent_label }}.</p>
+  {% else %}
+  <label class="field" for="destination_id">Moved into
+    <select id="destination_id" name="destination_id">
+      <option value="">Nothing recorded</option>
+      {% for choice in choices %}<option value="{{ choice.id }}"{% if choice.id|string == destination_id %} selected{% endif %}>{{ choice.label }}</option>{% endfor %}
+    </select>
+  </label>
+  {% endif %}
+  <p class="muted">Only batches running for this batch's whole time are listed, because both ends have to be.</p>
+  <div class="actions">
+    <button class="btn" id="review" type="submit" name="action" value="review">Review</button>
+    <a class="btn quiet" href="/batches/{{ frame.id }}">Cancel</a>
+  </div>
+</form>
+{% endblock %}
