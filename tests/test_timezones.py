@@ -8,9 +8,13 @@ from sqlalchemy.orm import Session
 
 from brewerypi.database import Base
 from brewerypi.identity import CurrentUser, signed_in_as
-from brewerypi.models import Enterprise
+from brewerypi.models import Area, Enterprise, Tag
 from brewerypi.services import (
     ValidationError,
+    create_element,
+    create_element_template,
+    create_event_frame,
+    create_event_frame_template,
     create_site,
     get_site,
     update_site,
@@ -20,6 +24,9 @@ from brewerypi.timezones import (
     is_valid_timezone,
     resolve_timezone,
     to_utc,
+    zone_for_element,
+    zone_for_frame,
+    zone_for_tag,
 )
 
 # -- helpers ---------------------------------------------------------------
@@ -139,3 +146,24 @@ def test_resolve_timezone_falls_back_to_site_without_a_user_zone(session):
     for zone in (None, "Mars/Olympus_Mons"):
         with signed_in_as(_user(zone)):
             assert resolve_timezone(s, site) == "America/Los_Angeles"
+
+
+def test_zone_for_walks_up_to_the_site(session):
+    s, eid = session
+    site = create_site(s, eid, "HQ", "HQ", timezone="America/Los_Angeles")
+    area = Area(site_id=site.id, abbreviation="C", name="Cellar")
+    s.add(area)
+    s.flush()
+    tag = Tag(area_id=area.id, name="FV01.Gravity")
+    s.add(tag)
+    s.flush()
+    template = create_element_template(s, site.id, "Fermenter")
+    element = create_element(s, template.id, "FV01")
+    batch_type = create_event_frame_template(s, template.id, "Fermentation")
+    frame = create_event_frame(s, element.id, batch_type.id, "Batch 1")
+
+    assert zone_for_tag(s, tag) == "America/Los_Angeles"
+    assert zone_for_element(s, element) == "America/Los_Angeles"
+    assert zone_for_frame(s, frame) == "America/Los_Angeles"
+    with signed_in_as(_user("Europe/London")):
+        assert zone_for_frame(s, frame) == "Europe/London"

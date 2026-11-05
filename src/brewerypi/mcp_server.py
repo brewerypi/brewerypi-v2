@@ -50,7 +50,7 @@ from brewerypi.access import (
     READ,
 )
 from brewerypi.config import DATABASE_URL
-from brewerypi.identity import TIERS, current_user
+from brewerypi.identity import TIERS, caller_id, current_user
 from brewerypi.models import (
     Area,
     Element,
@@ -71,12 +71,35 @@ from brewerypi.models import (
     TagValue,
     User,
 )
+from brewerypi.serializers import (
+    area_dict,
+    attribute_template_dict,
+    element_attribute_dict,
+    element_dict,
+    element_template_dict,
+    enterprise_dict,
+    event_frame_attribute_dict,
+    event_frame_attribute_template_dict,
+    event_frame_dict,
+    event_frame_template_dict,
+    lookup_dict,
+    lookup_value_dict,
+    membership_dict,
+    reading_authors,
+    reading_dict,
+    site_dict,
+    tag_dict,
+    unit_dict,
+    user_dict,
+)
 from brewerypi.services import ServiceError
 from brewerypi.timezones import (
     DEFAULT_TIMEZONE,
     from_utc,
-    resolve_timezone,
     to_utc,
+    zone_for_element,
+    zone_for_frame,
+    zone_for_tag,
 )
 
 _engine = create_engine(DATABASE_URL)
@@ -250,15 +273,14 @@ def _guard(superuser: bool = False, **checks: tuple[type, str]):
                 bound.apply_defaults()
                 with _Session() as session:
                     try:
-                        for arg, (model, level) in checks.items():
-                            row_id = bound.arguments.get(arg)
-                            row = (
-                                session.get(model, row_id)
-                                if row_id is not None
-                                else None
-                            )
-                            if row is not None:
-                                access.check(session, user, row, level)
+                        access.check_rows(
+                            session,
+                            user,
+                            [
+                                (model, bound.arguments.get(arg), level)
+                                for arg, (model, level) in checks.items()
+                            ],
+                        )
                     except ServiceError as exc:
                         return {"error": str(exc)}
             return fn(*args, **kwargs)
@@ -272,36 +294,6 @@ def _guard(superuser: bool = False, **checks: tuple[type, str]):
 def _visible(session: Session, rows):
     """Keep the rows the caller may read (all of them when unrestricted)."""
     return access.visible(session, current_user(), rows)
-
-
-def _caller_id() -> int | None:
-    """The signed-in user's id, to record as the author of a write."""
-    user = current_user()
-    return user.id if user is not None else None
-
-
-def _person(session: Session, user_id: int | None) -> str | None:
-    """How to name the author of a row: their name, else their email."""
-    user = session.get(User, user_id) if user_id is not None else None
-    return (user.name or user.email) if user is not None else None
-
-
-def _reading_authors(session: Session, tv: TagValue) -> dict:
-    return {
-        "recorded_by": _person(session, tv.recorded_by_id),
-        "updated_by": _person(session, tv.updated_by_id),
-    }
-
-
-def _zone_for_tag(session: Session, tag: Tag) -> str:
-    """Resolve the IANA timezone for a tag's readings (via its site)."""
-    area = session.get(Area, tag.area_id)
-    if area is None:
-        return DEFAULT_TIMEZONE
-    site = session.get(Site, area.site_id)
-    if site is None:
-        return DEFAULT_TIMEZONE
-    return resolve_timezone(session, site)
 
 
 @mcp.tool
@@ -420,7 +412,7 @@ def get_tag_values(
         tag = session.get(Tag, tag_id)
         if tag is None:
             return {"error": f"no tag with id {tag_id}"}
-        zone = _zone_for_tag(session, tag)
+        zone = zone_for_tag(session, tag)
         try:
             start_dt = to_utc(start, zone) if start is not None else None
             end_dt = to_utc(end, zone) if end is not None else None
@@ -447,7 +439,7 @@ def get_tag_values(
                     "observed_at": from_utc(tv.observed_at, zone),
                     "value": value,
                     "type": vtype,
-                    **_reading_authors(session, tv),
+                    **reading_authors(session, tv),
                 }
             )
         return {
@@ -476,7 +468,7 @@ def tag_value_stats(
         tag = session.get(Tag, tag_id)
         if tag is None:
             return {"error": f"no tag with id {tag_id}"}
-        zone = _zone_for_tag(session, tag)
+        zone = zone_for_tag(session, tag)
         try:
             start_dt = to_utc(start, zone) if start is not None else None
             end_dt = to_utc(end, zone) if end is not None else None
@@ -552,7 +544,7 @@ def record_tag_value(
         tag = session.get(Tag, tag_id)
         if tag is None:
             return {"error": f"no tag with id {tag_id}"}
-        zone = _zone_for_tag(session, tag)
+        zone = zone_for_tag(session, tag)
         try:
             when = (
                 to_utc(observed_at, zone)
@@ -595,7 +587,7 @@ def record_tag_value(
                 tag_id=tag_id,
                 observed_at=when,
                 lookup_value_id=lv.id,
-                recorded_by_id=_caller_id(),
+                recorded_by_id=caller_id(),
             )
             stored: object = lv.name
             vtype = "lookup"
@@ -611,7 +603,7 @@ def record_tag_value(
                 tag_id=tag_id,
                 observed_at=when,
                 value=value,
-                recorded_by_id=_caller_id(),
+                recorded_by_id=caller_id(),
             )
             stored = value
             vtype = "numeric"
@@ -631,29 +623,8 @@ def record_tag_value(
             "timezone": zone,
             "value": stored,
             "type": vtype,
-            **_reading_authors(session, reading),
+            **reading_authors(session, reading),
         }
-
-
-def _reading_dict(session: Session, tv: TagValue) -> dict:
-    if tv.lookup_value_id is not None:
-        lv = session.get(LookupValue, tv.lookup_value_id)
-        value: object = lv.name if lv is not None else None
-        vtype = "lookup"
-    else:
-        value = tv.value
-        vtype = "numeric"
-    tag = session.get(Tag, tv.tag_id)
-    zone = _zone_for_tag(session, tag) if tag is not None else DEFAULT_TIMEZONE
-    return {
-        "id": tv.id,
-        "tag_id": tv.tag_id,
-        "observed_at": from_utc(tv.observed_at, zone),
-        "timezone": zone,
-        "value": value,
-        "type": vtype,
-        **_reading_authors(session, tv),
-    }
 
 
 @mcp.tool
@@ -669,7 +640,7 @@ def get_tag_value(value_id: int) -> dict:
             tv = services.get_tag_value(session, value_id)
         except ServiceError as exc:
             return {"error": str(exc)}
-        return _reading_dict(session, tv)
+        return reading_dict(session, tv)
 
 
 @mcp.tool
@@ -694,7 +665,7 @@ def update_tag_value(
                 existing = services.get_tag_value(session, value_id)
                 tag = session.get(Tag, existing.tag_id)
                 zone = (
-                    _zone_for_tag(session, tag)
+                    zone_for_tag(session, tag)
                     if tag is not None
                     else DEFAULT_TIMEZONE
                 )
@@ -705,9 +676,9 @@ def update_tag_value(
                 value,
                 lookup_value,
                 observed_at,
-                updated_by_id=_caller_id(),
+                updated_by_id=caller_id(),
             )
-            result = _reading_dict(session, tv)
+            result = reading_dict(session, tv)
             session.commit()
             return result
         except ServiceError as exc:
@@ -731,7 +702,7 @@ def delete_tag_value(value_id: int, confirm: bool = False) -> dict:
         if not confirm:
             return {
                 "confirm_required": True,
-                "reading": _reading_dict(session, tv),
+                "reading": reading_dict(session, tv),
                 "message": (
                     f"Would delete reading {value_id}. Call again with "
                     "confirm=true."
@@ -744,17 +715,6 @@ def delete_tag_value(value_id: int, confirm: bool = False) -> dict:
         except ServiceError as exc:
             session.rollback()
             return {"error": str(exc)}
-
-
-def _element_dict(e: Element) -> dict:
-    return {
-        "id": e.id,
-        "element_template_id": e.element_template_id,
-        "tag_area_id": e.tag_area_id,
-        "parent_id": e.parent_id,
-        "name": e.name,
-        "description": e.description,
-    }
 
 
 @mcp.tool
@@ -775,7 +735,7 @@ def list_elements(
         rows = services.list_elements(
             session, element_template_id, site_id, parent_id
         )
-        return [_element_dict(e) for e in _visible(session, rows)]
+        return [element_dict(e) for e in _visible(session, rows)]
 
 
 @mcp.tool
@@ -784,32 +744,9 @@ def get_element(element_id: int) -> dict:
     """Return one element by id."""
     with _Session() as session:
         try:
-            return _element_dict(services.get_element(session, element_id))
+            return element_dict(services.get_element(session, element_id))
         except ServiceError as exc:
             return {"error": str(exc)}
-
-
-def _element_attribute_dict(
-    session: Session, ea: ElementAttribute
-) -> dict:
-    """Attribute rows carry the template's name and the wired tag's name.
-
-    An element attribute has no name of its own -- it inherits the attribute
-    template's -- so both are resolved here for a usable view.
-    """
-    template = session.get(
-        ElementAttributeTemplate, ea.element_attribute_template_id
-    )
-    tag = session.get(Tag, ea.tag_id)
-    return {
-        "id": ea.id,
-        "element_id": ea.element_id,
-        "element_attribute_template_id": ea.element_attribute_template_id,
-        "name": template.name if template is not None else None,
-        "tag_id": ea.tag_id,
-        "tag_name": tag.name if tag is not None else None,
-        "owns_tag": ea.owns_tag,
-    }
 
 
 @mcp.tool
@@ -831,7 +768,7 @@ def list_element_attributes(
             session, element_id, element_attribute_template_id
         )
         return [
-            _element_attribute_dict(session, ea)
+            element_attribute_dict(session, ea)
             for ea in _visible(session, rows)
         ]
 
@@ -847,19 +784,7 @@ def get_element_attribute(element_attribute_id: int) -> dict:
             )
         except ServiceError as exc:
             return {"error": str(exc)}
-        return _element_attribute_dict(session, ea)
-
-
-def _event_frame_template_dict(t: EventFrameTemplate) -> dict:
-    return {
-        "id": t.id,
-        "element_template_id": t.element_template_id,
-        "parent_id": t.parent_id,
-        "step_order": t.step_order,
-        "parent_flow": t.parent_flow,
-        "name": t.name,
-        "description": t.description,
-    }
+        return element_attribute_dict(session, ea)
 
 
 @mcp.tool
@@ -880,7 +805,7 @@ def list_event_frame_templates(
             session, element_template_id, parent_id
         )
         return [
-            _event_frame_template_dict(t) for t in _visible(session, rows)
+            event_frame_template_dict(t) for t in _visible(session, rows)
         ]
 
 
@@ -890,56 +815,11 @@ def get_event_frame_template(template_id: int) -> dict:
     """Return one event frame template by id."""
     with _Session() as session:
         try:
-            return _event_frame_template_dict(
+            return event_frame_template_dict(
                 services.get_event_frame_template(session, template_id)
             )
         except ServiceError as exc:
             return {"error": str(exc)}
-
-
-def _zone_for_element(session: Session, element: Element) -> str:
-    """Resolve the IANA timezone for an element (via its template's site)."""
-    template = session.get(ElementTemplate, element.element_template_id)
-    if template is None:
-        return DEFAULT_TIMEZONE
-    site = session.get(Site, template.site_id)
-    if site is None:
-        return DEFAULT_TIMEZONE
-    return resolve_timezone(session, site)
-
-
-def _zone_for_frame(session: Session, frame: EventFrame) -> str:
-    element = session.get(Element, frame.element_id)
-    if element is None:
-        return DEFAULT_TIMEZONE
-    return _zone_for_element(session, element)
-
-
-def _event_frame_dict(session: Session, f: EventFrame) -> dict:
-    zone = _zone_for_frame(session, f)
-    element = session.get(Element, f.element_id)
-    return {
-        "id": f.id,
-        "element_id": f.element_id,
-        "element_name": element.name if element is not None else None,
-        "element_template_id": (
-            element.element_template_id if element is not None else None
-        ),
-        "event_frame_template_id": f.event_frame_template_id,
-        "parent_id": f.parent_id,
-        "source_event_frame_id": f.source_event_frame_id,
-        "destination_event_frame_id": f.destination_event_frame_id,
-        "name": f.name,
-        "started_at": from_utc(f.started_at, zone),
-        "ended_at": (
-            from_utc(f.ended_at, zone) if f.ended_at is not None else None
-        ),
-        "open": f.ended_at is None,
-        "timezone": zone,
-        "started_by": _person(session, f.started_by_id),
-        "ended_by": _person(session, f.ended_by_id),
-        "updated_by": _person(session, f.updated_by_id),
-    }
 
 
 @mcp.tool
@@ -980,7 +860,7 @@ def list_event_frames(
             destination_event_frame_id,
         )
         return [
-            _event_frame_dict(session, f) for f in _visible(session, rows)
+            event_frame_dict(session, f) for f in _visible(session, rows)
         ]
 
 
@@ -993,7 +873,7 @@ def get_event_frame(event_frame_id: int) -> dict:
             frame = services.get_event_frame(session, event_frame_id)
         except ServiceError as exc:
             return {"error": str(exc)}
-        return _event_frame_dict(session, frame)
+        return event_frame_dict(session, frame)
 
 
 @mcp.tool
@@ -1048,7 +928,7 @@ def create_event_frame(
         element = session.get(Element, element_id)
         if element is None:
             return {"error": f"no element with id {element_id}"}
-        zone = _zone_for_element(session, element)
+        zone = zone_for_element(session, element)
         try:
             start_dt = (
                 to_utc(started_at, zone) if started_at is not None else None
@@ -1064,9 +944,9 @@ def create_event_frame(
                 parent_id,
                 source_event_frame_id,
                 destination_event_frame_id,
-                started_by_id=_caller_id(),
+                started_by_id=caller_id(),
             )
-            result = _event_frame_dict(session, frame)
+            result = event_frame_dict(session, frame)
             session.commit()
             return result
         except ServiceError as exc:
@@ -1090,13 +970,13 @@ def close_event_frame(
             frame = services.get_event_frame(session, event_frame_id)
         except ServiceError as exc:
             return {"error": str(exc)}
-        zone = _zone_for_frame(session, frame)
+        zone = zone_for_frame(session, frame)
         try:
             end_dt = to_utc(ended_at, zone) if ended_at is not None else None
             frame = services.close_event_frame(
-                session, event_frame_id, end_dt, ended_by_id=_caller_id()
+                session, event_frame_id, end_dt, ended_by_id=caller_id()
             )
-            result = _event_frame_dict(session, frame)
+            result = event_frame_dict(session, frame)
             session.commit()
             return result
         except ServiceError as exc:
@@ -1118,9 +998,9 @@ def reopen_event_frame(event_frame_id: int) -> dict:
     with _Session() as session:
         try:
             frame = services.reopen_event_frame(
-                session, event_frame_id, updated_by_id=_caller_id()
+                session, event_frame_id, updated_by_id=caller_id()
             )
-            result = _event_frame_dict(session, frame)
+            result = event_frame_dict(session, frame)
             session.commit()
             return result
         except ServiceError as exc:
@@ -1147,7 +1027,7 @@ def update_event_frame(
             frame = services.get_event_frame(session, event_frame_id)
         except ServiceError as exc:
             return {"error": str(exc)}
-        zone = _zone_for_frame(session, frame)
+        zone = zone_for_frame(session, frame)
         kwargs: dict = {}
         try:
             if started_at is not None:
@@ -1158,10 +1038,10 @@ def update_event_frame(
                 session,
                 event_frame_id,
                 name,
-                updated_by_id=_caller_id(),
+                updated_by_id=caller_id(),
                 **kwargs,
             )
-            result = _event_frame_dict(session, frame)
+            result = event_frame_dict(session, frame)
             session.commit()
             return result
         except ServiceError as exc:
@@ -1209,7 +1089,7 @@ def delete_event_frame(
                 }
             return {
                 "confirm_required": True,
-                "event_frame": _event_frame_dict(session, frame),
+                "event_frame": event_frame_dict(session, frame),
                 "nested_count": child_count,
                 "message": (
                     f"Would delete event frame {event_frame_id} "
@@ -1267,9 +1147,9 @@ def link_transfer(
             kwargs["destination_event_frame_id"] = destination_event_frame_id
         try:
             frame = services.link_transfer(
-                session, event_frame_id, updated_by_id=_caller_id(), **kwargs
+                session, event_frame_id, updated_by_id=caller_id(), **kwargs
             )
-            result = _event_frame_dict(session, frame)
+            result = event_frame_dict(session, frame)
             session.commit()
             return result
         except ServiceError as exc:
@@ -1325,7 +1205,7 @@ def trace_batch_lineage(
         except ServiceError as exc:
             return {"error": str(exc)}
         for frame in result["frames"]:
-            zone = _zone_for_frame(
+            zone = zone_for_frame(
                 session, session.get(EventFrame, frame["id"])
             )
             frame["started_at"] = from_utc(frame["started_at"], zone)
@@ -1336,27 +1216,6 @@ def trace_batch_lineage(
             )
             frame["timezone"] = zone
         return result
-
-
-def _event_frame_attribute_dict(
-    session: Session, a: EventFrameAttribute
-) -> dict:
-    template = session.get(
-        EventFrameAttributeTemplate,
-        a.event_frame_attribute_template_id,
-    )
-    tag = session.get(Tag, a.tag_id)
-    return {
-        "id": a.id,
-        "element_id": a.element_id,
-        "event_frame_attribute_template_id": (
-            a.event_frame_attribute_template_id
-        ),
-        "name": template.name if template is not None else None,
-        "tag_id": a.tag_id,
-        "tag_name": tag.name if tag is not None else None,
-        "owns_tag": a.owns_tag,
-    }
 
 
 @mcp.tool
@@ -1376,7 +1235,7 @@ def list_event_frame_attributes(
             session, element_id, event_frame_attribute_template_id
         )
         return [
-            _event_frame_attribute_dict(session, a)
+            event_frame_attribute_dict(session, a)
             for a in _visible(session, rows)
         ]
 
@@ -1392,17 +1251,7 @@ def get_event_frame_attribute(event_frame_attribute_id: int) -> dict:
             )
         except ServiceError as exc:
             return {"error": str(exc)}
-        return _event_frame_attribute_dict(session, a)
-
-
-def _unit_dict(unit: MeasurementUnit) -> dict:
-    return {
-        "id": unit.id,
-        "enterprise_id": unit.enterprise_id,
-        "abbreviation": unit.abbreviation,
-        "name": unit.name,
-        "description": unit.description,
-    }
+        return event_frame_attribute_dict(session, a)
 
 
 @_guard()
@@ -1410,7 +1259,7 @@ def list_measurement_units(enterprise_id: int | None = None) -> list[dict]:
     """List measurement units, optionally filtered by enterprise (admin)."""
     with _Session() as session:
         units = services.list_measurement_units(session, enterprise_id)
-        return [_unit_dict(u) for u in _visible(session, units)]
+        return [unit_dict(u) for u in _visible(session, units)]
 
 
 @_guard(enterprise_id=(Enterprise, CONFIGURE))
@@ -1430,7 +1279,7 @@ def create_measurement_unit(
             unit = services.create_measurement_unit(
                 session, enterprise_id, abbreviation, name, description
             )
-            result = _unit_dict(unit)
+            result = unit_dict(unit)
             session.commit()
             return result
         except ServiceError as exc:
@@ -1451,7 +1300,7 @@ def update_measurement_unit(
             unit = services.update_measurement_unit(
                 session, unit_id, abbreviation, name, description
             )
-            result = _unit_dict(unit)
+            result = unit_dict(unit)
             session.commit()
             return result
         except ServiceError as exc:
@@ -1475,7 +1324,7 @@ def delete_measurement_unit(unit_id: int, confirm: bool = False) -> dict:
         if not confirm:
             return {
                 "confirm_required": True,
-                "unit": _unit_dict(unit),
+                "unit": unit_dict(unit),
                 "message": (
                     f"Would delete measurement unit {unit_id} "
                     f"({unit.name}). Call again with confirm=true."
@@ -1506,7 +1355,7 @@ def add_default_measurement_units(enterprise_id: int) -> dict:
             )
             result = {
                 "enterprise_id": enterprise_id,
-                "added": [_unit_dict(u) for u in added],
+                "added": [unit_dict(u) for u in added],
                 "added_count": len(added),
                 "skipped_count": (
                     len(services.DEFAULT_MEASUREMENT_UNITS) - len(added)
@@ -1519,20 +1368,12 @@ def add_default_measurement_units(enterprise_id: int) -> dict:
             return {"error": str(exc)}
 
 
-def _lookup_dict(lookup: Lookup) -> dict:
-    return {
-        "id": lookup.id,
-        "enterprise_id": lookup.enterprise_id,
-        "name": lookup.name,
-    }
-
-
 @_guard()
 def list_lookups(enterprise_id: int | None = None) -> list[dict]:
     """List lookups, optionally filtered by enterprise (admin)."""
     with _Session() as session:
         rows = services.list_lookups(session, enterprise_id)
-        return [_lookup_dict(lk) for lk in _visible(session, rows)]
+        return [lookup_dict(lk) for lk in _visible(session, rows)]
 
 
 @_guard(enterprise_id=(Enterprise, CONFIGURE))
@@ -1545,7 +1386,7 @@ def create_lookup(enterprise_id: int, name: str) -> dict:
     with _Session() as session:
         try:
             lookup = services.create_lookup(session, enterprise_id, name)
-            result = _lookup_dict(lookup)
+            result = lookup_dict(lookup)
             session.commit()
             return result
         except ServiceError as exc:
@@ -1559,7 +1400,7 @@ def update_lookup(lookup_id: int, name: str | None = None) -> dict:
     with _Session() as session:
         try:
             lookup = services.update_lookup(session, lookup_id, name)
-            result = _lookup_dict(lookup)
+            result = lookup_dict(lookup)
             session.commit()
             return result
         except ServiceError as exc:
@@ -1582,7 +1423,7 @@ def delete_lookup(lookup_id: int, confirm: bool = False) -> dict:
         if not confirm:
             return {
                 "confirm_required": True,
-                "lookup": _lookup_dict(lookup),
+                "lookup": lookup_dict(lookup),
                 "message": (
                     f"Would delete lookup {lookup_id} ({lookup.name}) "
                     "and its values. Call again with confirm=true."
@@ -1597,15 +1438,6 @@ def delete_lookup(lookup_id: int, confirm: bool = False) -> dict:
             return {"error": str(exc)}
 
 
-def _lookup_value_dict(value: LookupValue) -> dict:
-    return {
-        "id": value.id,
-        "lookup_id": value.lookup_id,
-        "name": value.name,
-        "is_selectable": value.is_selectable,
-    }
-
-
 @_guard()
 def list_lookup_values(lookup_id: int) -> list[dict]:
     """List the options on a list.
@@ -1615,7 +1447,7 @@ def list_lookup_values(lookup_id: int) -> list[dict]:
     """
     with _Session() as session:
         rows = services.list_lookup_values(session, lookup_id)
-        return [_lookup_value_dict(v) for v in _visible(session, rows)]
+        return [lookup_value_dict(v) for v in _visible(session, rows)]
 
 
 @_guard(lookup_id=(Lookup, CONFIGURE))
@@ -1628,7 +1460,7 @@ def create_lookup_value(
             value = services.create_lookup_value(
                 session, lookup_id, name, is_selectable
             )
-            result = _lookup_value_dict(value)
+            result = lookup_value_dict(value)
             session.commit()
             return result
         except ServiceError as exc:
@@ -1648,7 +1480,7 @@ def update_lookup_value(
             value = services.update_lookup_value(
                 session, value_id, name, is_selectable
             )
-            result = _lookup_value_dict(value)
+            result = lookup_value_dict(value)
             session.commit()
             return result
         except ServiceError as exc:
@@ -1671,7 +1503,7 @@ def delete_lookup_value(value_id: int, confirm: bool = False) -> dict:
         if not confirm:
             return {
                 "confirm_required": True,
-                "lookup_value": _lookup_value_dict(value),
+                "lookup_value": lookup_value_dict(value),
                 "message": (
                     f"Would delete lookup value {value_id} "
                     f"({value.name}). Call again with confirm=true."
@@ -1686,17 +1518,6 @@ def delete_lookup_value(value_id: int, confirm: bool = False) -> dict:
             return {"error": str(exc)}
 
 
-def _tag_dict(tag: Tag) -> dict:
-    return {
-        "id": tag.id,
-        "area_id": tag.area_id,
-        "name": tag.name,
-        "description": tag.description,
-        "lookup_id": tag.lookup_id,
-        "measurement_unit_id": tag.measurement_unit_id,
-    }
-
-
 @_guard(tag_id=(Tag, READ))
 def get_tag(tag_id: int) -> dict:
     """Return one tag's full configuration by id (admin).
@@ -1706,7 +1527,7 @@ def get_tag(tag_id: int) -> dict:
     """
     with _Session() as session:
         try:
-            return _tag_dict(services.get_tag(session, tag_id))
+            return tag_dict(services.get_tag(session, tag_id))
         except ServiceError as exc:
             return {"error": str(exc)}
 
@@ -1739,7 +1560,7 @@ def create_tag(
                 lookup_id,
                 measurement_unit_id,
             )
-            result = _tag_dict(tag)
+            result = tag_dict(tag)
             session.commit()
             return result
         except ServiceError as exc:
@@ -1760,7 +1581,7 @@ def update_tag(
     with _Session() as session:
         try:
             tag = services.update_tag(session, tag_id, name, description)
-            result = _tag_dict(tag)
+            result = tag_dict(tag)
             session.commit()
             return result
         except ServiceError as exc:
@@ -1790,7 +1611,7 @@ def delete_tag(tag_id: int, confirm: bool = False) -> dict:
                     func.max(TagValue.observed_at),
                 ).where(TagValue.tag_id == tag_id)
             ).one()
-            zone = _zone_for_tag(session, tag)
+            zone = zone_for_tag(session, tag)
             span = (
                 f" recorded between {from_utc(first, zone)} and "
                 f"{from_utc(last, zone)}"
@@ -1799,7 +1620,7 @@ def delete_tag(tag_id: int, confirm: bool = False) -> dict:
             )
             return {
                 "confirm_required": True,
-                "tag": _tag_dict(tag),
+                "tag": tag_dict(tag),
                 "reading_count": count,
                 "first_reading": (
                     from_utc(first, zone) if count else None
@@ -1821,16 +1642,6 @@ def delete_tag(tag_id: int, confirm: bool = False) -> dict:
             return {"error": str(exc)}
 
 
-def _area_dict(area: Area) -> dict:
-    return {
-        "id": area.id,
-        "site_id": area.site_id,
-        "abbreviation": area.abbreviation,
-        "name": area.name,
-        "description": area.description,
-    }
-
-
 @_guard(area_id=(Area, READ))
 def get_area(area_id: int) -> dict:
     """Return one area's full configuration by id (admin).
@@ -1839,7 +1650,7 @@ def get_area(area_id: int) -> dict:
     """
     with _Session() as session:
         try:
-            return _area_dict(services.get_area(session, area_id))
+            return area_dict(services.get_area(session, area_id))
         except ServiceError as exc:
             return {"error": str(exc)}
 
@@ -1862,7 +1673,7 @@ def create_area(
             area = services.create_area(
                 session, site_id, abbreviation, name, description
             )
-            result = _area_dict(area)
+            result = area_dict(area)
             session.commit()
             return result
         except ServiceError as exc:
@@ -1883,7 +1694,7 @@ def update_area(
             area = services.update_area(
                 session, area_id, abbreviation, name, description
             )
-            result = _area_dict(area)
+            result = area_dict(area)
             session.commit()
             return result
         except ServiceError as exc:
@@ -1911,7 +1722,7 @@ def delete_area(area_id: int, confirm: bool = False) -> dict:
             )
             return {
                 "confirm_required": True,
-                "area": _area_dict(area),
+                "area": area_dict(area),
                 "tag_count": tag_count,
                 "message": (
                     f"Would delete area {area_id} ({area.name}) and its "
@@ -1928,17 +1739,6 @@ def delete_area(area_id: int, confirm: bool = False) -> dict:
             return {"error": str(exc)}
 
 
-def _site_dict(site: Site) -> dict:
-    return {
-        "id": site.id,
-        "enterprise_id": site.enterprise_id,
-        "abbreviation": site.abbreviation,
-        "name": site.name,
-        "description": site.description,
-        "timezone": site.timezone,
-    }
-
-
 @_guard(site_id=(Site, READ))
 def get_site(site_id: int) -> dict:
     """Return one site's full configuration by id (admin).
@@ -1947,7 +1747,7 @@ def get_site(site_id: int) -> dict:
     """
     with _Session() as session:
         try:
-            return _site_dict(services.get_site(session, site_id))
+            return site_dict(services.get_site(session, site_id))
         except ServiceError as exc:
             return {"error": str(exc)}
 
@@ -1977,7 +1777,7 @@ def create_site(
                 description,
                 timezone,
             )
-            result = _site_dict(site)
+            result = site_dict(site)
             session.commit()
             return result
         except ServiceError as exc:
@@ -2007,7 +1807,7 @@ def update_site(
                 description,
                 timezone,
             )
-            result = _site_dict(site)
+            result = site_dict(site)
             session.commit()
             return result
         except ServiceError as exc:
@@ -2041,7 +1841,7 @@ def delete_site(site_id: int, confirm: bool = False) -> dict:
             )
             return {
                 "confirm_required": True,
-                "site": _site_dict(site),
+                "site": site_dict(site),
                 "area_count": area_count,
                 "tag_count": tag_count,
                 "message": (
@@ -2059,15 +1859,6 @@ def delete_site(site_id: int, confirm: bool = False) -> dict:
             return {"error": str(exc)}
 
 
-def _enterprise_dict(ent: Enterprise) -> dict:
-    return {
-        "id": ent.id,
-        "abbreviation": ent.abbreviation,
-        "name": ent.name,
-        "description": ent.description,
-    }
-
-
 @_guard(enterprise_id=(Enterprise, READ))
 def get_enterprise(enterprise_id: int) -> dict:
     """Return one enterprise's full configuration by id (admin).
@@ -2076,7 +1867,7 @@ def get_enterprise(enterprise_id: int) -> dict:
     """
     with _Session() as session:
         try:
-            return _enterprise_dict(
+            return enterprise_dict(
                 services.get_enterprise(session, enterprise_id)
             )
         except ServiceError as exc:
@@ -2100,7 +1891,7 @@ def create_enterprise(
             ent = services.create_enterprise(
                 session, abbreviation, name, description
             )
-            result = _enterprise_dict(ent)
+            result = enterprise_dict(ent)
             session.commit()
             return result
         except ServiceError as exc:
@@ -2121,7 +1912,7 @@ def update_enterprise(
             ent = services.update_enterprise(
                 session, enterprise_id, abbreviation, name, description
             )
-            result = _enterprise_dict(ent)
+            result = enterprise_dict(ent)
             session.commit()
             return result
         except ServiceError as exc:
@@ -2174,7 +1965,7 @@ def delete_enterprise(enterprise_id: int, confirm: bool = False) -> dict:
             )
             return {
                 "confirm_required": True,
-                "enterprise": _enterprise_dict(ent),
+                "enterprise": enterprise_dict(ent),
                 "site_count": sites,
                 "area_count": areas,
                 "tag_count": tags,
@@ -2197,17 +1988,6 @@ def delete_enterprise(enterprise_id: int, confirm: bool = False) -> dict:
             return {"error": str(exc)}
 
 
-def _element_template_dict(t: ElementTemplate) -> dict:
-    return {
-        "id": t.id,
-        "site_id": t.site_id,
-        "parent_id": t.parent_id,
-        "name": t.name,
-        "description": t.description,
-        "exclusive": t.exclusive,
-    }
-
-
 @_guard()
 def list_element_templates(site_id: int | None = None) -> list[dict]:
     """List element templates, optionally filtered by site (admin).
@@ -2217,7 +1997,7 @@ def list_element_templates(site_id: int | None = None) -> list[dict]:
     """
     with _Session() as session:
         rows = services.list_element_templates(session, site_id)
-        return [_element_template_dict(t) for t in _visible(session, rows)]
+        return [element_template_dict(t) for t in _visible(session, rows)]
 
 
 @_guard(
@@ -2248,7 +2028,7 @@ def create_element_template(
             t = services.create_element_template(
                 session, site_id, name, description, parent_id, exclusive
             )
-            result = _element_template_dict(t)
+            result = element_template_dict(t)
             session.commit()
             return result
         except ServiceError as exc:
@@ -2303,7 +2083,7 @@ def update_element_template(
                     description,
                     exclusive=exclusive,
                 )
-            result = _element_template_dict(t)
+            result = element_template_dict(t)
             session.commit()
             return result
         except ServiceError as exc:
@@ -2334,7 +2114,7 @@ def delete_element_template(
             )
             return {
                 "confirm_required": True,
-                "element_template": _element_template_dict(t),
+                "element_template": element_template_dict(t),
                 "child_count": child_count,
                 "message": (
                     f"Would delete element template {template_id} "
@@ -2382,7 +2162,7 @@ def create_element(
                 tag_area_id,
                 parent_id,
             )
-            result = _element_dict(el)
+            result = element_dict(el)
             session.commit()
             return result
         except ServiceError as exc:
@@ -2423,7 +2203,7 @@ def update_element(
             el = services.update_element(
                 session, element_id, name, description, **kwargs
             )
-            result = _element_dict(el)
+            result = element_dict(el)
             session.commit()
             return result
         except ServiceError as exc:
@@ -2451,7 +2231,7 @@ def delete_element(element_id: int, confirm: bool = False) -> dict:
             )
             return {
                 "confirm_required": True,
-                "element": _element_dict(el),
+                "element": element_dict(el),
                 "child_count": child_count,
                 "message": (
                     f"Would delete element {element_id} ({el.name}). "
@@ -2468,17 +2248,6 @@ def delete_element(element_id: int, confirm: bool = False) -> dict:
             return {"error": str(exc)}
 
 
-def _attribute_template_dict(t: ElementAttributeTemplate) -> dict:
-    return {
-        "id": t.id,
-        "element_template_id": t.element_template_id,
-        "lookup_id": t.lookup_id,
-        "measurement_unit_id": t.measurement_unit_id,
-        "name": t.name,
-        "description": t.description,
-    }
-
-
 @_guard()
 def list_element_attribute_templates(
     element_template_id: int | None = None,
@@ -2492,7 +2261,7 @@ def list_element_attribute_templates(
         rows = services.list_element_attribute_templates(
             session, element_template_id
         )
-        return [_attribute_template_dict(t) for t in _visible(session, rows)]
+        return [attribute_template_dict(t) for t in _visible(session, rows)]
 
 
 @_guard(
@@ -2525,7 +2294,7 @@ def create_element_attribute_template(
                 lookup_id,
                 measurement_unit_id,
             )
-            result = _attribute_template_dict(t)
+            result = attribute_template_dict(t)
             session.commit()
             return result
         except ServiceError as exc:
@@ -2548,7 +2317,7 @@ def update_element_attribute_template(
             t = services.update_element_attribute_template(
                 session, attribute_template_id, name, description
             )
-            result = _attribute_template_dict(t)
+            result = attribute_template_dict(t)
             session.commit()
             return result
         except ServiceError as exc:
@@ -2574,7 +2343,7 @@ def delete_element_attribute_template(
         if not confirm:
             return {
                 "confirm_required": True,
-                "element_attribute_template": _attribute_template_dict(t),
+                "element_attribute_template": attribute_template_dict(t),
                 "message": (
                     f"Would delete attribute template "
                     f"{attribute_template_id} ({t.name}). Call again with "
@@ -2619,7 +2388,7 @@ def wire_element_attribute(
             ea = services.wire_element_attribute(
                 session, element, template, tag_id
             )
-            result = _element_attribute_dict(session, ea)
+            result = element_attribute_dict(session, ea)
             session.commit()
             return result
         except ServiceError as exc:
@@ -2661,7 +2430,7 @@ def unwire_element_attribute(
                 fate = "its tag would be deleted too (if unused elsewhere)"
             return {
                 "confirm_required": True,
-                "element_attribute": _element_attribute_dict(session, ea),
+                "element_attribute": element_attribute_dict(session, ea),
                 "tag_reading_count": readings,
                 "message": (
                     f"Would remove element attribute "
@@ -2723,7 +2492,7 @@ def create_event_frame_template(
                 parent_id,
                 parent_flow,
             )
-            result = _event_frame_template_dict(t)
+            result = event_frame_template_dict(t)
             session.commit()
             return result
         except ServiceError as exc:
@@ -2773,7 +2542,7 @@ def update_event_frame_template(
             t = services.update_event_frame_template(
                 session, template_id, name, description, **kwargs
             )
-            result = _event_frame_template_dict(t)
+            result = event_frame_template_dict(t)
             session.commit()
             return result
         except ServiceError as exc:
@@ -2803,7 +2572,7 @@ def delete_event_frame_template(
             )
             return {
                 "confirm_required": True,
-                "event_frame_template": _event_frame_template_dict(t),
+                "event_frame_template": event_frame_template_dict(t),
                 "child_count": child_count,
                 "message": (
                     f"Would delete event frame template {template_id} "
@@ -2818,23 +2587,6 @@ def delete_event_frame_template(
         except ServiceError as exc:
             session.rollback()
             return {"error": str(exc)}
-
-
-def _event_frame_attribute_template_dict(
-    t: EventFrameAttributeTemplate,
-) -> dict:
-    return {
-        "id": t.id,
-        "event_frame_template_id": t.event_frame_template_id,
-        "lookup_id": t.lookup_id,
-        "measurement_unit_id": t.measurement_unit_id,
-        "name": t.name,
-        "description": t.description,
-        "default_start_value": t.default_start_value,
-        "default_end_value": t.default_end_value,
-        "default_start_lookup_value_id": t.default_start_lookup_value_id,
-        "default_end_lookup_value_id": t.default_end_lookup_value_id,
-    }
 
 
 @_guard()
@@ -2852,7 +2604,7 @@ def list_event_frame_attribute_templates(
             session, event_frame_template_id
         )
         return [
-            _event_frame_attribute_template_dict(t)
+            event_frame_attribute_template_dict(t)
             for t in _visible(session, rows)
         ]
 
@@ -2899,7 +2651,7 @@ def create_event_frame_attribute_template(
                 default_start_lookup_value_id,
                 default_end_lookup_value_id,
             )
-            result = _event_frame_attribute_template_dict(t)
+            result = event_frame_attribute_template_dict(t)
             session.commit()
             return result
         except ServiceError as exc:
@@ -2943,7 +2695,7 @@ def update_event_frame_attribute_template(
             t = services.update_event_frame_attribute_template(
                 session, attribute_template_id, name, description, **kwargs
             )
-            result = _event_frame_attribute_template_dict(t)
+            result = event_frame_attribute_template_dict(t)
             session.commit()
             return result
         except ServiceError as exc:
@@ -2970,7 +2722,7 @@ def delete_event_frame_attribute_template(
             return {
                 "confirm_required": True,
                 "event_frame_attribute_template": (
-                    _event_frame_attribute_template_dict(t)
+                    event_frame_attribute_template_dict(t)
                 ),
                 "message": (
                     f"Would delete event frame attribute template "
@@ -3015,7 +2767,7 @@ def wire_event_frame_attribute(
             a = services.wire_event_frame_attribute(
                 session, element, template, tag_id
             )
-            result = _event_frame_attribute_dict(session, a)
+            result = event_frame_attribute_dict(session, a)
             session.commit()
             return result
         except ServiceError as exc:
@@ -3056,7 +2808,7 @@ def unwire_event_frame_attribute(
                 fate = "its tag would be deleted too (if unused elsewhere)"
             return {
                 "confirm_required": True,
-                "event_frame_attribute": _event_frame_attribute_dict(
+                "event_frame_attribute": event_frame_attribute_dict(
                     session, a
                 ),
                 "tag_reading_count": readings,
@@ -3230,35 +2982,6 @@ _NO_PEOPLE_ACCESS = (
 )
 
 
-def _membership_dict(m: Membership) -> dict:
-    return {
-        "id": m.id,
-        "user_id": m.user_id,
-        "email": m.user.email,
-        "enterprise_id": m.enterprise_id,
-        "role": m.role,
-        "site_ids": services.membership_site_ids(m),
-    }
-
-
-def _user_dict(user: User, scope: set[int] | None) -> dict:
-    """A user, with only the memberships the caller manages."""
-    return {
-        "id": user.id,
-        "email": user.email,
-        "name": user.name,
-        "timezone": user.timezone,
-        "is_superuser": user.is_superuser,
-        "is_active": user.is_active,
-        "signed_in": user.auth_subject is not None,
-        "memberships": [
-            _membership_dict(m)
-            for m in user.memberships
-            if scope is None or m.enterprise_id in scope
-        ],
-    }
-
-
 def _sees_user(user: User, scope: set[int] | None) -> bool:
     me = current_user()
     return (
@@ -3278,7 +3001,7 @@ def list_users(enterprise_id: int | None = None) -> list[dict]:
     scope = _people_scope()
     with _Session() as session:
         return [
-            _user_dict(u, scope)
+            user_dict(u, scope)
             for u in services.list_users(session)
             if _sees_user(u, scope)
             and (
@@ -3299,7 +3022,7 @@ def get_user(user_id: int) -> dict:
             return {"error": str(exc)}
         if not _sees_user(user, scope):
             return {"error": f"no user with id {user_id}"}
-        return _user_dict(user, scope)
+        return user_dict(user, scope)
 
 
 @_guard()
@@ -3331,7 +3054,7 @@ def create_user(
             user = services.create_user(
                 session, email, name, timezone, is_superuser
             )
-            result = _user_dict(user, scope)
+            result = user_dict(user, scope)
             session.commit()
         except ServiceError as exc:
             session.rollback()
@@ -3382,7 +3105,7 @@ def update_user(
             )
             if reset_sign_in:
                 services.reset_sign_in(session, user_id)
-            result = _user_dict(user, _people_scope())
+            result = user_dict(user, _people_scope())
             session.commit()
             return result
         except ServiceError as exc:
@@ -3408,7 +3131,7 @@ def delete_user(user_id: int, confirm: bool = False) -> dict:
             if readings or batches:
                 return {
                     "confirm_required": False,
-                    "user": _user_dict(user, None),
+                    "user": user_dict(user, None),
                     "message": (
                         f"Cannot delete {user.email}: {readings} reading(s) "
                         f"and {batches} batch(es) name them. Deactivate them "
@@ -3417,7 +3140,7 @@ def delete_user(user_id: int, confirm: bool = False) -> dict:
                 }
             return {
                 "confirm_required": True,
-                "user": _user_dict(user, None),
+                "user": user_dict(user, None),
                 "message": (
                     f"Would delete {user.email} and their "
                     f"{len(user.memberships)} membership(s). Call again "
@@ -3445,7 +3168,7 @@ def list_memberships(
     scope = _people_scope()
     with _Session() as session:
         return [
-            _membership_dict(m)
+            membership_dict(m)
             for m in services.list_memberships(session, user_id, enterprise_id)
             if scope is None or m.enterprise_id in scope
         ]
@@ -3475,7 +3198,7 @@ def create_membership(
             membership = services.create_membership(
                 session, user.id, enterprise_id, role, site_ids
             )
-            result = _membership_dict(membership)
+            result = membership_dict(membership)
             session.commit()
             return result
         except ServiceError as exc:
@@ -3500,7 +3223,7 @@ def update_membership(
             membership = services.update_membership(
                 session, membership_id, role, has_all_sites, site_ids
             )
-            result = _membership_dict(membership)
+            result = membership_dict(membership)
             session.commit()
             return result
         except ServiceError as exc:
@@ -3523,7 +3246,7 @@ def delete_membership(membership_id: int, confirm: bool = False) -> dict:
         if not confirm:
             return {
                 "confirm_required": True,
-                "membership": _membership_dict(membership),
+                "membership": membership_dict(membership),
                 "message": (
                     f"Would remove {membership.user.email}'s access to "
                     f"enterprise {membership.enterprise_id}. Call again "
