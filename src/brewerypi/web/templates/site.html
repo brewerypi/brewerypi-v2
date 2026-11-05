@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% from "_batches.html" import batch_card, batch_list, paging %}
+{% block title %}{{ site.name }}{% endblock %}
+{% block content %}
+<nav class="crumbs" aria-label="Breadcrumb"><a href="/">Your breweries</a></nav>
+<h1>{{ site.name }}</h1>
+<section class="section">
+  <h2>Running now</h2>
+  {% for batch in running %}{{ batch_card(batch, True) }}{% else %}
+  <div class="empty">No batches are running at {{ site.name }}.</div>
+  {% endfor %}
+</section>
+<section class="section">
+  <h2>Equipment</h2>
+  {% for kind in kinds %}
+  <h3>{{ kind.name }}</h3>
+  <div class="chips">
+    {% for item in kind.equipment %}
+    <a class="chip{% if item.busy %} busy{% endif %}" href="/equipment/{{ item.id }}">
+      {{ item.name }}
+      <span class="pill{% if not item.busy %} idle{% endif %}">{{ "Busy" if item.busy else "Free" }}</span>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty">No equipment has been set up yet.</div>
+  {% endfor %}
+</section>
+<section class="section">
+  <h2>Recently finished</h2>
+  {{ batch_list(finished, "No finished batches to show.") }}
+  {{ paging(page_number, has_older) }}
+</section>
+<footer>Times are in {{ timezone }}.</footer>
+{% endblock %}

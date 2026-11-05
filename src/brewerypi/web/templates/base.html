@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Brewery Pi{% endblock %} - Brewery Pi</title>
+<style>
+/* One narrow working column: what is running comes first. Cellar steel neutrals with a glycol-teal accent, large touch targets for gloved hands. */
+:root {
+  --bg: #eceff0; --surface: #ffffff; --surface-2: #e2e7e9; --ink: #162024;
+  --muted: #59676d; --line: #c6cfd3; --accent: #0e6c61; --accent-ink: #ffffff;
+  --accent-soft: #d5ebe7; --bad: #9e2419;
+  --f-ui: "Segoe UI", system-ui, -apple-system, sans-serif;
+  --f-data: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --r: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #11171a; --surface: #192226; --surface-2: #222d32; --ink: #e4ecee;
+    --muted: #9babb1; --line: #34434a; --accent: #45b8a7; --accent-ink: #052019;
+    --accent-soft: #163a35; --bad: #ff8c7e;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink); }
+body { font-family: var(--f-ui); font-size: 17px; line-height: 1.4; }
+a { color: var(--accent); }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.top { background: var(--surface); border-bottom: 1px solid var(--line); }
+.top-in { max-width: 820px; margin: 0 auto; padding: 8px 16px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+.brand { font-weight: 700; text-decoration: none; color: var(--ink); padding: 8px 0; }
+.who { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; color: var(--muted); font-size: 15px; overflow-wrap: anywhere; }
+main { max-width: 820px; margin: 0 auto; padding: 16px; display: grid; gap: 20px; }
+h1 { margin: 0; font-size: 26px; text-wrap: balance; }
+h2 { margin: 0; font-size: 18px; }
+h3 { margin: 0; font-size: 15px; color: var(--muted); font-weight: 600; }
+p { margin: 0; max-width: 65ch; }
+.muted { color: var(--muted); }
+.bad { color: var(--bad); }
+.crumbs { display: flex; flex-wrap: wrap; gap: 4px 8px; font-size: 15px; color: var(--muted); }
+.section { display: grid; gap: 8px; }
+.btn { display: inline-block; min-height: 44px; padding: 10px 18px; border: 1px solid var(--accent); border-radius: var(--r); background: var(--accent); color: var(--accent-ink); font: inherit; font-weight: 600; text-decoration: none; cursor: pointer; }
+.btn.quiet { background: var(--surface); border-color: var(--line); color: var(--ink); padding: 6px 14px; min-height: 40px; }
+.tile { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 12px 16px; min-height: 56px; color: inherit; text-decoration: none; font-weight: 600; }
+.tile:hover { border-color: var(--accent); }
+.batch { display: grid; gap: 4px; background: var(--surface); border: 1px solid var(--line); border-left: 5px solid var(--accent); border-radius: var(--r); padding: 12px 16px; color: inherit; text-decoration: none; }
+.batch:hover { border-color: var(--accent); }
+.batch.closed { border-left-color: var(--line); }
+.steps { display: grid; gap: 8px; margin-left: 16px; }
+.batch-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+.vessel { font-family: var(--f-data); font-weight: 600; font-size: 15px; color: var(--accent); }
+.batch-name { font-weight: 700; font-size: 19px; overflow-wrap: anywhere; }
+.pill { background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 1px 10px; font-size: 14px; font-weight: 600; }
+.pill.idle { background: var(--surface-2); color: var(--muted); }
+.meta { color: var(--muted); font-size: 15px; font-variant-numeric: tabular-nums; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 6px 12px; font-family: var(--f-data); font-size: 15px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); color: inherit; text-decoration: none; }
+.chip:hover { border-color: var(--accent); }
+.chip.busy { border-left: 5px solid var(--accent); }
+.empty { background: var(--surface); border: 1px dashed var(--line); border-radius: var(--r); padding: 16px; color: var(--muted); }
+dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 12px 16px; }
+dt { color: var(--muted); }
+dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+footer { color: var(--muted); font-size: 14px; }
+@media (max-width: 400px) { .steps { margin-left: 8px; } dl { grid-template-columns: 1fr; gap: 2px; } dd { margin-bottom: 8px; } }
+</style>
+<script>
+// no-store doesn't stop a browser restoring a page from memory on Back, so a
+// signed-out tablet could still show the last person's page. Reloading asks
+// the server, which sends a signed-out visitor to sign in.
+window.addEventListener("pageshow", (event) => {
+  const nav = performance.getEntriesByType("navigation")[0];
+  if (event.persisted || (nav && nav.type === "back_forward")) {
+    location.reload();
+  }
+});
+</script>
+</head>
+<body>
+<header class="top"><div class="top-in">
+  <a class="brand" href="/">Brewery Pi</a>
+  {% if signed_in_user %}
+  <div class="who">
+    <span>{{ signed_in_user.email }}</span>
+    <form method="post" action="/logout"><button class="btn quiet" id="sign-out" type="submit">Sign out</button></form>
+  </div>
+  {% endif %}
+</div></header>
+<main>
+{% block content %}{% endblock %}
+</main>
+</body>
+</html>

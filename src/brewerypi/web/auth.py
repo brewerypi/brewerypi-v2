@@ -31,9 +31,15 @@ from urllib.parse import urlencode
 
 import anyio.to_thread
 import httpx
+from fastapi import Request
 from sqlalchemy.orm import Session
 
-from brewerypi.identity import CurrentUser, authorize_tier, signed_in_as
+from brewerypi.identity import (
+    CurrentUser,
+    authorize_tier,
+    current_user,
+    signed_in_as,
+)
 from brewerypi.services import (
     PermissionDeniedError,
     get_user_by_subject,
@@ -44,12 +50,25 @@ WORKOS_API_URL = "https://api.workos.com"
 
 _MIN_SECRET_LENGTH = 32
 
+#: Text from the deploy guide's template, which must never reach production:
+#: the template's session secret is public, so it would let anyone forge a
+#: session.
+_TEMPLATE_MARKERS = ("REPLACE_ME", "PASTE_THE")
+
 #: Staff reach the web app with any membership, the operator tier's rule.
 _TIER = "operator"
 
 
 class SignInFailed(Exception):
     """WorkOS could not confirm a sign-in; safe to show the person."""
+
+
+class NotSignedIn(Exception):
+    """The page needs a signed-in user, and there isn't one."""
+
+
+class Refused(Exception):
+    """They signed in, but Brewery Pi doesn't let them in."""
 
 
 @dataclass(frozen=True)
@@ -72,6 +91,16 @@ class Settings:
         if missing:
             raise RuntimeError(
                 "web sign-in is not configured: set " + ", ".join(missing)
+            )
+        unfilled = [
+            name
+            for name, value in values.items()
+            if any(marker in value for marker in _TEMPLATE_MARKERS)
+        ]
+        if unfilled:
+            raise RuntimeError(
+                "still set to the deploy guide's placeholder: "
+                + ", ".join(unfilled)
             )
         if len(values["WEB_SESSION_SECRET"]) < _MIN_SECRET_LENGTH:
             raise RuntimeError(
@@ -221,6 +250,17 @@ def known_user(
             return None
         authorize_tier(user, _TIER)
         return CurrentUser.from_user(user)
+
+
+def signed_in_user(request: Request) -> CurrentUser:
+    """A page's user; the app turns the exceptions into the right page."""
+    refusal = getattr(request.state, "refusal", None)
+    if refusal:
+        raise Refused(refusal)
+    user = current_user()
+    if user is None:
+        raise NotSignedIn
+    return user
 
 
 class SignInMiddleware:

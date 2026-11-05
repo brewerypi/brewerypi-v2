@@ -1,4 +1,4 @@
-"""The Brewery Pi web app: sign-in, and a page showing what you can reach.
+"""The Brewery Pi web app: sign-in, and the pages behind it.
 
 Run it with the ``brewerypi-web`` command (or
 ``python -m brewerypi.web.app``). Sign-in settings are described in
@@ -17,23 +17,23 @@ from __future__ import annotations
 import os
 import secrets
 from collections.abc import Callable
-from html import escape
 
 import uvicorn
-from fastapi import Depends, FastAPI, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import select
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session, sessionmaker
+from starlette.exceptions import HTTPException
 from starlette.middleware.sessions import SessionMiddleware
 
-from brewerypi import access
 from brewerypi.config import DATABASE_URL
 from brewerypi.database import create_app_engine
-from brewerypi.identity import CurrentUser, current_user
-from brewerypi.models import Enterprise, Site
-from brewerypi.services import PermissionDeniedError
+from brewerypi.services import NotFoundError, PermissionDeniedError
+from brewerypi.web import batches
 from brewerypi.web.auth import (
     CodeExchange,
+    NotSignedIn,
+    Refused,
     Settings,
     SignInFailed,
     SignInMiddleware,
@@ -42,94 +42,33 @@ from brewerypi.web.auth import (
     exchange_code,
     logout_url,
 )
+from brewerypi.web.rendering import message_page
 
 SESSION_COOKIE = "brewerypi_session"
 #: Idle limit: every request renews it, so a shift never gets signed out.
 SESSION_MAX_AGE_SECONDS = 12 * 60 * 60
 
-_STYLE = """
-:root { --bg: #eceff0; --surface: #ffffff; --ink: #162024; --muted: #59676d;
-  --line: #c6cfd3; --accent: #0e6c61; --accent-ink: #ffffff; --bad: #9e2419; }
-@media (prefers-color-scheme: dark) {
-  :root { --bg: #11171a; --surface: #192226; --ink: #e4ecee; --muted: #9babb1;
-    --line: #34434a; --accent: #45b8a7; --accent-ink: #052019; --bad: #ff8c7e;
-    color-scheme: dark; }
-}
-* { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--ink); font-size: 17px;
-  line-height: 1.4; font-family: "Segoe UI", system-ui, sans-serif; }
-main { max-width: 640px; margin: 0 auto; padding: 24px 16px; display: grid;
-  gap: 16px; }
-h1 { margin: 0; font-size: 26px; } h2 { margin: 0 0 4px; font-size: 18px; }
-p { margin: 0; } .muted { color: var(--muted); } .bad { color: var(--bad); }
-section { background: var(--surface); border: 1px solid var(--line);
-  border-radius: 10px; padding: 12px 16px; }
-ul { margin: 0; padding-left: 20px; }
-.btn { display: inline-block; min-height: 44px; padding: 10px 18px;
-  border: 0; border-radius: 10px; background: var(--accent);
-  color: var(--accent-ink); font: inherit; font-weight: 600;
-  text-decoration: none; cursor: pointer; }
-"""
 
-# ``no-store`` doesn't stop a browser restoring a page from memory on Back, so
-# a signed-out tablet could still show the last person's page. Reloading asks
-# the server, which sends a signed-out visitor to sign in.
-_RECHECK_ON_BACK = """
-window.addEventListener("pageshow", (event) => {
-  const nav = performance.getEntriesByType("navigation")[0];
-  if (event.persisted || (nav && nav.type === "back_forward")) {
-    location.reload();
-  }
-});
-"""
-
-_SIGN_OUT = (
-    '<form method="post" action="/logout">'
-    '<button class="btn" type="submit">Sign out</button></form>'
-)
-_SIGN_IN = '<p><a class="btn" href="/login">Sign in</a></p>'
-
-
-class _NotSignedIn(Exception):
-    """The page needs a signed-in user, and there isn't one."""
-
-
-class _Refused(Exception):
-    """They signed in, but Brewery Pi doesn't let them in."""
-
-
-def _page(title: str, body: str, status_code: int = 200) -> HTMLResponse:
-    """A whole page, never cached: tablets on the floor are shared."""
-    return HTMLResponse(
-        "<!DOCTYPE html>\n"
-        '<html lang="en"><head><meta charset="utf-8">'
-        '<meta name="viewport" content="width=device-width, '
-        'initial-scale=1">'
-        f"<title>{escape(title)} - Brewery Pi</title>"
-        f"<style>{_STYLE}</style><script>{_RECHECK_ON_BACK}</script></head>"
-        f"<body><main><h1>{escape(title)}</h1>{body}</main></body></html>",
-        status_code=status_code,
-        headers={"Cache-Control": "no-store"},
-    )
-
-
-def _refused_page(reason: str) -> HTMLResponse:
-    return _page(
+def _refused_page(request: Request, reason: str):
+    return message_page(
+        request,
         "You can't use Brewery Pi yet",
-        f'<p class="bad">{escape(reason)}</p>{_SIGN_OUT}',
+        reason,
         status_code=403,
+        sign_out=True,
+        tone="bad",
     )
 
 
-def _signed_in_user(request: Request) -> CurrentUser:
-    """The page's user, or an exception the app turns into the right page."""
-    refusal = getattr(request.state, "refusal", None)
-    if refusal:
-        raise _Refused(refusal)
-    user = current_user()
-    if user is None:
-        raise _NotSignedIn
-    return user
+def _not_found_page(request: Request):
+    """The one answer for anything missing or out of the person's scope."""
+    return message_page(
+        request,
+        "We can't find that",
+        "It may not exist, or you may not have access to it. Ask a Brewery "
+        "Pi administrator if you expected to see it.",
+        status_code=404,
+    )
 
 
 def create_app(
@@ -150,13 +89,31 @@ def create_app(
         https_only=settings.is_https,
     )
 
-    @app.exception_handler(_NotSignedIn)
-    def _send_to_sign_in(request: Request, exc: _NotSignedIn):
+    @app.exception_handler(NotSignedIn)
+    def _send_to_sign_in(request: Request, exc: NotSignedIn):
         return RedirectResponse("/login", status_code=303)
 
-    @app.exception_handler(_Refused)
-    def _show_refusal(request: Request, exc: _Refused):
-        return _refused_page(str(exc))
+    @app.exception_handler(Refused)
+    def _show_refusal(request: Request, exc: Refused):
+        return _refused_page(request, str(exc))
+
+    @app.exception_handler(NotFoundError)
+    def _show_not_found(request: Request, exc: NotFoundError):
+        return _not_found_page(request)
+
+    @app.exception_handler(RequestValidationError)
+    def _show_bad_address(request: Request, exc: RequestValidationError):
+        return _not_found_page(request)
+
+    @app.exception_handler(HTTPException)
+    def _show_http_error(request: Request, exc: HTTPException):
+        if exc.status_code == 404:
+            return _not_found_page(request)
+        return message_page(
+            request,
+            "That didn't work",
+            status_code=exc.status_code,
+        )
 
     @app.get("/healthz")
     def healthz() -> dict:
@@ -183,24 +140,30 @@ def create_app(
             or not state
             or not secrets.compare_digest(expected, state)
         ):
-            return _page(
+            return message_page(
+                request,
                 "That sign-in has expired",
-                "<p>Please start again.</p>" + _SIGN_IN,
+                "Please start again.",
                 status_code=400,
+                sign_in=True,
             )
         if error or not code:
-            return _page(
+            return message_page(
+                request,
                 "Sign-in didn't finish",
-                "<p>Please try again.</p>" + _SIGN_IN,
+                "Please try again.",
                 status_code=400,
+                sign_in=True,
             )
         try:
             sign_in = exchange(settings, code)
         except SignInFailed as exc:
-            return _page(
+            return message_page(
+                request,
                 "Sign-in didn't finish",
-                f"<p>{escape(str(exc))}</p>" + _SIGN_IN,
+                str(exc),
                 status_code=502,
+                sign_in=True,
             )
         # A new identity starts a new session, whoever was signed in before.
         request.session.clear()
@@ -211,7 +174,7 @@ def create_app(
         except PermissionDeniedError as exc:
             # No subject in the cookie, so this grants nothing. The session
             # id stays so that signing out lets them try another account.
-            return _refused_page(str(exc))
+            return _refused_page(request, str(exc))
         request.session["subject"] = sign_in.subject
         return RedirectResponse("/", status_code=303)
 
@@ -225,49 +188,10 @@ def create_app(
         return RedirectResponse(target, status_code=303)
 
     @app.get("/signed-out")
-    def signed_out():
-        return _page("You're signed out", _SIGN_IN)
+    def signed_out(request: Request):
+        return message_page(request, "You're signed out", sign_in=True)
 
-    @app.get("/")
-    def home(user: CurrentUser = Depends(_signed_in_user)):
-        with session_factory() as session:
-            enterprises = access.visible(
-                session,
-                user,
-                session.scalars(select(Enterprise).order_by(Enterprise.name)),
-            )
-            sites = access.visible(
-                session,
-                user,
-                session.scalars(select(Site).order_by(Site.name)),
-            )
-            sections = []
-            for enterprise in enterprises:
-                names = [
-                    f"<li>{escape(s.name)}</li>"
-                    for s in sites
-                    if s.enterprise_id == enterprise.id
-                ]
-                listing = (
-                    f"<ul>{''.join(names)}</ul>"
-                    if names
-                    else '<p class="muted">No sites yet.</p>'
-                )
-                sections.append(
-                    f"<section><h2>{escape(enterprise.name)}</h2>"
-                    f"{listing}</section>"
-                )
-        if not sections:
-            sections.append(
-                '<p class="muted">You have no breweries to see yet.</p>'
-            )
-        return _page(
-            "Brewery Pi",
-            f"<p>Signed in as <strong>{escape(user.email)}</strong></p>"
-            + "".join(sections)
-            + _SIGN_OUT,
-        )
-
+    app.include_router(batches.create_router(session_factory))
     return app
 
 

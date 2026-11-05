@@ -72,6 +72,20 @@ def test_settings_refuse_a_short_session_secret(env):
         Settings.from_env()
 
 
+@pytest.mark.parametrize(
+    "name, value",
+    [
+        ("WORKOS_CLIENT_ID", "client_REPLACE_ME"),
+        ("WORKOS_API_KEY", "sk_REPLACE_ME"),
+        ("WEB_SESSION_SECRET", "PASTE_THE_GENERATED_VALUE_FROM_THE_GUIDE"),
+    ],
+)
+def test_settings_refuse_the_deploy_guides_placeholders(env, name, value):
+    env.setenv(name, value)
+    with pytest.raises(RuntimeError, match=f"placeholder: {name}"):
+        Settings.from_env()
+
+
 def test_authorization_url_asks_authkit_for_a_code():
     query = _query(authorization_url(_SETTINGS, "the-state"))
     assert query == {
