@@ -21,8 +21,12 @@ delete guards.
   that also exposes config CRUD tools (measurement units so far) wrapping the
   service layer. The tiers run as separate processes on separate ports, one
   hostname each; built and deployed for demos. Both require WorkOS AuthKit
-  sign-in (`mcp_auth.py`) checked against the `users` allowlist. A Flask web
-  app is still planned.
+  sign-in (`mcp_auth.py`) checked against the `users` allowlist. A web app
+  (FastAPI + HTMX) is planned for brewery staff, because an
+  artifact shared from one Claude account gets no connector access for viewers
+  outside its organization. It shares `access.py`, `identity.py`,
+  `timezones.py` and `serializers.py` with the MCP tools, so a consumer never
+  needs its own copy of the access rules, time conversion or result format.
 - `pyproject.toml` is the single source of build, dependency, and tool config.
 
 ## Commands
@@ -382,7 +386,7 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
 - Identity phase 3 (attribution; `docs/design-decisions.md`, *How attribution
   is recorded*): authors are columns on `tag_values` and `event_frames`, and a
   change keeps the author and sets `updated_by_id`. Services take the user id
-  as a parameter and the tools pass `_caller_id()`, so a NEW write path must
+  as a parameter and the tools pass `caller_id()`, so a NEW write path must
   pass it too and get a test in `tests/test_mcp_attribution.py`. `delete_user`
   refuses anyone named (`attributed_counts`); it checks in the service because
   only the MCP server turns on SQLite's foreign key enforcement, so the CLI

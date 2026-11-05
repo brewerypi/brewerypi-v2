@@ -1,7 +1,7 @@
-"""UTC <-> local time conversion for the tool boundary.
+"""UTC <-> local time conversion for the consumer boundary.
 
-Readings are stored in UTC (``observed_at`` is naive UTC). The MCP tools
-accept and display *local* times; these helpers do the conversion
+Readings are stored in UTC (``observed_at`` is naive UTC). Consumers such as
+the MCP tools accept and display *local* times; these helpers do the conversion
 deterministically and DST-aware via :mod:`zoneinfo`, so the language model
 never does timezone math itself.
 
@@ -19,7 +19,14 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy.orm import Session
 
 from brewerypi.identity import current_user
-from brewerypi.models import Site
+from brewerypi.models import (
+    Area,
+    Element,
+    ElementTemplate,
+    EventFrame,
+    Site,
+    Tag,
+)
 from brewerypi.services.exceptions import ValidationError
 
 #: Fallback when a site has no usable timezone.
@@ -76,3 +83,32 @@ def from_utc(dt: datetime, tz_name: str) -> str:
         .astimezone(ZoneInfo(tz_name))
         .isoformat()
     )
+
+
+def zone_for_tag(session: Session, tag: Tag) -> str:
+    """Resolve the IANA timezone for a tag's readings (via its site)."""
+    area = session.get(Area, tag.area_id)
+    if area is None:
+        return DEFAULT_TIMEZONE
+    site = session.get(Site, area.site_id)
+    if site is None:
+        return DEFAULT_TIMEZONE
+    return resolve_timezone(session, site)
+
+
+def zone_for_element(session: Session, element: Element) -> str:
+    """Resolve the IANA timezone for an element (via its template's site)."""
+    template = session.get(ElementTemplate, element.element_template_id)
+    if template is None:
+        return DEFAULT_TIMEZONE
+    site = session.get(Site, template.site_id)
+    if site is None:
+        return DEFAULT_TIMEZONE
+    return resolve_timezone(session, site)
+
+
+def zone_for_frame(session: Session, frame: EventFrame) -> str:
+    element = session.get(Element, frame.element_id)
+    if element is None:
+        return DEFAULT_TIMEZONE
+    return zone_for_element(session, element)

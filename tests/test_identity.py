@@ -8,6 +8,7 @@ from brewerypi.database import Base
 from brewerypi.identity import (
     CurrentUser,
     authorize_tier,
+    caller_id,
     current_user,
     signed_in_as,
 )
@@ -108,6 +109,15 @@ def test_inactive_is_refused_even_for_a_superuser(ctx):
     for tier in ("operator", "admin"):
         with pytest.raises(PermissionDeniedError, match="deactivated"):
             authorize_tier(user, tier)
+
+
+def test_caller_id_names_the_signed_in_user():
+    assert caller_id() is None
+    me = CurrentUser(
+        id=7, email="a@b.com", timezone=None, is_superuser=False
+    )
+    with signed_in_as(me):
+        assert caller_id() == 7
 
 
 def test_unknown_tier_is_a_programming_error(ctx):

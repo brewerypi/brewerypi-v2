@@ -66,6 +66,12 @@ def current_user() -> CurrentUser | None:
     return _current_user.get()
 
 
+def caller_id() -> int | None:
+    """The signed-in user's id, to record as the author of a write."""
+    user = current_user()
+    return user.id if user is not None else None
+
+
 @contextmanager
 def signed_in_as(user: CurrentUser | None) -> Iterator[None]:
     """Make ``user`` the current user for the duration of the block."""

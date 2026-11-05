@@ -185,6 +185,22 @@ def check(session: Session, user, row: object, level: str) -> None:
         raise PermissionDeniedError(_refusal(user, place, level))
 
 
+def check_rows(
+    session: Session,
+    user,
+    checks: Iterable[tuple[type, int | None, str]],
+) -> None:
+    """Refuse ``user`` unless every ``(model, id, level)`` named is allowed.
+
+    An id that names no row is let through for the caller to report in its
+    own words, so a missing row and an out-of-scope row read the same.
+    """
+    for model, row_id, level in checks:
+        row = session.get(model, row_id) if row_id is not None else None
+        if row is not None:
+            check(session, user, row, level)
+
+
 def visible(session: Session, user, rows: Iterable[T]) -> list[T]:
     """Keep the rows ``user`` may read."""
     if _unrestricted(user):

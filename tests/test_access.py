@@ -14,12 +14,20 @@ from brewerypi.access import (
     Place,
     allowed,
     check,
+    check_rows,
     locate,
     visible,
 )
 from brewerypi.database import Base
 from brewerypi.identity import CurrentUser
-from brewerypi.models import Area, Enterprise, Lookup, Site, Tag
+from brewerypi.models import (
+    Area,
+    Enterprise,
+    EventFrame,
+    Lookup,
+    Site,
+    Tag,
+)
 from brewerypi.services import (
     NotFoundError,
     PermissionDeniedError,
@@ -158,6 +166,31 @@ def test_check_hides_other_companies_and_explains_refusals(session):
     check(session, operator, frame, OPERATE)
     with pytest.raises(PermissionDeniedError, match="not an administrator"):
         check(session, operator, site, CONFIGURE)
+
+
+def test_check_rows_lets_unnamed_and_missing_ids_through(session):
+    operator = _user(Grant(1, "operator", None))
+    check_rows(
+        session,
+        operator,
+        [(EventFrame, None, READ), (EventFrame, 99999, READ)],
+    )
+
+
+def test_check_rows_refuses_on_any_row_named(session):
+    ent, site, *_, frame = _brewery(session, "A")
+    other = _brewery(session, "B")[-1]
+    operator = _user(Grant(ent.id, "operator", None))
+
+    check_rows(session, operator, [(EventFrame, frame.id, OPERATE)])
+    with pytest.raises(NotFoundError, match="no event frame with id"):
+        check_rows(
+            session,
+            operator,
+            [(EventFrame, frame.id, READ), (EventFrame, other.id, READ)],
+        )
+    with pytest.raises(PermissionDeniedError, match="not an administrator"):
+        check_rows(session, operator, [(Site, site.id, CONFIGURE)])
 
 
 def test_visible_filters_to_what_the_user_may_read(session):
