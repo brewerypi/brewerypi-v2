@@ -320,6 +320,92 @@ If a connector its user thinks of as the operator one refuses with *"… is
 not an administrator; use the operator connector"*, it was added with the
 admin URL: only the admin tier says that. Remove it and add the operator URL.
 
+## Running the web app
+
+The web app (`brewerypi-web`) is how staff without Claude reach Brewery Pi. It
+shares the database and the user list with the MCP tiers, and runs as its own
+service on its own hostname. These steps assume `app.brewerypi.com`; use your
+own hostname throughout if it differs.
+
+**1. Point the name at the server.** Add a DNS `A` record for `app` with the
+server's IP, as in step 2.
+
+**2. Configure WorkOS.** In the same environment the MCP tiers use (dashboard
+labels move around; the [AuthKit docs](https://workos.com/docs/authkit) have
+the current ones):
+
+- **Redirects -> Redirect URIs**: add `https://app.brewerypi.com/callback`.
+- **Redirects -> Sign-out redirects**: add
+  `https://app.brewerypi.com/signed-out`. WorkOS sends people back here after
+  they sign out.
+- **Client ID**: copy it (`client_...`). It is from the same environment as
+  the API key, and a mismatch fails every sign-in.
+
+**3. Install and configure.**
+
+```
+cd /opt/brewerypi
+git pull
+.venv/bin/pip install -e ".[mcp,migrations,web]"
+.venv/bin/python -c "import secrets; print(secrets.token_urlsafe(48))"
+cat > /etc/brewerypi/web.env <<'EOF'
+DATABASE_URL=sqlite:////opt/brewerypi/app.db
+WORKOS_CLIENT_ID=client_REPLACE_ME
+WORKOS_API_KEY=sk_REPLACE_ME
+WEB_BASE_URL=https://app.brewerypi.com
+WEB_SESSION_SECRET=PASTE_THE_GENERATED_VALUE
+EOF
+chmod 600 /etc/brewerypi/web.env
+```
+
+`WEB_SESSION_SECRET` signs the session cookie. Changing it signs everyone out,
+which is the right response if it ever leaks. Keep it to this app: don't reuse
+it for anything else.
+
+**4. Run it as a service.** Create `/etc/systemd/system/brewerypi-web.service`:
+
+```ini
+[Unit]
+Description=BreweryPi web app
+After=network.target
+
+[Service]
+WorkingDirectory=/opt/brewerypi
+EnvironmentFile=/etc/brewerypi/web.env
+Environment=WEB_HOST=127.0.0.1
+Environment=WEB_PORT=8002
+ExecStart=/opt/brewerypi/.venv/bin/brewerypi-web
+Restart=on-failure
+User=root
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```
+systemctl daemon-reload
+systemctl enable --now brewerypi-web
+systemctl status brewerypi-web     # active (running)
+curl -s http://127.0.0.1:8002/healthz    # {"status":"ok"}
+```
+
+A service that exits at once with *"web sign-in is not configured"* is missing
+a setting from the env file. There is no way to run it with sign-in off.
+
+**5. Add it to Caddy.** Add this to `/etc/caddy/Caddyfile`, then run
+`systemctl reload caddy`:
+
+```
+app.brewerypi.com {
+    reverse_proxy 127.0.0.1:8002
+}
+```
+
+**6. Test it.** Open `https://app.brewerypi.com` in a private window. Signing
+in should list only the companies and sites that person has been given, and
+someone not on the user list should be told so. Signing out and back in should
+ask for the account again.
+
 ## Moving a shared-secret deployment to sign-in
 
 For a box set up from an earlier version of this guide (secret paths on
@@ -405,12 +491,13 @@ would be refused in Production as "already linked to a different sign-in"
 ```
 cd /opt/brewerypi
 git pull
-.venv/bin/pip install -e ".[mcp,migrations]"
+.venv/bin/pip install -e ".[mcp,migrations,web]"
 DATABASE_URL=sqlite:////opt/brewerypi/app.db .venv/bin/alembic upgrade head
-systemctl restart brewerypi-mcp-operator brewerypi-mcp-admin
+systemctl restart brewerypi-mcp-operator brewerypi-mcp-admin brewerypi-web
 ```
 
-The `alembic upgrade head` applies any new migrations; it's a no-op when
+Leave `brewerypi-web` off the restart until the web app is set up (see *Running
+the web app*). The `alembic upgrade head` applies any new migrations; it's a no-op when
 there are none, so it's safe to run every time. Back up `app.db` first (see
 Notes) if the release touches data rather than just code.
 

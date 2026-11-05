@@ -295,6 +295,30 @@ match on the subject alone. The column is provider-neutral on purpose:
 switching identity providers means clearing the subjects, and everyone
 re-links by email on their next sign-in.
 
+### Signing in to the web app
+
+The web app is a confidential client of the same AuthKit, so a person is the
+same person on every consumer, matched the same way by verified email. The
+differences follow from it being a browser application rather than a resource
+server. It runs the authorization code flow itself, and WorkOS hands back the
+email directly, so there's no separate lookup.
+
+**The cookie holds who, never what.** The signed session cookie carries only
+the WorkOS subject and session id. Each request resolves the subject against
+`users` again, as the MCP tiers do on each tool call, so deactivating someone
+or removing their access applies on their next click rather than at the next
+sign-in. That is one query per request, which is a good price for access that
+can't go stale.
+
+**Signing out ends the AuthKit session too.** Clearing only our cookie would
+leave AuthKit signed in, and on a tablet shared across a shift the next person
+to press Sign in would become the previous person without being asked.
+
+**No way to run it with sign-in off.** `MCP_AUTH=none` exists for local work on
+the tools, and it means "unrestricted". A browser app on a shared network is a
+worse place for that switch, so the web app doesn't have one. Local work signs
+in through the WorkOS Staging environment.
+
 ### Provisioning: an allowlist
 
 AuthKit will authenticate anyone, so authentication grants nothing. A

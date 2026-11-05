@@ -33,6 +33,16 @@ mcp = [
     "anyio>=4.5",
     "httpx>=0.27",
 ]
+# Install with `pip install -e ".[web]"` to run the web app.
+web = [
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    # SessionMiddleware signs its cookie with this, and declares it only as
+    # an optional extra of starlette.
+    "itsdangerous>=2.2",
+    "anyio>=4.5",
+    "httpx>=0.27",
+]
 # Install with `pip install -e ".[migrations]"` to run Alembic.
 migrations = [
     "alembic>=1.13",
@@ -43,6 +53,7 @@ migrations = [
 brewerypi = "brewerypi.main:main"
 brewerypi-mcp = "brewerypi.mcp_server:main"
 brewerypi-users = "brewerypi.users_cli:main"
+brewerypi-web = "brewerypi.web.app:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

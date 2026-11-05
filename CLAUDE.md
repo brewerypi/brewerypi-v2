@@ -22,11 +22,13 @@ delete guards.
   service layer. The tiers run as separate processes on separate ports, one
   hostname each; built and deployed for demos. Both require WorkOS AuthKit
   sign-in (`mcp_auth.py`) checked against the `users` allowlist. A web app
-  (FastAPI + HTMX) is planned for brewery staff, because an
-  artifact shared from one Claude account gets no connector access for viewers
-  outside its organization. It shares `access.py`, `identity.py`,
-  `timezones.py` and `serializers.py` with the MCP tools, so a consumer never
-  needs its own copy of the access rules, time conversion or result format.
+  (`src/brewerypi/web/`, FastAPI + HTMX) is being built for brewery staff,
+  because an artifact shared from one Claude account gets no connector access
+  for viewers outside its organization. So far it has sign-in and a page
+  listing what you can reach; batch screens come next. It shares `access.py`,
+  `identity.py`, `timezones.py` and `serializers.py` with the MCP tools, so a
+  consumer never needs its own copy of the access rules, time conversion or
+  result format.
 - `pyproject.toml` is the single source of build, dependency, and tool config.
 
 ## Commands
@@ -39,6 +41,10 @@ delete guards.
 - Run the MCP server: `pip install -e ".[mcp]"` then `brewerypi-mcp`
   (locally: `MCP_AUTH=none brewerypi-mcp` -- with sign-in neither
   configured nor explicitly disabled it refuses to start)
+- Run the web app: `pip install -e ".[web]"` then `brewerypi-web` (env:
+  `WORKOS_CLIENT_ID`, `WORKOS_API_KEY`, `WEB_BASE_URL`, `WEB_SESSION_SECRET`,
+  `WEB_HOST`/`WEB_PORT`; there is no way to run it with sign-in off). The test
+  suite needs this extra too.
 - Manage users / bootstrap the first superuser: `brewerypi-users --help`
 - Migrations (Alembic): `pip install -e ".[migrations]"`, then
   `alembic upgrade head` (new DB) or `alembic stamp head` (adopt on an
@@ -249,6 +255,9 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
   migration that renames tables/columns.
 
 ## Gotchas
+- A server's engine comes from `database.create_app_engine`, not plain
+  `create_engine`: SQLite leaves foreign keys off and doesn't wait on locks
+  unless told, per connection.
 - Re-running the seed script on a populated database fails (unique constraints
   on enterprise name/abbreviation). Clear the DB first — delete `app.db`, or
   drop and recreate the tables — then seed.
@@ -292,7 +301,7 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
 
 ## In place
 - MIT `LICENSE`, CI (GitHub Actions: ruff + pytest on 3.10–3.13 on Linux plus
-  one `windows-latest` job on 3.13, installing the `dev` + `mcp` extras),
+  one `windows-latest` job on 3.13, installing the `dev`, `mcp` and `web` extras),
   pre-commit hook, `.gitattributes` (LF). The Windows job exists to catch
   platform breakage (missing system tz database, paths, line endings) that a
   Linux-only matrix structurally cannot see — keep it when editing the matrix.
@@ -392,3 +401,11 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
   only the MCP server turns on SQLite's foreign key enforcement, so the CLI
   would otherwise leave dangling ids. Only the latest change is kept and
   deletes leave no trace: a full history would be a separate log, not built.
+- Web sign-in (`web/auth.py`, `docs/design-decisions.md`, *Signing in to the
+  web app*): the same allowlist as MCP via `link_sign_in`, gated like the
+  operator tier. The cookie holds only the WorkOS subject and session id;
+  `SignInMiddleware` re-resolves the subject on every request and publishes it
+  with `signed_in_as`, so `current_user()`, `access` and `resolve_timezone`
+  work unchanged in routes. It is ASGI middleware rather than a FastAPI
+  dependency because a sync dependency runs in a copied context, so the user
+  wouldn't reach the route. Pages use `Depends(_signed_in_user)`.

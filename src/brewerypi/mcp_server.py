@@ -38,7 +38,7 @@ from datetime import datetime, timezone
 
 from fastmcp import FastMCP
 from mcp.types import BlobResourceContents, EmbeddedResource
-from sqlalchemy import create_engine, event, func, select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -50,6 +50,7 @@ from brewerypi.access import (
     READ,
 )
 from brewerypi.config import DATABASE_URL
+from brewerypi.database import create_app_engine
 from brewerypi.identity import TIERS, caller_id, current_user
 from brewerypi.models import (
     Area,
@@ -102,18 +103,8 @@ from brewerypi.timezones import (
     zone_for_tag,
 )
 
-_engine = create_engine(DATABASE_URL)
+_engine = create_app_engine(DATABASE_URL)
 _Session = sessionmaker(_engine)
-
-if _engine.dialect.name == "sqlite":
-
-    @event.listens_for(_engine, "connect")
-    def _sqlite_pragmas(dbapi_conn, _record):
-        """Enforce foreign keys and wait on locks (writes need both)."""
-        cur = dbapi_conn.cursor()
-        cur.execute("PRAGMA foreign_keys=ON")
-        cur.execute("PRAGMA busy_timeout=5000")
-        cur.close()
 
 _SHARED_INSTRUCTIONS = """
 Brewery Pi is a process-data historian for breweries. You are talking to
