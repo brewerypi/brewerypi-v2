@@ -403,7 +403,7 @@ def test_names_are_escaped(world):
     assert "&lt;script&gt;alert(1)" in text
 
 
-def test_the_batch_pages_offer_no_way_to_change_anything(client, world):
+def test_viewing_pages_hold_no_forms_that_write(client, world):
     _, ids = world
     for path in (
         "/",

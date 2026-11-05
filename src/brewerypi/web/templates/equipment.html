@@ -9,6 +9,11 @@
   <h1>{{ element.name }}</h1>
   <p class="muted">{{ kind }}</p>
 </div>
+{% if start_types %}
+<div class="actions">
+  {% for type in start_types %}<a class="btn" href="/equipment/{{ element.id }}/start?type_id={{ type.id }}">Start {{ type.name }}</a>{% endfor %}
+</div>
+{% endif %}
 <section class="section">
   <h2>Running now</h2>
   {{ batch_list(running, "No batch is running on " ~ element.name ~ ".") }}

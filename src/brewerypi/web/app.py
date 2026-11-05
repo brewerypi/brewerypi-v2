@@ -29,7 +29,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from brewerypi.config import DATABASE_URL
 from brewerypi.database import create_app_engine
 from brewerypi.services import NotFoundError, PermissionDeniedError
-from brewerypi.web import batches
+from brewerypi.web import batch_actions, batches
 from brewerypi.web.auth import (
     CodeExchange,
     NotSignedIn,
@@ -100,6 +100,16 @@ def create_app(
     @app.exception_handler(NotFoundError)
     def _show_not_found(request: Request, exc: NotFoundError):
         return _not_found_page(request)
+
+    @app.exception_handler(PermissionDeniedError)
+    def _show_forbidden(request: Request, exc: PermissionDeniedError):
+        return message_page(
+            request,
+            "You can't do that here",
+            str(exc),
+            status_code=403,
+            tone="bad",
+        )
 
     @app.exception_handler(RequestValidationError)
     def _show_bad_address(request: Request, exc: RequestValidationError):
@@ -192,6 +202,7 @@ def create_app(
         return message_page(request, "You're signed out", sign_in=True)
 
     app.include_router(batches.create_router(session_factory))
+    app.include_router(batch_actions.create_router(session_factory))
     return app
 
 

@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Close {{ frame.name }}{% endblock %}
+{% block content %}
+<nav class="crumbs" aria-label="Breadcrumb"><a href="/batches/{{ frame.id }}">{{ frame.name }}</a></nav>
+<h1>Close {{ type_name }} “{{ frame.name }}” on {{ vessel }}</h1>
+{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+{% if steps %}<p>This also closes {{ steps }} running step{{ "" if steps == 1 else "s" }} inside it.</p>{% endif %}
+<form method="post" action="/batches/{{ frame.id }}/close" class="fields">
+  <label class="field" for="ended_at">End time ({{ timezone }})
+    <input id="ended_at" name="ended_at" type="datetime-local" value="{{ ended_at }}" required>
+  </label>
+  <div class="actions">
+    <button class="btn" id="review" type="submit" name="action" value="review">Review</button>
+    <a class="btn quiet" href="/batches/{{ frame.id }}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Please confirm{% endblock %}
+{% block content %}
+<h1>{{ heading }}</h1>
+{% if changes %}
+<ul class="section plain">{% for line in changes %}<li>{{ line }}</li>{% endfor %}</ul>
+{% endif %}
+{% for warning in warnings %}<p class="warn" role="alert">{{ warning }}</p>{% endfor %}
+{% for note in notes %}<p>{{ note }}</p>{% endfor %}
+<form method="post" action="{{ action_url }}" class="actions">
+  {% for field, value in hidden.items() %}<input type="hidden" name="{{ field }}" value="{{ value }}">{% endfor %}
+  <input type="hidden" name="token" value="{{ token }}">
+  <button class="btn{% if danger %} danger{% endif %}" id="confirm" type="submit" name="action" value="confirm">{{ confirm_label }}</button>
+  {% if can_change %}<button class="btn quiet" id="change" type="submit" name="action" value="change">Change</button>{% endif %}
+  <a class="btn quiet" href="{{ cancel_url }}">Cancel</a>
+</form>
+<footer>Times are in {{ timezone }}.</footer>
+{% endblock %}

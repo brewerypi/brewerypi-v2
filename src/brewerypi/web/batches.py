@@ -1,4 +1,6 @@
-"""Read-only batch screens: what is running, and what has run.
+"""Viewing batches: what is running, and what has run.
+
+Changing them lives in ``batch_actions``.
 
 Every page checks the row its address names with ``access.check``, and every
 list keeps only what the signed-in user may read, so another company's ids
@@ -224,6 +226,13 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                 finished=finished,
                 page_number=page_number,
                 has_older=has_older,
+                # Only offer what the overlap rule would let through; the
+                # service still decides. A brewhouse runs several at once.
+                start_types=(
+                    services.list_event_frame_templates(session, template.id)
+                    if template.exclusive is False or not running
+                    else []
+                ),
             )
 
     @router.get("/batches/{batch_id}")
