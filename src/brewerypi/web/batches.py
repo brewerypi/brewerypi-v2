@@ -92,21 +92,72 @@ def _finished(
     return [_batch(session, f) for f in shown], has_older
 
 
+def _type_filters(running: list[dict]) -> list[dict]:
+    """The batch types running, by name, with how many of each.
+
+    Only top-level batches count: a step is shown inside its batch, so
+    filtering on it would hide the batch it belongs to.
+    """
+    counts: dict[str, int] = {}
+    for batch in running:
+        counts[batch["type_name"]] = counts.get(batch["type_name"], 0) + 1
+    return [
+        {"name": name, "count": counts[name]} for name in sorted(counts)
+    ]
+
+
+def _busy(elements: list[Element], running_ids: set[int]) -> set[int]:
+    """Equipment that is running a batch, or holds equipment that is."""
+    parent_of = {e.id: e.parent_id for e in elements}
+    busy: set[int] = set()
+    for element_id in running_ids:
+        while element_id is not None and element_id not in busy:
+            busy.add(element_id)
+            element_id = parent_of.get(element_id)
+    return busy
+
+
+def _site_busy(session: Session, site_id: int) -> set[int]:
+    """Every busy element at a site, by the rule in :func:`_busy`.
+
+    Uses every element and open batch at the site, seen or not: whether a
+    vessel is free doesn't depend on who is looking.
+    """
+    running_ids = {
+        f.element_id
+        for f in services.list_event_frames(
+            session, site_id=site_id, open_only=True
+        )
+    }
+    return _busy(services.list_elements(session, site_id=site_id), running_ids)
+
+
+def _chips(elements: list[Element], busy: set[int]) -> list[dict]:
+    return [
+        {"id": e.id, "name": e.name, "busy": e.id in busy} for e in elements
+    ]
+
+
 def _equipment_by_kind(
-    session: Session, user: CurrentUser, site: Site, running: list[dict]
+    session: Session, user: CurrentUser, site: Site
 ) -> list[dict]:
-    """The site's equipment, grouped by kind, saying what is busy."""
-    busy = {b["element_id"] for b in running}
-    elements = access.visible(
-        session, user, services.list_elements(session, site_id=site.id)
-    )
+    """The site's top-level equipment, grouped by kind, saying what is busy.
+
+    Equipment inside other equipment is reached from its parent's page.
+    """
+    busy = _site_busy(session, site.id)
+    elements = [
+        e
+        for e in access.visible(
+            session, user, services.list_elements(session, site_id=site.id)
+        )
+        if e.parent_id is None
+    ]
     kinds = []
     for kind in services.list_element_templates(session, site.id):
-        members = [
-            {"id": e.id, "name": e.name, "busy": e.id in busy}
-            for e in elements
-            if e.element_template_id == kind.id
-        ]
+        members = _chips(
+            [e for e in elements if e.element_template_id == kind.id], busy
+        )
         if members:
             kinds.append({"name": kind.name, "equipment": members})
     return kinds
@@ -160,6 +211,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         request: Request,
         site_id: int,
         page_number: int = Query(1, alias="page", ge=1),
+        batch_type: str | None = Query(None, alias="type"),
         user: CurrentUser = Depends(signed_in_user),
     ):
         with session_factory() as session:
@@ -181,16 +233,29 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                 site_id=site.id,
                 top_level_only=True,
             )
+            nested = _nested(running)
+            batch_type = batch_type or None
             return page(
                 request,
                 "site.html",
                 site=site,
                 timezone=resolve_timezone(session, site),
-                running=_nested(running),
-                kinds=_equipment_by_kind(session, user, site, running),
+                running=[
+                    b
+                    for b in nested
+                    if batch_type is None or b["type_name"] == batch_type
+                ],
+                running_total=len(nested),
+                types=_type_filters(nested),
+                batch_type=batch_type,
+                kinds=_equipment_by_kind(session, user, site),
                 finished=finished,
                 page_number=page_number,
                 has_older=has_older,
+                # Paging keeps the filter, so Older doesn't lose your place.
+                paging_query=(
+                    {"type": batch_type} if batch_type is not None else {}
+                ),
             )
 
     @router.get("/equipment/{element_id}")
@@ -215,12 +280,27 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
             finished, has_older = _finished(
                 session, user, page_number, element_id=element.id
             )
+            # Parents share the element's site, so whoever reads it reads
+            # them too.
+            path = []
+            parent_id = element.parent_id
+            while parent_id is not None:
+                parent = session.get(Element, parent_id)
+                path.insert(0, parent)
+                parent_id = parent.parent_id
+            children = access.visible(
+                session,
+                user,
+                services.list_elements(session, parent_id=element.id),
+            )
             return page(
                 request,
                 "equipment.html",
                 element=element,
                 kind=template.name,
                 site=site,
+                path=path,
+                inside=_chips(children, _site_busy(session, site.id)),
                 timezone=resolve_timezone(session, site),
                 running=running,
                 finished=finished,
