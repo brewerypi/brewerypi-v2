@@ -420,5 +420,9 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
 - Web batch screens (`web/batches.py`, Jinja templates in `web/templates/`,
   autoescaped): a page checks the row its address names with `_readable`, and
   lists filter through `access.visible`. Anything missing or out of scope gets
-  the same 404 page, byte for byte. Only `base.html` holds CSS, and it holds
+  the same 404 page, byte for byte. The site page lists only top-level
+  equipment (children are reached from their parent's page) and filters
+  running batches by top-level type name (`?type=`); equipment counts as
+  busy when it or anything inside it runs a batch. Only `base.html` holds
+  CSS, and it holds
   the script that reloads a page restored on Back.

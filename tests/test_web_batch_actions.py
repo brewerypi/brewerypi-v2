@@ -544,6 +544,31 @@ def test_an_edit_that_changes_nothing_is_refused(client, world):
     assert "Nothing has changed" in response.text
 
 
+def test_an_edit_moving_a_time_into_the_future_is_flagged(client, world):
+    factory, ids = world
+    with factory() as s:
+        batch = create_event_frame(
+            s,
+            ids["fv03"],
+            ids["fermentation"],
+            "Later",
+            started_at=datetime(2026, 1, 15, 12, 0),
+        )
+        s.commit()
+        batch_id = batch.id
+    url = f"/batches/{batch_id}/edit"
+    review = client.post(
+        url, data={"name": "Later", "started_at": "2099-01-01T10:00"}
+    )
+    assert review.status_code == 200
+    assert "The new start time is in the future." in review.text
+    rename = client.post(
+        url, data={"name": "Later 2", "started_at": "2026-01-15T06:00"}
+    )
+    assert rename.status_code == 200
+    assert "in the future" not in rename.text
+
+
 def test_renaming_leaves_seconds_on_the_stored_times_alone(client, world):
     factory, ids = world
     exact = datetime(2026, 1, 15, 18, 30, 45)

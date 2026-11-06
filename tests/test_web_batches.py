@@ -5,6 +5,7 @@ what matters here is what a signed-in person can't see.
 """
 
 from datetime import datetime
+from types import SimpleNamespace
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -25,7 +26,7 @@ from brewerypi.services import (
 )
 from brewerypi.web.app import create_app
 from brewerypi.web.auth import Settings, SignIn
-from brewerypi.web.batches import PAGE_SIZE
+from brewerypi.web.batches import PAGE_SIZE, _busy
 
 _SETTINGS = Settings(
     client_id="client_123",
@@ -132,7 +133,7 @@ def world(tmp_path):
         s.commit()
         ids = {
             "spr": spr.id, "atl": atl.id, "sec": sec.id,
-            "bh1": bh1.id, "fv01": fv01.id, "fv02": fv02.id,
+            "bh1": bh1.id, "mm1": mm1.id, "fv01": fv01.id, "fv02": fv02.id,
             "fermentation": fermentation.id,
             "running_brew": running_brew.id, "running_mash": running_mash.id,
             "finished": finished.id, "running_ferment": running_ferment.id,
@@ -225,6 +226,113 @@ def test_site_page_groups_equipment_and_says_what_is_busy(client, world):
     assert f'href="/equipment/{ids["fv01"]}"' in text
     assert "Busy" in text
     assert "Times are in America/Chicago." in text
+
+
+def test_running_batches_filter_by_type(client, world):
+    _, ids = world
+    url = f"/sites/{ids['spr']}"
+    everything = client.get(url).text
+    assert 'aria-label="Show batch type"' in everything
+    assert 'All <span class="pill">3</span>' in everything
+    assert f'href="{url}?type=Transfer+out"' in everything
+    running = client.get(url, params={"type": "Fermentation"}).text
+    shown, finished = running.split("Recently finished")
+    assert "Batch 1240" in shown
+    assert "Brew 88" not in shown
+    assert "Move 1239" not in shown
+    # Only the running list is filtered.
+    assert "Batch 1239" in finished
+
+
+def test_filtering_keeps_steps_inside_their_batch(client, world):
+    _, ids = world
+    text = client.get(
+        f"/sites/{ids['spr']}", params={"type": "Brew"}
+    ).text
+    shown = text.split("Recently finished")[0]
+    assert "Brew 88" in shown
+    assert "Mash 88" in shown
+    assert "Batch 1240" not in shown
+    # A step isn't offered as a filter of its own.
+    assert "?type=Mashing" not in text
+
+
+def test_a_type_with_nothing_running_says_so(client, world):
+    _, ids = world
+    text = client.get(
+        f"/sites/{ids['spr']}", params={"type": "Lagering"}
+    ).text
+    assert "No Lagering batches are running at Springfield." in text
+    assert f'href="/sites/{ids["spr"]}"' in text
+
+
+def test_one_type_running_needs_no_filter(client, world):
+    factory, ids = world
+    with factory() as s:
+        tank_t = create_element_template(s, ids["atl"], "Tank")
+        batch_t = create_event_frame_template(s, tank_t.id, "Conditioning")
+        tank = create_element(s, tank_t.id, "T1")
+        create_event_frame(
+            s, tank.id, batch_t.id, "Only one", started_at=_at(3)
+        )
+        s.commit()
+    text = client.get(f"/sites/{ids['atl']}").text
+    assert "Only one" in text
+    assert 'aria-label="Show batch type"' not in text
+
+
+def test_paging_finished_batches_keeps_the_filter(world):
+    factory, ids = world
+    with factory() as s:
+        for day in range(1, PAGE_SIZE + 2):
+            create_event_frame(
+                s, ids["fv02"], ids["fermentation"], f"Old {day:02d}",
+                started_at=datetime(2025, 1, day, 1),
+                ended_at=datetime(2025, 1, day, 2),
+            )
+        s.commit()
+    text = _client(factory).get(
+        f"/sites/{ids['spr']}", params={"type": "Fermentation"}
+    ).text
+    assert 'href="?type=Fermentation&amp;page=2"' in text
+
+
+def test_site_page_lists_only_top_level_equipment(client, world):
+    _, ids = world
+    text = client.get(f"/sites/{ids['spr']}").text
+    assert f'href="/equipment/{ids["bh1"]}"' in text
+    assert f'href="/equipment/{ids["mm1"]}"' not in text
+    assert "Mash Mixer" not in text.split("<h2>Equipment</h2>")[1]
+
+
+def test_equipment_page_lists_what_is_inside_it(client, world):
+    _, ids = world
+    text = client.get(f"/equipment/{ids['bh1']}").text
+    inside = text.split("Inside this equipment")[1]
+    assert f'href="/equipment/{ids["mm1"]}"' in inside
+    assert "Busy" in inside
+    # Equipment with nothing inside has no such section.
+    assert "Inside this equipment" not in client.get(
+        f"/equipment/{ids['fv01']}"
+    ).text
+
+
+def test_equipment_breadcrumb_climbs_back_up(client, world):
+    _, ids = world
+    crumbs = client.get(f"/equipment/{ids['mm1']}").text.split("</nav>")[0]
+    assert f'href="/sites/{ids["spr"]}"' in crumbs
+    assert f'href="/equipment/{ids["bh1"]}"' in crumbs
+
+
+def test_equipment_is_busy_when_anything_inside_it_is():
+    def element(id, parent_id=None):
+        return SimpleNamespace(id=id, parent_id=parent_id)
+
+    brewhouse, mixer, kettle, tank = (
+        element(1), element(2, 1), element(3, 2), element(4)
+    )
+    busy = _busy([brewhouse, mixer, kettle, tank], {3})
+    assert busy == {1, 2, 3}
 
 
 def test_times_show_in_the_sites_zone(client, world):

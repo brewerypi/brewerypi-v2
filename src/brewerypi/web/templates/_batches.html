@@ -29,11 +29,13 @@
 {% endif %}
 {% endmacro %}
 
-{% macro paging(page_number, has_older) %}
+{# query: other parameters the page links must keep, such as a filter. #}
+{% macro paging(page_number, has_older, query={}) %}
+{% set keep = (query | urlencode) ~ "&" if query else "" %}
 {% if page_number > 1 or has_older %}
 <div class="chips">
-  {% if page_number > 1 %}<a class="btn quiet" href="?page={{ page_number - 1 }}">Newer</a>{% endif %}
-  {% if has_older %}<a class="btn quiet" href="?page={{ page_number + 1 }}">Older</a>{% endif %}
+  {% if page_number > 1 %}<a class="btn quiet" href="?{{ keep }}page={{ page_number - 1 }}">Newer</a>{% endif %}
+  {% if has_older %}<a class="btn quiet" href="?{{ keep }}page={{ page_number + 1 }}">Older</a>{% endif %}
 </div>
 {% endif %}
 {% endmacro %}

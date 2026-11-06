@@ -695,12 +695,21 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                     400,
                 )
             notes = ["Readings already recorded stay where they are."]
+            warnings: list[str] = []
+            if "started_at" in changes:
+                warnings += _future_warning(
+                    changes["started_at"], "The new start time"
+                )
+            if "ended_at" in changes:
+                warnings += _future_warning(
+                    changes["ended_at"], "The new end time"
+                )
             return page(
                 request,
                 "batch_confirm.html",
                 heading=f"Save these changes to “{old_name}”?",
                 changes=changed,
-                warnings=[],
+                warnings=warnings,
                 notes=notes,
                 action_url=f"/batches/{batch_id}/edit",
                 hidden={
