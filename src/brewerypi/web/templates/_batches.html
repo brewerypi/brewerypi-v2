@@ -29,6 +29,17 @@
 {% endif %}
 {% endmacro %}
 
+{# A row of buttons narrowing a list to one batch type; empty, no row. #}
+{% macro type_filter(buttons, label) %}
+{% if buttons %}
+<nav class="chips" aria-label="{{ label }}">
+  {% for button in buttons %}
+  <a class="chip{% if button.on %} on{% endif %}" href="{{ button.href }}"{% if button.on %} aria-current="true"{% endif %}>{{ button.name }} <span class="pill">{{ button.count }}</span></a>
+  {% endfor %}
+</nav>
+{% endif %}
+{% endmacro %}
+
 {# query: other parameters the page links must keep, such as a filter. #}
 {% macro paging(page_number, has_older, query={}) %}
 {% set keep = (query | urlencode) ~ "&" if query else "" %}

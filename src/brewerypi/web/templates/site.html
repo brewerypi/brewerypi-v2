@@ -1,21 +1,14 @@
 {% extends "base.html" %}
-{% from "_batches.html" import batch_card, batch_list, paging %}
+{% from "_batches.html" import batch_card, batch_list, paging, type_filter %}
 {% block title %}{{ site.name }}{% endblock %}
 {% block content %}
 <nav class="crumbs" aria-label="Breadcrumb"><a href="/">Your breweries</a></nav>
 <h1>{{ site.name }}</h1>
 <section class="section">
   <h2>Running now</h2>
-  {% if types|length > 1 or batch_type %}
-  <nav class="chips" aria-label="Show batch type">
-    <a class="chip{% if not batch_type %} on{% endif %}" href="/sites/{{ site.id }}"{% if not batch_type %} aria-current="page"{% endif %}>All <span class="pill">{{ running_total }}</span></a>
-    {% for type in types %}
-    <a class="chip{% if type.name == batch_type %} on{% endif %}" href="/sites/{{ site.id }}?{{ {'type': type.name} | urlencode }}"{% if type.name == batch_type %} aria-current="page"{% endif %}>{{ type.name }} <span class="pill">{{ type.count }}</span></a>
-    {% endfor %}
-  </nav>
-  {% endif %}
+  {{ type_filter(running_filter, "Show running batch type") }}
   {% for batch in running %}{{ batch_card(batch, True) }}{% else %}
-  <div class="empty">{% if batch_type %}No {{ batch_type }} batches are running at {{ site.name }}.{% else %}No batches are running at {{ site.name }}.{% endif %}</div>
+  <div class="empty">{% if running_type %}No {{ running_type }} batches are running at {{ site.name }}.{% else %}No batches are running at {{ site.name }}.{% endif %}</div>
   {% endfor %}
 </section>
 <section class="section">
@@ -36,7 +29,8 @@
 </section>
 <section class="section">
   <h2>Recently finished</h2>
-  {{ batch_list(finished, "No finished batches to show.") }}
+  {{ type_filter(finished_filter, "Show finished batch type") }}
+  {{ batch_list(finished, "No finished " ~ finished_type ~ " batches to show." if finished_type else "No finished batches to show.") }}
   {{ paging(page_number, has_older, paging_query) }}
 </section>
 <footer>Times are in {{ timezone }}.</footer>

@@ -422,7 +422,9 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
   lists filter through `access.visible`. Anything missing or out of scope gets
   the same 404 page, byte for byte. The site page lists only top-level
   equipment (children are reached from their parent's page) and filters
-  running batches by top-level type name (`?type=`); equipment counts as
+  running and finished batches separately by top-level type name
+  (`?running=`, `?finished=`; the finished filter is a database query, by
+  template ids sharing that name, because that list pages); equipment counts as
   busy when it or anything inside it runs a batch. Only `base.html` holds
   CSS, and it holds
   the script that reloads a page restored on Back.

@@ -75,6 +75,7 @@ from brewerypi.services.event_frame_templates import (
 )
 from brewerypi.services.event_frames import (
     close_event_frame,
+    count_finished_top_level_by_template,
     create_event_frame,
     delete_event_frame,
     get_event_frame,
@@ -167,6 +168,7 @@ __all__ = [
     "add_default_measurement_units",
     "build_tag_name",
     "close_event_frame",
+    "count_finished_top_level_by_template",
     "create_area",
     "create_element",
     "create_element_attribute_template",
