@@ -107,6 +107,7 @@ def list_event_frames(
     top_level_only: bool = False,
     limit: int | None = None,
     offset: int = 0,
+    event_frame_template_ids: Collection[int] | None = None,
 ) -> list[EventFrame]:
     """Return event frames, newest first, optionally filtered.
 
@@ -116,6 +117,9 @@ def list_event_frames(
     other half: what moved out of, or into, a given batch. ``limit`` and
     ``offset`` page through a long history, which is why the order breaks
     ties on id: a page must not repeat or skip a batch.
+    ``event_frame_template_ids`` keeps frames of any of those templates --
+    several kinds of equipment can each have a "Cleaning" -- and an empty
+    collection keeps none.
     """
     stmt = select(EventFrame).order_by(
         EventFrame.started_at.desc(), EventFrame.id.desc()
@@ -125,6 +129,12 @@ def list_event_frames(
     if event_frame_template_id is not None:
         stmt = stmt.where(
             EventFrame.event_frame_template_id == event_frame_template_id
+        )
+    if event_frame_template_ids is not None:
+        stmt = stmt.where(
+            EventFrame.event_frame_template_id.in_(
+                list(event_frame_template_ids)
+            )
         )
     if parent_id is not None:
         stmt = stmt.where(EventFrame.parent_id == parent_id)
@@ -148,16 +158,7 @@ def list_event_frames(
             == destination_event_frame_id
         )
     if site_id is not None:
-        stmt = stmt.where(
-            EventFrame.element_id.in_(
-                select(Element.id)
-                .join(
-                    ElementTemplate,
-                    Element.element_template_id == ElementTemplate.id,
-                )
-                .where(ElementTemplate.site_id == site_id)
-            )
-        )
+        stmt = stmt.where(EventFrame.element_id.in_(_site_elements(site_id)))
     if closed_only:
         stmt = stmt.where(EventFrame.ended_at.is_not(None))
     if top_level_only:
@@ -167,6 +168,38 @@ def list_event_frames(
     if limit is not None:
         stmt = stmt.limit(limit)
     return list(session.scalars(stmt).all())
+
+
+def _site_elements(site_id: int):
+    """The ids of every element at a site, as a subquery."""
+    return (
+        select(Element.id)
+        .join(
+            ElementTemplate,
+            Element.element_template_id == ElementTemplate.id,
+        )
+        .where(ElementTemplate.site_id == site_id)
+    )
+
+
+def count_finished_top_level_by_template(
+    session: Session, site_id: int
+) -> dict[int, int]:
+    """How many closed top-level frames a site has, per template.
+
+    Counts in the database rather than loading the history: a site's
+    finished batches only ever grow.
+    """
+    stmt = (
+        select(EventFrame.event_frame_template_id, func.count())
+        .where(
+            EventFrame.element_id.in_(_site_elements(site_id)),
+            EventFrame.ended_at.is_not(None),
+            EventFrame.parent_id.is_(None),
+        )
+        .group_by(EventFrame.event_frame_template_id)
+    )
+    return {template_id: count for template_id, count in session.execute(stmt)}
 
 
 def get_event_frame(session: Session, event_frame_id: int) -> EventFrame:

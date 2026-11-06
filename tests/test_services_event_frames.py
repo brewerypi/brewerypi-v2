@@ -20,6 +20,7 @@ from brewerypi.services import (
     NotFoundError,
     ValidationError,
     close_event_frame,
+    count_finished_top_level_by_template,
     create_element,
     create_element_template,
     create_event_frame,
@@ -927,6 +928,45 @@ def test_list_can_keep_only_finished_or_top_level_batches(ctx):
     assert list_event_frames(session, closed_only=True) == [done]
     assert list_event_frames(session, top_level_only=True) == [brew, done]
     assert mash in list_event_frames(session)
+
+
+def test_list_can_keep_any_of_several_templates(ctx):
+    session, ids = ctx
+    cleaning_t = create_event_frame_template(session, ids["bh_t"], "Clean")
+    brew = create_event_frame(
+        session, ids["bh"], ids["brew_t"], "Brew", started_at=D(17, 6)
+    )
+    clean = create_event_frame(
+        session, ids["bh"], cleaning_t.id, "CIP", started_at=D(17, 7)
+    )
+    assert list_event_frames(
+        session, event_frame_template_ids=[ids["brew_t"]]
+    ) == [brew]
+    assert list_event_frames(
+        session, event_frame_template_ids=[ids["brew_t"], cleaning_t.id]
+    ) == [clean, brew]
+    assert list_event_frames(session, event_frame_template_ids=[]) == []
+
+
+def test_finished_counts_are_per_template_and_top_level_only(ctx):
+    session, ids = ctx
+    site_id = session.get(Area, ids["area"]).site_id
+    for day in (10, 11):
+        brew = create_event_frame(
+            session, ids["bh"], ids["brew_t"], f"Brew {day}",
+            started_at=D(day, 6),
+        )
+        create_event_frame(
+            session, ids["mm"], ids["mash_t"], f"Mash {day}",
+            started_at=D(day, 7), parent_id=brew.id,
+        )
+        close_event_frame(session, brew.id, D(day, 12))
+    create_event_frame(
+        session, ids["bh"], ids["brew_t"], "Running", started_at=D(17, 6)
+    )
+    assert count_finished_top_level_by_template(session, site_id) == {
+        ids["brew_t"]: 2
+    }
 
 
 def test_list_pages_through_history_without_repeats(ctx):
