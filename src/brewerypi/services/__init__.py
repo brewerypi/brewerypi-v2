@@ -89,6 +89,7 @@ from brewerypi.services.event_frames import (
 from brewerypi.services.exceptions import (
     ConflictError,
     NotFoundError,
+    NotSelectableError,
     PermissionDeniedError,
     ServiceError,
     ValidationError,
@@ -134,12 +135,16 @@ from brewerypi.services.sites import (
 from brewerypi.services.tag_values import (
     delete_tag_value,
     get_tag_value,
+    list_tag_values,
+    record_tag_value,
+    selectable_values,
     update_tag_value,
 )
 from brewerypi.services.tags import (
     create_tag,
     delete_tag,
     get_tag,
+    list_standalone_tags,
     list_tags,
     update_tag,
 )
@@ -162,6 +167,7 @@ __all__ = [
     "DEFAULT_MEASUREMENT_UNITS",
     "ConflictError",
     "NotFoundError",
+    "NotSelectableError",
     "PermissionDeniedError",
     "ServiceError",
     "ValidationError",
@@ -218,6 +224,9 @@ __all__ = [
     "get_site",
     "get_tag",
     "get_tag_value",
+    "list_tag_values",
+    "record_tag_value",
+    "selectable_values",
     "get_user",
     "get_user_by_email",
     "get_user_by_subject",
@@ -238,6 +247,7 @@ __all__ = [
     "list_measurement_units",
     "list_memberships",
     "list_sites",
+    "list_standalone_tags",
     "list_tags",
     "list_users",
     "membership_site_ids",

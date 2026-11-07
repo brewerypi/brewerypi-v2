@@ -13,9 +13,7 @@ exists only on a review page, so no write can skip the review.
 
 from __future__ import annotations
 
-import secrets
 from collections.abc import Callable
-from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import RedirectResponse
@@ -37,90 +35,27 @@ from brewerypi.services import (
     ValidationError,
 )
 from brewerypi.timezones import (
-    from_utc,
-    to_utc,
     zone_for_element,
     zone_for_frame,
 )
 from brewerypi.web.auth import signed_in_user
-from brewerypi.web.batches import batch_trail, trail
-from brewerypi.web.rendering import local_time, message_page, page
-
-_TOKEN_KEY = "write_token"
+from brewerypi.web.forms import (
+    future_warning,
+    input_time,
+    mint_token,
+    operable,
+    parse_id,
+    parse_time,
+    shown_time,
+    spend_token,
+    stale_page,
+    utc_now,
+)
+from brewerypi.web.navigation import batch_trail, trail
+from brewerypi.web.rendering import message_page, page
 
 #: How many of a site's recent batches a transfer page offers as ends.
 _TRANSFER_CHOICES = 200
-
-
-def _mint_token(request: Request) -> str:
-    token = secrets.token_urlsafe(32)
-    request.session[_TOKEN_KEY] = token
-    return token
-
-
-def _spend_token(request: Request, given: str) -> bool:
-    expected = request.session.pop(_TOKEN_KEY, None)
-    return bool(expected) and secrets.compare_digest(expected, given)
-
-
-def _stale_page(request: Request, back_to: str):
-    return message_page(
-        request,
-        "That confirmation was already used",
-        "This click didn't save anything. You may have pressed the button "
-        "twice, or used an old page, so check the batch before trying again.",
-        status_code=409,
-        link=back_to,
-        link_text="Check the batch",
-    )
-
-
-def _operable(session: Session, user: CurrentUser, model: type, row_id: int):
-    """Return a row the user may change; out of scope is simply not found."""
-    row = session.get(model, row_id)
-    if row is None:
-        raise NotFoundError(f"no {model.__name__} with id {row_id}")
-    access.check(session, user, row, OPERATE)
-    return row
-
-
-def _parse_id(value: str) -> int | None:
-    """Read an optional id from a form; junk is treated as not found."""
-    value = value.strip()
-    if not value:
-        return None
-    if not value.isdigit():
-        raise NotFoundError(f"no row with id {value!r}")
-    return int(value)
-
-
-def _parse_time(value: str, zone: str, which: str) -> datetime:
-    """Read a local time from a form into naive UTC."""
-    if not value.strip():
-        raise ValidationError(f"Enter the {which} date and time.")
-    try:
-        return to_utc(value.strip(), zone)
-    except ValidationError as exc:
-        raise ValidationError(
-            f"Enter a valid {which} date and time."
-        ) from exc
-
-
-def _utc_now() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
-
-
-def _input_time(moment: datetime, zone: str) -> str:
-    """A UTC moment as a ``datetime-local`` input expects, to the minute."""
-    return from_utc(moment, zone)[:16]
-
-
-def _shown_time(moment: datetime, zone: str) -> str:
-    return local_time(from_utc(moment, zone))
-
-
-def _future_warning(moment: datetime, what: str) -> list[str]:
-    return [f"{what} is in the future."] if moment > _utc_now() else []
 
 
 def _optional_frame(
@@ -264,7 +199,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
             timezone=zone,
             error=error,
             name=name,
-            started_at=started_at or _input_time(_utc_now(), zone),
+            started_at=started_at or input_time(utc_now(), zone),
             parents=parents,
             # With one running batch to belong to, there's nothing to ask.
             parent_id=parent_id
@@ -282,8 +217,8 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         user: CurrentUser = Depends(signed_in_user),
     ):
         with session_factory() as session:
-            element = _operable(session, user, Element, element_id)
-            chosen = _parse_id(type_id)
+            element = operable(session, user, Element, element_id)
+            chosen = parse_id(type_id)
             if chosen is None:
                 raise NotFoundError("no batch type chosen")
             template = session.get(EventFrameTemplate, chosen)
@@ -307,17 +242,17 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         user: CurrentUser = Depends(signed_in_user),
     ):
         with session_factory() as session:
-            element = _operable(session, user, Element, element_id)
-            chosen = _parse_id(type_id)
+            element = operable(session, user, Element, element_id)
+            chosen = parse_id(type_id)
             if chosen is None:
                 raise NotFoundError("no batch type chosen")
             template = session.get(EventFrameTemplate, chosen)
             if template is None:
                 raise NotFoundError(f"no batch type {chosen}")
             access.check(session, user, template, READ)
-            parent = _parse_id(parent_id)
-            source = _parse_id(source_id)
-            destination = _parse_id(destination_id)
+            parent = parse_id(parent_id)
+            source = parse_id(source_id)
+            destination = parse_id(destination_id)
             access.check_rows(
                 session,
                 user,
@@ -339,10 +274,10 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                     request, session, user, element, template, **fields
                 )
             zone = zone_for_element(session, element)
-            if action == "confirm" and not _spend_token(request, token):
-                return _stale_page(request, f"/equipment/{element_id}")
+            if action == "confirm" and not spend_token(request, token):
+                return stale_page(request, f"/equipment/{element_id}")
             try:
-                start = _parse_time(started_at, zone, "start")
+                start = parse_time(started_at, zone, "start")
 
                 def write() -> EventFrame:
                     return services.create_event_frame(
@@ -395,14 +330,14 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                 crumbs=trail(session, element),
                 heading=(
                     f"Start {template.name} “{clean_name}” on "
-                    f"{element.name} at {_shown_time(start, zone)}?"
+                    f"{element.name} at {shown_time(start, zone)}?"
                 ),
                 changes=transfer,
-                warnings=_future_warning(start, "That start time"),
+                warnings=future_warning(start, "That start time"),
                 notes=[],
                 action_url=f"/equipment/{element_id}/start",
                 hidden={"type_id": type_id, **fields},
-                token=_mint_token(request),
+                token=mint_token(request),
                 confirm_label="Start batch",
                 can_change=True,
                 cancel_url=f"/equipment/{element_id}",
@@ -427,7 +362,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
             type_name=_type_name(session, frame),
             vessel=_vessel_name(session, frame),
             timezone=zone,
-            ended_at=ended_at or _input_time(_utc_now(), zone),
+            ended_at=ended_at or input_time(utc_now(), zone),
             steps=_open_descendants(session, frame),
             error=error,
         )
@@ -439,7 +374,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         user: CurrentUser = Depends(signed_in_user),
     ):
         with session_factory() as session:
-            frame = _operable(session, user, EventFrame, batch_id)
+            frame = operable(session, user, EventFrame, batch_id)
             if frame.ended_at is not None:
                 return RedirectResponse(
                     f"/batches/{batch_id}", status_code=303
@@ -456,11 +391,11 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         user: CurrentUser = Depends(signed_in_user),
     ):
         with session_factory() as session:
-            frame = _operable(session, user, EventFrame, batch_id)
+            frame = operable(session, user, EventFrame, batch_id)
             if action == "change":
                 return close_form(request, session, frame, ended_at)
-            if action == "confirm" and not _spend_token(request, token):
-                return _stale_page(request, f"/batches/{batch_id}")
+            if action == "confirm" and not spend_token(request, token):
+                return stale_page(request, f"/batches/{batch_id}")
             zone = zone_for_frame(session, frame)
             steps = _open_descendants(session, frame)
             heading = (
@@ -468,7 +403,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                 f"on {_vessel_name(session, frame)}"
             )
             try:
-                end = _parse_time(ended_at, zone, "end")
+                end = parse_time(ended_at, zone, "end")
                 services.close_event_frame(
                     session, frame.id, end, ended_by_id=caller_id()
                 )
@@ -496,12 +431,12 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                 request,
                 "batch_confirm.html",
                 crumbs=batch_trail(session, frame),
-                heading=f"{heading} at {_shown_time(end, zone)}?",
-                warnings=_future_warning(end, "That end time"),
+                heading=f"{heading} at {shown_time(end, zone)}?",
+                warnings=future_warning(end, "That end time"),
                 notes=notes,
                 action_url=f"/batches/{batch_id}/close",
                 hidden={"ended_at": ended_at},
-                token=_mint_token(request),
+                token=mint_token(request),
                 confirm_label="Close batch",
                 can_change=True,
                 cancel_url=f"/batches/{batch_id}",
@@ -515,7 +450,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         user: CurrentUser = Depends(signed_in_user),
     ):
         with session_factory() as session:
-            frame = _operable(session, user, EventFrame, batch_id)
+            frame = operable(session, user, EventFrame, batch_id)
             if frame.ended_at is None:
                 return RedirectResponse(
                     f"/batches/{batch_id}", status_code=303
@@ -557,7 +492,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                 ],
                 action_url=f"/batches/{batch_id}/reopen",
                 hidden={},
-                token=_mint_token(request),
+                token=mint_token(request),
                 confirm_label="Reopen batch",
                 can_change=False,
                 cancel_url=f"/batches/{batch_id}",
@@ -572,9 +507,9 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         user: CurrentUser = Depends(signed_in_user),
     ):
         with session_factory() as session:
-            frame = _operable(session, user, EventFrame, batch_id)
-            if not _spend_token(request, token):
-                return _stale_page(request, f"/batches/{batch_id}")
+            frame = operable(session, user, EventFrame, batch_id)
+            if not spend_token(request, token):
+                return stale_page(request, f"/batches/{batch_id}")
             try:
                 services.reopen_event_frame(
                     session, frame.id, updated_by_id=caller_id()
@@ -619,7 +554,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
             timezone=zone,
             name=frame.name if name is None else name,
             started_at=(
-                _input_time(frame.started_at, zone)
+                input_time(frame.started_at, zone)
                 if started_at is None
                 else started_at
             ),
@@ -627,7 +562,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                 ended_at
                 if ended_at is not None
                 else (
-                    _input_time(frame.ended_at, zone)
+                    input_time(frame.ended_at, zone)
                     if frame.ended_at is not None
                     else ""
                 )
@@ -642,7 +577,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         user: CurrentUser = Depends(signed_in_user),
     ):
         with session_factory() as session:
-            frame = _operable(session, user, EventFrame, batch_id)
+            frame = operable(session, user, EventFrame, batch_id)
             return edit_form(request, session, frame)
 
     @router.post("/batches/{batch_id}/edit")
@@ -657,13 +592,13 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         user: CurrentUser = Depends(signed_in_user),
     ):
         with session_factory() as session:
-            frame = _operable(session, user, EventFrame, batch_id)
+            frame = operable(session, user, EventFrame, batch_id)
             if action == "change":
                 return edit_form(
                     request, session, frame, name, started_at, ended_at
                 )
-            if action == "confirm" and not _spend_token(request, token):
-                return _stale_page(request, f"/batches/{batch_id}")
+            if action == "confirm" and not spend_token(request, token):
+                return stale_page(request, f"/batches/{batch_id}")
             zone = zone_for_frame(session, frame)
             old_name = frame.name
             old_start = frame.started_at
@@ -675,21 +610,21 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
             try:
                 if name.strip() != old_name:
                     changes["name"] = name
-                if started_at != _input_time(old_start, zone):
-                    moved = _parse_time(started_at, zone, "start")
+                if started_at != input_time(old_start, zone):
+                    moved = parse_time(started_at, zone, "start")
                     changes["started_at"] = moved
                     changed.append(
-                        f"Start: {_shown_time(old_start, zone)} to "
-                        f"{_shown_time(moved, zone)}"
+                        f"Start: {shown_time(old_start, zone)} to "
+                        f"{shown_time(moved, zone)}"
                     )
-                if old_end is not None and ended_at != _input_time(
+                if old_end is not None and ended_at != input_time(
                     old_end, zone
                 ):
-                    moved = _parse_time(ended_at, zone, "end")
+                    moved = parse_time(ended_at, zone, "end")
                     changes["ended_at"] = moved
                     changed.append(
-                        f"End: {_shown_time(old_end, zone)} to "
-                        f"{_shown_time(moved, zone)}"
+                        f"End: {shown_time(old_end, zone)} to "
+                        f"{shown_time(moved, zone)}"
                     )
                 if not changes:
                     raise ValidationError("Nothing has changed.")
@@ -728,11 +663,11 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
             notes = ["Readings already recorded stay where they are."]
             warnings: list[str] = []
             if "started_at" in changes:
-                warnings += _future_warning(
+                warnings += future_warning(
                     changes["started_at"], "The new start time"
                 )
             if "ended_at" in changes:
-                warnings += _future_warning(
+                warnings += future_warning(
                     changes["ended_at"], "The new end time"
                 )
             return page(
@@ -749,7 +684,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                     "started_at": started_at,
                     "ended_at": ended_at,
                 },
-                token=_mint_token(request),
+                token=mint_token(request),
                 confirm_label="Save changes",
                 can_change=True,
                 cancel_url=f"/batches/{batch_id}",
@@ -815,7 +750,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         user: CurrentUser = Depends(signed_in_user),
     ):
         with session_factory() as session:
-            frame = _operable(session, user, EventFrame, batch_id)
+            frame = operable(session, user, EventFrame, batch_id)
             return transfer_form(request, session, user, frame)
 
     @router.post("/batches/{batch_id}/transfer")
@@ -829,9 +764,9 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         user: CurrentUser = Depends(signed_in_user),
     ):
         with session_factory() as session:
-            frame = _operable(session, user, EventFrame, batch_id)
-            source = _parse_id(source_id)
-            destination = _parse_id(destination_id)
+            frame = operable(session, user, EventFrame, batch_id)
+            source = parse_id(source_id)
+            destination = parse_id(destination_id)
             access.check_rows(
                 session,
                 user,
@@ -844,8 +779,8 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                 return transfer_form(
                     request, session, user, frame, source_id, destination_id
                 )
-            if action == "confirm" and not _spend_token(request, token):
-                return _stale_page(request, f"/batches/{batch_id}")
+            if action == "confirm" and not spend_token(request, token):
+                return stale_page(request, f"/batches/{batch_id}")
             template = session.get(
                 EventFrameTemplate, frame.event_frame_template_id
             )
@@ -894,7 +829,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                     "source_id": source_id,
                     "destination_id": destination_id,
                 },
-                token=_mint_token(request),
+                token=mint_token(request),
                 confirm_label="Save transfer",
                 can_change=True,
                 cancel_url=f"/batches/{batch_id}",
@@ -908,7 +843,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         user: CurrentUser = Depends(signed_in_user),
     ):
         with session_factory() as session:
-            frame = _operable(session, user, EventFrame, batch_id)
+            frame = operable(session, user, EventFrame, batch_id)
             blockers = access.visible(
                 session,
                 user,
@@ -944,7 +879,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                 notes=notes,
                 action_url=f"/batches/{batch_id}/delete",
                 hidden={},
-                token=_mint_token(request),
+                token=mint_token(request),
                 confirm_label="Delete batch",
                 danger=True,
                 can_change=False,
@@ -960,9 +895,9 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         user: CurrentUser = Depends(signed_in_user),
     ):
         with session_factory() as session:
-            frame = _operable(session, user, EventFrame, batch_id)
-            if not _spend_token(request, token):
-                return _stale_page(request, f"/batches/{batch_id}")
+            frame = operable(session, user, EventFrame, batch_id)
+            if not spend_token(request, token):
+                return stale_page(request, f"/batches/{batch_id}")
             element_id = frame.element_id
             try:
                 services.delete_event_frame(session, frame.id)

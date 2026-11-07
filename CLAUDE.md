@@ -24,8 +24,9 @@ delete guards.
   sign-in (`mcp_auth.py`) checked against the `users` allowlist. A web app
   (`src/brewerypi/web/`, FastAPI + Jinja) is being built for brewery staff,
   because an artifact shared from one Claude account gets no connector access
-  for viewers outside its organization. So far it has sign-in and batch
-  screens that view and change batches; reading entry comes next. It shares
+  for viewers outside its organization. So far it has sign-in, batch
+  screens that view and change batches, and reading entry (record, correct,
+  delete); a batch's measurements on its page come next. It shares
   `access.py`,
   `identity.py`, `timezones.py` and `serializers.py` with the MCP tools, so a
   consumer never needs its own copy of the access rules, time conversion or
@@ -356,8 +357,10 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
   Hierarchy deletes guard on readings in the subtree; hierarchy tables' admin
   read reuses operator `list_<table>` + adds `get_<table>`.
 - `tag_values` (historian data, not config): create = operator
-  `record_tag_value`; read = operator `get_tag_values` (now includes reading
-  `id`). Operators also get corrective `get_tag_value` / `update_tag_value` /
+  `record_tag_value`, over `services.record_tag_value` (shared with the web,
+  so the type and list-option rules live once; `NotSelectableError.allowed`
+  names the options); read = operator `get_tag_values` over
+  `services.list_tag_values` (now includes reading `id`). Operators also get corrective `get_tag_value` / `update_tag_value` /
   `delete_tag_value` (update enforces the tag's numeric/lookup type; delete
   takes `confirm=true`) — on the operator tier so they can fix their own
   mis-entries.
@@ -415,8 +418,16 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
   the real service call and rolls back, so refusals show before confirming and
   no rule is copied into the web layer. The confirm button's one-use token, kept
   in the session, stops double taps and cross-site posts, and only review pages
-  mint it. A NEW web write must follow this pattern, pass `caller_id()`, and get
-  a test in `tests/test_web_batch_actions.py`.
+  mint it. The token, time-parsing and read/operate checks are in
+  `web/forms.py`, breadcrumbs in `web/navigation.py`. A NEW web write must
+  follow this pattern, pass `caller_id()`, and get a test in its module's
+  test file (`tests/test_web_batch_actions.py`, `tests/test_web_readings.py`).
+- Web reading pages (`web/readings.py`, helpers in `web/measurements.py`):
+  equipment lists its element attributes; an area page lists its STANDALONE
+  tags (`services.list_standalone_tags`: wired to no element or event frame
+  attribute -- continuous data like a utility meter), linked from the site
+  page. A measurement page records, and each reading can be corrected or
+  deleted by any role at the site, as on the MCP operator tier.
 - Web batch screens (`web/batches.py`, Jinja templates in `web/templates/`,
   autoescaped): a page checks the row its address names with `_readable`, and
   lists filter through `access.visible`. Anything missing or out of scope gets

@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_batches.html" import batch_list, paging %}
+{% from "_measurements.html" import measurement_list %}
 {% block title %}{{ element.name }}{% endblock %}
 {% block content %}
 <div>
@@ -15,6 +16,12 @@
   <h2>Running now</h2>
   {{ batch_list(running, "No batch is running on " ~ element.name ~ ".") }}
 </section>
+{% if measurements %}
+<section class="section">
+  <h2>Measurements</h2>
+  {{ measurement_list(measurements, "") }}
+</section>
+{% endif %}
 {% if inside %}
 <section class="section">
   <h2>Inside this equipment</h2>

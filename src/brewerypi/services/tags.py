@@ -16,6 +16,8 @@ from sqlalchemy.orm import Session
 
 from brewerypi.models import (
     Area,
+    ElementAttribute,
+    EventFrameAttribute,
     Lookup,
     MeasurementUnit,
     Site,
@@ -37,6 +39,24 @@ def list_tags(
     if area_id is not None:
         stmt = stmt.where(Tag.area_id == area_id)
     return list(session.scalars(stmt).all())
+
+
+def list_standalone_tags(session: Session, area_id: int) -> list[Tag]:
+    """An area's tags that belong to no equipment or batch type.
+
+    These hold continuous data on their own, such as a utility meter; a tag
+    wired to an element or event frame attribute is reached from there.
+    """
+    wired = select(ElementAttribute.tag_id).union(
+        select(EventFrameAttribute.tag_id)
+    )
+    return list(
+        session.scalars(
+            select(Tag)
+            .where(Tag.area_id == area_id, Tag.id.not_in(wired))
+            .order_by(Tag.name)
+        ).all()
+    )
 
 
 def get_tag(session: Session, tag_id: int) -> Tag:
