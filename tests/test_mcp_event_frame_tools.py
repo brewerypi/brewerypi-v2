@@ -209,3 +209,74 @@ def test_lifecycle_on_operator_wiring_writes_on_admin():
         "wire_event_frame_attribute",
         "unwire_event_frame_attribute",
     } <= config
+
+
+# -- batch properties --------------------------------------------------------
+
+def _brand_on_brew(seeded, required=True):
+    with mcp_server._Session() as session:
+        ent_id = session.get(Site, 1).enterprise_id
+        brand = create_lookup(session, ent_id, "Brand")
+        for name in ("Lager", "IPA"):
+            create_lookup_value(session, brand.id, name)
+        template = create_event_frame_attribute_template(
+            session, seeded["brew_t"], "Brand", lookup_id=brand.id,
+            is_property=True, is_required=required,
+        )
+        session.commit()
+        return template.id
+
+
+def test_a_batch_type_lists_its_properties(seeded):
+    _brand_on_brew(seeded)
+    brew = mcp_server.get_event_frame_template(seeded["brew_t"])
+    assert brew["properties"] == [
+        {"name": "Brand", "required": True, "options": ["IPA", "Lager"]}
+    ]
+
+
+def test_overlapping_brews_keep_their_brands_through_the_tools(seeded):
+    _brand_on_brew(seeded)
+    refused = mcp_server.create_event_frame(
+        seeded["bh"], seeded["brew_t"], "Brew #1",
+        started_at="2026-01-15T06:00:00",
+    )
+    assert "needs a Brand" in refused["error"]
+    first = mcp_server.create_event_frame(
+        seeded["bh"], seeded["brew_t"], "Brew #1",
+        started_at="2026-01-15T06:00:00", properties={"Brand": "Lager"},
+    )
+    mcp_server.create_event_frame(
+        seeded["bh"], seeded["brew_t"], "Brew #2",
+        started_at="2026-01-15T08:00:00", properties={"Brand": "IPA"},
+    )
+    assert first["properties"] == {"Brand": "Lager"}
+    lagers = mcp_server.list_event_frames(property_value="Lager")
+    assert [b["name"] for b in lagers] == ["Brew #1"]
+    changed = mcp_server.update_event_frame_property(
+        first["id"], "Brand", "IPA"
+    )
+    assert changed["properties"] == {"Brand": "IPA"}
+    cleared = mcp_server.update_event_frame_property(first["id"], "Brand")
+    assert "needs a Brand" in cleared["error"]
+
+
+def test_admin_defines_a_property_and_previews_its_delete(seeded):
+    created = mcp_server.create_event_frame_attribute_template(
+        seeded["brew_t"], "Batch size", is_property=True
+    )
+    assert (created["is_property"], created["is_required"]) == (True, False)
+    assert mcp_server.list_event_frame_attributes(element_id=seeded["bh"])[
+        0
+    ]["name"] == "Status"  # the property got no wiring
+    required = mcp_server.update_event_frame_attribute_template(
+        created["id"], is_required=True
+    )
+    assert required["is_required"] is True
+    mcp_server.create_event_frame(
+        seeded["bh"], seeded["brew_t"], "Brew #1",
+        started_at="2026-01-15T06:00:00", properties={"Batch size": 30},
+    )
+    preview = mcp_server.delete_event_frame_attribute_template(created["id"])
+    assert preview["batches_with_a_value"] == 1
+    assert "its value on 1 batch(es)" in preview["message"]

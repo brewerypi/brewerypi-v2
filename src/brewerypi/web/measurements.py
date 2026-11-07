@@ -187,6 +187,8 @@ def batch_measurements(session: Session, frame: EventFrame) -> list[dict]:
     for template in services.list_event_frame_attribute_templates(
         session, frame.event_frame_template_id
     ):
+        if template.is_property:
+            continue  # what the batch is, shown with the batch itself
         tag_id = wired.get(template.id)
         row = {"name": template.name, "tag_id": tag_id, "count": 0}
         if tag_id is not None:
@@ -217,6 +219,32 @@ def batch_measurements(session: Session, frame: EventFrame) -> list[dict]:
             )
         out.append(row)
     return out
+
+
+def property_text(value: object) -> str:
+    """A property's value as a page shows it."""
+    if isinstance(value, float):
+        return number(value)
+    return str(value)
+
+
+def batch_properties(session: Session, frame: EventFrame) -> list[dict]:
+    """Every property the batch's type defines, with its value or None."""
+    held = services.event_frame_property_values(session, frame.id)
+    return [
+        {
+            "name": template.name,
+            "required": template.is_required,
+            "text": (
+                property_text(held[template.name])
+                if template.name in held
+                else None
+            ),
+        }
+        for template in services.property_templates(
+            session, frame.event_frame_template_id
+        )
+    ]
 
 
 def areas_with_measurements(

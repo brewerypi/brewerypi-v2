@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from brewerypi.models import (
     EventFrameAttributeTemplate,
+    EventFrameProperty,
     Lookup,
     LookupValue,
     TagValue,
@@ -84,8 +85,18 @@ def update_lookup_value(
 
 
 def delete_lookup_value(session: Session, value_id: int) -> None:
-    """Delete a lookup value, refusing if any reading references it."""
+    """Delete a lookup value, refusing while anything recorded uses it."""
     value = get_lookup_value(session, value_id)
+    batch_refs = session.scalar(
+        select(func.count())
+        .select_from(EventFrameProperty)
+        .where(EventFrameProperty.lookup_value_id == value_id)
+    )
+    if batch_refs:
+        raise ValidationError(
+            f"cannot delete lookup value {value_id}: "
+            f"{batch_refs} batch(es) hold it as a property"
+        )
     refs = session.scalar(
         select(func.count())
         .select_from(TagValue)

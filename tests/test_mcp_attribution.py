@@ -286,3 +286,31 @@ def test_deleting_a_person_named_on_a_reading_is_refused(world):
     assert "deactivate" in refused["error"]
     assert mcp_server.delete_user(kim_id)["confirm_required"] is True
     assert mcp_server.delete_user(kim_id, confirm=True) == {"deleted": kim_id}
+
+
+def test_a_batch_property_names_who_set_and_changed_it(world):
+    from brewerypi.models import EventFrameProperty
+    from brewerypi.services import create_lookup, create_lookup_value
+
+    ids, as_, factory = world
+    with factory() as session:
+        enterprise_id = session.get(Site, 1).enterprise_id
+        brand = create_lookup(session, enterprise_id, "Brand")
+        for name in ("Lager", "IPA"):
+            create_lookup_value(session, brand.id, name)
+        create_event_frame_attribute_template(
+            session, ids["ferm"], "Brand", lookup_id=brand.id,
+            is_property=True,
+        )
+        session.commit()
+    with as_(SAM):
+        batch = mcp_server.create_event_frame(
+            ids["fv"], ids["ferm"], "B1", properties={"Brand": "Lager"}
+        )
+    with as_(KIM):
+        mcp_server.update_event_frame_property(batch["id"], "Brand", "IPA")
+    with factory() as session:
+        row = session.query(EventFrameProperty).one()
+        sam = get_user_by_email(session, SAM)
+        kim = get_user_by_email(session, KIM)
+        assert (row.recorded_by_id, row.updated_by_id) == (sam.id, kim.id)

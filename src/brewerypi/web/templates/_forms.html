@@ -13,3 +13,19 @@
   {% if cancel_url %}<a class="btn quiet" href="{{ cancel_url }}">Cancel</a>{% endif %}
 </div>
 {% endmacro %}
+
+{# A batch's properties, such as its brand: one box each. #}
+{% macro property_fields(props) %}
+{% for p in props %}
+<label class="field" for="property_{{ p.id }}">{{ p.name }}{% if not p.required %} (optional){% endif %}
+  {% if p.options is not none %}
+  <select id="property_{{ p.id }}" name="property_{{ p.id }}">
+    <option value="">{{ "Choose one" if p.required else "None" }}</option>
+    {% for option in p.options %}<option{% if option == p.value %} selected{% endif %}>{{ option }}</option>{% endfor %}
+  </select>
+  {% else %}
+  <input id="property_{{ p.id }}" name="property_{{ p.id }}" value="{{ p.value }}" inputmode="decimal" autocomplete="off">
+  {% endif %}
+</label>
+{% endfor %}
+{% endmacro %}

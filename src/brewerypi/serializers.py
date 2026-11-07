@@ -143,6 +143,7 @@ def event_frame_dict(session: Session, f: EventFrame) -> dict:
         "started_by": person_name(session, f.started_by_id),
         "ended_by": person_name(session, f.ended_by_id),
         "updated_by": person_name(session, f.updated_by_id),
+        "properties": services.event_frame_property_values(session, f.id),
     }
 
 
@@ -271,6 +272,8 @@ def event_frame_attribute_template_dict(
         "default_end_value": t.default_end_value,
         "default_start_lookup_value_id": t.default_start_lookup_value_id,
         "default_end_lookup_value_id": t.default_end_lookup_value_id,
+        "is_property": t.is_property,
+        "is_required": t.is_required,
     }
 
 

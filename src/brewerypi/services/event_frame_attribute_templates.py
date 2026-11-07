@@ -80,8 +80,16 @@ def create_event_frame_attribute_template(
     default_end_value: float | None = None,
     default_start_lookup_value_id: int | None = None,
     default_end_lookup_value_id: int | None = None,
+    is_property: bool = False,
+    is_required: bool = False,
 ) -> EventFrameAttributeTemplate:
-    """Create an attribute template on an event frame template."""
+    """Create an attribute template on an event frame template.
+
+    ``is_property`` makes it a property -- what the batch is, such as its
+    brand -- stored once per batch instead of on a tag, and is fixed from
+    here on. Only a property can be ``is_required``, and a property takes a
+    start default at most.
+    """
     name = clean_name_segment(name, "name", 45)
     event_frame_template = session.get(
         EventFrameTemplate, event_frame_template_id
@@ -107,6 +115,12 @@ def create_event_frame_attribute_template(
         default_start_lookup_value_id,
         default_end_lookup_value_id,
     )
+    _check_property_rules(
+        is_property,
+        is_required,
+        default_end_value,
+        default_end_lookup_value_id,
+    )
     template = EventFrameAttributeTemplate(
         event_frame_template_id=event_frame_template_id,
         name=name,
@@ -117,9 +131,13 @@ def create_event_frame_attribute_template(
         default_end_value=default_end_value,
         default_start_lookup_value_id=default_start_lookup_value_id,
         default_end_lookup_value_id=default_end_lookup_value_id,
+        is_property=bool(is_property),
+        is_required=bool(is_required),
     )
     session.add(template)
     session.flush()
+    if template.is_property:
+        return template  # a property has no tag to wire
     # Retroactively wire onto every element instancing the event frame
     # template's element template (elements without a tag area are skipped).
     from brewerypi.services.event_frame_attributes import (
@@ -141,10 +159,13 @@ def update_event_frame_attribute_template(
     | None = _UNSET,  # type: ignore[assignment]
     default_end_lookup_value_id: int
     | None = _UNSET,  # type: ignore[assignment]
+    is_required: bool | None = None,
 ) -> EventFrameAttributeTemplate:
-    """Update name/description and/or the default values.
+    """Update name/description, the default values, and/or is_required.
 
-    Changing the type (lookup vs numeric) is not supported here. Each default
+    Changing the type (lookup vs numeric), or whether it is a property, is
+    not supported here. Making a property required applies to batches
+    started from then on. Each default
     accepts a value (set), ``None`` (clear), or is omitted (unchanged); any
     default change re-validates the whole default set against the type.
     """
@@ -180,10 +201,21 @@ def update_event_frame_attribute_template(
             template.default_end_lookup_value_id,
         )
         _check_defaults(session, template.lookup_id, dsv, dev, dslv, delv)
+        _check_property_rules(
+            template.is_property, template.is_required, dev, delv
+        )
         template.default_start_value = dsv
         template.default_end_value = dev
         template.default_start_lookup_value_id = dslv
         template.default_end_lookup_value_id = delv
+    if is_required is not None:
+        _check_property_rules(
+            template.is_property,
+            is_required,
+            template.default_end_value,
+            template.default_end_lookup_value_id,
+        )
+        template.is_required = bool(is_required)
     session.flush()
     return template
 
@@ -191,7 +223,12 @@ def update_event_frame_attribute_template(
 def delete_event_frame_attribute_template(
     session: Session, attribute_template_id: int
 ) -> None:
-    """Delete an attribute template."""
+    """Delete an attribute template.
+
+    A property's values go with it (callers preview how many batches hold
+    one with ``property_count``); a measurement's wiring is unwired, which
+    leaves tags with readings standing.
+    """
     template = get_event_frame_attribute_template(
         session, attribute_template_id
     )
@@ -206,6 +243,27 @@ def delete_event_frame_attribute_template(
         unwire_event_frame_attribute(session, attribute.id)
     session.delete(template)
     session.flush()
+
+
+def _check_property_rules(
+    is_property: bool,
+    is_required: bool,
+    default_end_value: float | None,
+    default_end_lookup_value_id: int | None,
+) -> None:
+    if is_required and not is_property:
+        raise ValidationError(
+            "only a property can be required; a measurement is recorded "
+            "when it is taken"
+        )
+    if is_property and (
+        default_end_value is not None
+        or default_end_lookup_value_id is not None
+    ):
+        raise ValidationError(
+            "a property has one value for the whole batch, so it takes a "
+            "start default at most, not an end default"
+        )
 
 
 def _pick(provided, existing):

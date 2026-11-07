@@ -3,6 +3,8 @@ cascade deletes. Uses an in-memory SQLite database, so no setup or cleanup
 is required.
 """
 
+import datetime
+
 import pytest
 from sqlalchemy import create_engine, event, func, select
 from sqlalchemy.exc import IntegrityError
@@ -15,6 +17,8 @@ from brewerypi.models import (
     ElementTemplate,
     Enterprise,
     EventFrame,
+    EventFrameAttributeTemplate,
+    EventFrameProperty,
     EventFrameTemplate,
     Lookup,
     LookupValue,
@@ -505,3 +509,123 @@ def test_user_and_enterprise_deletes_cascade_memberships():
         session.commit()
         assert session.scalar(select(func.count(Membership.id))) == 0
         assert session.get(User, other.id) is not None
+
+
+def _batch_world(session):
+    """A Fermentation batch, a Brand list with one option, and a Brand
+    property on the batch type."""
+    enterprise = Enterprise(abbreviation="BRW", name="Brewery Co")
+    site = Site(abbreviation="HQ", name="Headquarters", timezone="UTC")
+    enterprise.sites.append(site)
+    brand = Lookup(name="Brand")
+    brand.lookup_values.append(LookupValue(name="Lager", is_selectable=True))
+    enterprise.lookups.append(brand)
+    session.add(enterprise)
+    session.flush()
+    template = ElementTemplate(site_id=site.id, name="Fermenter")
+    session.add(template)
+    session.flush()
+    element = Element(element_template_id=template.id, name="FV01")
+    batch_type = EventFrameTemplate(
+        element_template_id=template.id, name="Fermentation"
+    )
+    session.add_all([element, batch_type])
+    session.flush()
+    prop = EventFrameAttributeTemplate(
+        event_frame_template_id=batch_type.id,
+        name="Brand",
+        lookup_id=brand.id,
+        is_property=True,
+    )
+    frame = EventFrame(
+        element_id=element.id,
+        event_frame_template_id=batch_type.id,
+        name="B1",
+        started_at=datetime.datetime(2026, 7, 1),
+    )
+    session.add_all([prop, frame])
+    session.flush()
+    return frame, prop, brand.lookup_values[0]
+
+
+def test_a_batch_property_and_its_checks():
+    engine = make_engine()
+    with Session(engine) as session:
+        frame, prop, lager = _batch_world(session)
+        row = EventFrameProperty(
+            event_frame_id=frame.id,
+            event_frame_attribute_template_id=prop.id,
+            lookup_value_id=lager.id,
+        )
+        session.add(row)
+        session.flush()
+        assert frame.properties == [row]
+        assert prop.properties == [row]
+        session.add(
+            EventFrameProperty(
+                event_frame_id=frame.id,
+                event_frame_attribute_template_id=prop.id,
+                value=1.0,
+            )
+        )
+        with pytest.raises(IntegrityError):  # one value per batch
+            session.flush()
+        session.rollback()
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"is_required": True},  # only a property can be required
+        {"is_property": True, "default_end_value": 1.0},  # no end default
+    ],
+)
+def test_property_template_checks(fields):
+    engine = make_engine()
+    with Session(engine) as session:
+        frame, _, _ = _batch_world(session)
+        session.add(
+            EventFrameAttributeTemplate(
+                event_frame_template_id=frame.event_frame_template_id,
+                name="Other",
+                **fields,
+            )
+        )
+        with pytest.raises(IntegrityError):
+            session.flush()
+
+
+def test_a_property_value_is_a_number_or_an_option_not_both():
+    engine = make_engine()
+    with Session(engine) as session:
+        frame, prop, lager = _batch_world(session)
+        session.add(
+            EventFrameProperty(
+                event_frame_id=frame.id,
+                event_frame_attribute_template_id=prop.id,
+                value=1.0,
+                lookup_value_id=lager.id,
+            )
+        )
+        with pytest.raises(IntegrityError):
+            session.flush()
+
+
+def test_deleting_a_batch_takes_its_properties():
+    engine = make_engine()
+    with Session(engine) as session:
+        frame, prop, lager = _batch_world(session)
+        session.add(
+            EventFrameProperty(
+                event_frame_id=frame.id,
+                event_frame_attribute_template_id=prop.id,
+                lookup_value_id=lager.id,
+            )
+        )
+        session.flush()
+        session.delete(frame)
+        session.flush()
+        count = session.scalar(
+            select(func.count()).select_from(EventFrameProperty)
+        )
+        assert count == 0

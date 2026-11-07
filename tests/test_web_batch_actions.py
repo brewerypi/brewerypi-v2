@@ -1056,3 +1056,118 @@ def test_closing_a_batch_a_transfer_runs_through_is_refused(client, world):
     assert response.status_code == 400
     assert 'class="error"' in response.text
     assert _frame(factory, ids["running"]).ended_at is None
+
+
+# -- batch properties ------------------------------------------------------
+
+
+def _give_brands(factory, ids):
+    """A Brand list, required on Brew and Fermentation."""
+    from brewerypi.services import create_lookup, create_lookup_value
+
+    with factory() as s:
+        enterprise_id = s.get(Site, ids["spr"]).enterprise_id
+        brand = create_lookup(s, enterprise_id, "Brand")
+        for name in ("Lager", "IPA"):
+            create_lookup_value(s, brand.id, name)
+        made = [
+            create_event_frame_attribute_template(
+                s, ids[key], "Brand", lookup_id=brand.id,
+                is_property=True, is_required=True,
+            )
+            for key in ("brew", "fermentation")
+        ]
+        s.commit()
+        return made[1].id
+
+
+def _brand_of(factory, frame_id):
+    from brewerypi.services import event_frame_property_values
+
+    with factory() as s:
+        return event_frame_property_values(s, frame_id).get("Brand")
+
+
+def test_a_batch_starts_with_its_brand(client, world):
+    factory, ids = world
+    field = f"property_{_give_brands(factory, ids)}"
+    url = f"/equipment/{ids['fv03']}/start"
+    form = client.get(url, params={"type_id": ids["fermentation"]}).text
+    assert f'name="{field}"' in form and "<option>Lager</option>" in form
+    refused = _press(client, url, _start_data(ids))
+    assert refused.status_code == 400
+    assert "A Fermentation needs a Brand." in refused.text
+    assert not [f for f in _frames(factory) if f.name == "Batch 1241"]
+    started = _press(client, url, _start_data(ids, **{field: "Lager"}))
+    assert started.status_code == 303
+    made = next(f for f in _frames(factory) if f.name == "Batch 1241")
+    assert _brand_of(factory, made.id) == "Lager"
+    page = client.get(f"/batches/{made.id}").text
+    assert "<dt>Brand</dt>" in page and "Lager" in page
+    assert "Not set up on" not in page  # a property is not a measurement
+    assert "Lager · Started" in client.get(f"/equipment/{ids['fv03']}").text
+
+
+def test_a_batch_from_before_the_brand_shows_it_unset(client, world):
+    factory, ids = world
+    _give_brands(factory, ids)
+    page = client.get(f"/batches/{ids['running']}").text
+    assert "Not set: choose one with Edit" in page
+
+
+def test_the_brand_is_changed_on_the_edit_page(client, world):
+    factory, ids = world
+    field = f"property_{_give_brands(factory, ids)}"
+    url = f"/batches/{ids['finished']}/edit"
+    data = {
+        "name": "Batch 1239",
+        "started_at": "2026-01-01T06:00",
+        "ended_at": "2026-01-05T06:00",
+        field: "IPA",
+    }
+    assert _press(client, url, data).status_code == 303
+    assert _brand_of(factory, ids["finished"]) == "IPA"
+    assert _frame(factory, ids["finished"]).name == "Batch 1239"
+    again = _press(client, url, data)
+    assert "Nothing has changed." in again.text
+    cleared = _press(client, url, {**data, field: ""})
+    assert "A Fermentation needs a Brand." in cleared.text
+    assert _brand_of(factory, ids["finished"]) == "IPA"
+
+
+def test_two_brands_into_one_fermenter_warn_once(client, world):
+    factory, ids = world
+    _give_brands(factory, ids)
+    with factory() as s:
+        fermentation = create_event_frame(
+            s, ids["fv03"], ids["fermentation"], "FV03 batch",
+            started_at=_at(12), properties={"Brand": "Lager"},
+        )
+        frames = {}
+        for brand, hour in (("Lager", 6), ("IPA", 10)):
+            brew = create_event_frame(
+                s, ids["bh1"], ids["brew"], f"{brand} brew",
+                started_at=_at(13, hour), properties={"Brand": brand},
+            )
+            frames[brand] = create_event_frame(
+                s, ids["wc1"], ids["cooling"], f"{brand} knockout",
+                started_at=_at(13, hour + 1), ended_at=_at(13, hour + 2),
+                parent_id=brew.id,
+                destination_event_frame_id=(
+                    fermentation.id if brand == "Lager" else None
+                ),
+            )
+        s.commit()
+        cooling_id = frames["IPA"].id
+        fermentation_id = fermentation.id
+    url = f"/batches/{cooling_id}/transfer"
+    data = {"destination_id": str(fermentation_id)}
+    shown = _press(client, url, data)
+    assert shown.status_code == 200
+    assert "IPA brew is IPA" in html.unescape(shown.text)
+    assert _frame(factory, cooling_id).destination_event_frame_id is None
+    saved = _again(client, url, data, shown)
+    assert saved.status_code == 303
+    assert _frame(factory, cooling_id).destination_event_frame_id == (
+        fermentation_id
+    )

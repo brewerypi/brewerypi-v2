@@ -41,6 +41,7 @@ SHEETS: list[tuple[str, str, str]] = [
     ("Kind of equipment | What they are called", "Equipment", "site"),
     ("Kind of equipment | What a batch is called", "Batches", "site"),
     ("Equipment | This batch", "Nesting", "site"),
+    ("Equipment | Batch | What it is", "Properties", "site"),
     ("Equipment | Batch | What you record", "Recorded", "site"),
     ("Kind of equipment | What you record", "Rounds", "site"),
 ]

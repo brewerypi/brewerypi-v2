@@ -63,7 +63,7 @@ def test_brief_ships_with_the_package():
 def test_scope_all_covers_company_and_site(brief):
     assert set(tabs(workbook.build_workbook(brief))) == {
         "Read me", "Company", "Site", "Lists", "Equipment", "Batches",
-        "Nesting", "Recorded", "Rounds",
+        "Nesting", "Properties", "Recorded", "Rounds",
     }
 
 

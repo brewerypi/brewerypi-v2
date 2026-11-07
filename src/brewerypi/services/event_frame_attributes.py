@@ -77,6 +77,11 @@ def wire_event_frame_attribute(
     With ``tag_id`` the given tag is linked (``owns_tag=False``); otherwise the
     tag is found-or-created by generated name in the element's tag area.
     """
+    if attribute_template.is_property:
+        raise ValidationError(
+            f"{attribute_template.name!r} is a property: its value is kept "
+            "on each batch, so it has no tag to wire"
+        )
     _check_not_already_wired(session, element.id, attribute_template.id)
     if tag_id is not None:
         tag = session.get(Tag, tag_id)
@@ -124,7 +129,8 @@ def wire_element_event_frame_attributes(
         )
         .where(
             EventFrameTemplate.element_template_id
-            == element.element_template_id
+            == element.element_template_id,
+            EventFrameAttributeTemplate.is_property.is_(False),
         )
     ).all()
     wired: list[EventFrameAttribute] = []
@@ -148,7 +154,7 @@ def wire_event_frame_attribute_template(
     event_frame_template = session.get(
         EventFrameTemplate, attribute_template.event_frame_template_id
     )
-    if event_frame_template is None:
+    if event_frame_template is None or attribute_template.is_property:
         return []
     elements = session.scalars(
         select(Element).where(

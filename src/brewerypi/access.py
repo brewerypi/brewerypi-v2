@@ -46,6 +46,7 @@ from brewerypi.models import (
     EventFrame,
     EventFrameAttribute,
     EventFrameAttributeTemplate,
+    EventFrameProperty,
     EventFrameTemplate,
     Lookup,
     LookupValue,
@@ -135,6 +136,8 @@ def locate(session: Session, row: object) -> Place | None:
         parent = session.get(EventFrameTemplate, row.event_frame_template_id)
     elif isinstance(row, (ElementAttribute, EventFrame, EventFrameAttribute)):
         parent = session.get(Element, row.element_id)
+    elif isinstance(row, EventFrameProperty):
+        parent = session.get(EventFrame, row.event_frame_id)
     else:
         raise TypeError(f"no place is defined for {type(row).__name__}")
     return locate(session, parent) if parent is not None else None

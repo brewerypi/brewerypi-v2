@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_forms.html" import notices, save %}
+{% from "_forms.html" import notices, property_fields, save %}
 {% block title %}Start {{ template.name }}{% endblock %}
 {% block content %}
 <h1>Start {{ template.name }} on {{ element.name }}</h1>
@@ -12,6 +12,8 @@
   <label class="field" for="started_at">Start time ({{ timezone }})
     <input id="started_at" name="started_at" type="datetime-local" value="{{ started_at }}" required>
   </label>
+  {{ property_fields(props) }}
+  {% if props and template.parent_flow != "source" %}<p class="muted">Left blank, {{ "a property is" if props|length > 1 else props[0].name ~ " is" }} taken from the source batch, if it has one.</p>{% endif %}
   {% if template.parent_id %}
   <label class="field" for="parent_id">Part of
     <select id="parent_id" name="parent_id" required>

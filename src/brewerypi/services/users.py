@@ -15,7 +15,7 @@ from __future__ import annotations
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from brewerypi.models import EventFrame, TagValue, User
+from brewerypi.models import EventFrame, EventFrameProperty, TagValue, User
 from brewerypi.services._validation import (
     clean_str,
     clean_timezone,
@@ -145,7 +145,10 @@ def delete_user(session: Session, user_id: int) -> None:
 
 
 def attributed_counts(session: Session, user_id: int) -> tuple[int, int]:
-    """Count the (readings, batches) that name this user as an author."""
+    """Count the (readings, batches) that name this user as an author.
+
+    A batch property someone set or changed counts toward batches.
+    """
     readings = session.scalar(
         select(func.count())
         .select_from(TagValue)
@@ -167,7 +170,17 @@ def attributed_counts(session: Session, user_id: int) -> tuple[int, int]:
             )
         )
     )
-    return readings or 0, batches or 0
+    properties = session.scalar(
+        select(func.count())
+        .select_from(EventFrameProperty)
+        .where(
+            or_(
+                EventFrameProperty.recorded_by_id == user_id,
+                EventFrameProperty.updated_by_id == user_id,
+            )
+        )
+    )
+    return readings or 0, (batches or 0) + (properties or 0)
 
 
 def link_sign_in(
