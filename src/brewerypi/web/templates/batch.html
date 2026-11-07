@@ -45,7 +45,7 @@
   <form method="post" action="/batches/{{ batch.id }}/readings" class="fields">
   {% endif %}
   {% for m in measurements %}
-  <div class="reading{% if entry and entry.errors.get(m.tag_id) %} has-error{% endif %}">
+  <div class="reading{% if entry %} entry-row{% endif %}{% if entry and entry.errors.get(m.tag_id) %} has-error{% endif %}">
     <span class="batch-head">
       <span class="vessel">{{ m.name }}</span>
       {% if m.tag_id is none %}
@@ -57,12 +57,13 @@
       <span class="meta">{% if m.count > 1 %}Started at {{ m.first.value }} · {% endif %}{{ m.latest.at }} · {{ m.count }} reading{{ "" if m.count == 1 else "s" }}</span>
       {% endif %}
     </span>
-    {% if m.tag_id is not none %}
-    <span class="chips">
-      {% if entry %}{{ entry_box(m.tag_id, m.name, m.unit, m.options, entry) }}{% endif %}
-      {% if m.count %}<a class="btn quiet" href="/measurements/{{ m.tag_id }}?batch={{ batch.id }}">See all</a>{% endif %}
-    </span>
-    {% if entry %}{{ entry_error(m.tag_id, entry) }}{% endif %}
+    {% if entry %}
+    {# Both columns are always there, so the boxes line up down the list. #}
+    {% if m.tag_id is not none %}{{ entry_box(m.tag_id, m.name, m.unit, m.options, entry) }}{% else %}<span></span>{% endif %}
+    <span class="see-all">{% if m.count %}<a class="btn quiet" href="/measurements/{{ m.tag_id }}?batch={{ batch.id }}">See all</a>{% endif %}</span>
+    {{ entry_error(m.tag_id, entry) }}
+    {% elif m.count %}
+    <span class="chips"><a class="btn quiet" href="/measurements/{{ m.tag_id }}?batch={{ batch.id }}">See all</a></span>
     {% endif %}
   </div>
   {% endfor %}

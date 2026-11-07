@@ -58,6 +58,15 @@ p { margin: 0; max-width: 65ch; }
 .batch-name { font-weight: 700; font-size: 19px; overflow-wrap: anywhere; }
 .pill { background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 1px 10px; font-size: 14px; font-weight: 600; }
 .pill.idle { background: var(--surface-2); color: var(--muted); }
+/* Rows of a several-measurements form: fixed columns, so every box lines up
+   whatever is written beside it. */
+.entry-row { display: grid; grid-template-columns: minmax(0, 1fr) 13rem 6rem; align-items: center; gap: 8px 12px; }
+.entry-row .see-all { justify-self: end; }
+.entry-row .field-error { grid-column: 1 / -1; }
+@media (max-width: 640px) {
+  .entry-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .entry-row .batch-head { grid-column: 1 / -1; }
+}
 .entry { display: flex; align-items: center; gap: 6px; }
 .entry input:not([type="hidden"]), .entry select { width: 9rem; min-height: 44px; }
 .field-error { flex-basis: 100%; color: var(--bad); font-size: 15px; font-weight: 500; }

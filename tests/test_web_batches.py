@@ -820,7 +820,7 @@ def test_one_bad_value_saves_none_and_keeps_the_rest(client, world):
     assert f'name="value_{temperature}" value="warm"' in response.text
     assert 'value="2026-01-21T07:00"' in response.text
     # The message sits beside the box it is about.
-    row = response.text.split('class="reading has-error"')[1]
+    row = response.text.split(' has-error"')[1]
     row = row.split('class="reading')[0]
     assert "Temperature" in row
     assert "Enter a number, such as 18.5." in row
