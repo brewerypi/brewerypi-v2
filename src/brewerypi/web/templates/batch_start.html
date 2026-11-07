@@ -1,7 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Start {{ template.name }}{% endblock %}
 {% block content %}
-<nav class="crumbs" aria-label="Breadcrumb"><a href="/equipment/{{ element.id }}">{{ element.name }}</a></nav>
 <h1>Start {{ template.name }} on {{ element.name }}</h1>
 {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
 <form method="post" action="/equipment/{{ element.id }}/start" class="fields">
@@ -22,24 +21,24 @@
   {% if not parents %}<p class="warn">Nothing it could belong to is running. Start that batch first.</p>{% endif %}
   {% endif %}
   {% if template.parent_flow != "source" %}
-  <label class="field" for="source_id">Drawing from (optional)
+  <label class="field" for="source_id">Source (optional)
     <select id="source_id" name="source_id">
       <option value="">Not a transfer in</option>
       {% for choice in ends %}<option value="{{ choice.id }}"{% if choice.id|string == source_id %} selected{% endif %}>{{ choice.label }}</option>{% endfor %}
     </select>
   </label>
   {% else %}
-  <p class="muted">It draws from the batch it's part of.</p>
+  <p class="muted">Its source is the batch it's part of.</p>
   {% endif %}
   {% if template.parent_flow != "destination" %}
-  <label class="field" for="destination_id">Moving into (optional)
+  <label class="field" for="destination_id">Destination (optional)
     <select id="destination_id" name="destination_id">
       <option value="">Not a transfer out, or not known yet</option>
       {% for choice in ends %}<option value="{{ choice.id }}"{% if choice.id|string == destination_id %} selected{% endif %}>{{ choice.label }}</option>{% endfor %}
     </select>
   </label>
   {% else %}
-  <p class="muted">It moves into the batch it's part of.</p>
+  <p class="muted">Its destination is the batch it's part of.</p>
   {% endif %}
   <p class="muted">For a transfer, the batches at both ends must already be running at the start time. You can add the receiving batch later.</p>
   <div class="actions">

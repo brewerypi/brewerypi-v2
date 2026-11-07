@@ -43,6 +43,7 @@ from brewerypi.timezones import (
     zone_for_frame,
 )
 from brewerypi.web.auth import signed_in_user
+from brewerypi.web.batches import batch_trail, trail
 from brewerypi.web.rendering import local_time, message_page, page
 
 _TOKEN_KEY = "write_token"
@@ -149,6 +150,21 @@ def _choice(session: Session, frame: EventFrame) -> dict:
     }
 
 
+def _transfer_lines(session: Session, frame: EventFrame) -> list[str]:
+    """What a review page says about a batch's two transfer ends."""
+
+    def end(label: str, frame_id: int | None) -> str:
+        row = _optional_frame(session, frame_id)
+        return f"{label}: " + (
+            _choice(session, row)["label"] if row else "nothing recorded"
+        )
+
+    return [
+        end("Source", frame.source_event_frame_id),
+        end("Destination", frame.destination_event_frame_id),
+    ]
+
+
 def _site_id(session: Session, element: Element) -> int:
     template = session.get(ElementTemplate, element.element_template_id)
     return template.site_id
@@ -241,6 +257,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         return page(
             request,
             "batch_start.html",
+            crumbs=trail(session, element),
             status_code=status_code,
             element=element,
             template=template,
@@ -349,6 +366,14 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                         f"/batches/{new_id}?done=started", status_code=303
                     )
                 clean_name = frame.name
+                # Read before the rollback, which takes the new row away.
+                # An implied end counts: the review should show it too.
+                transfer = (
+                    _transfer_lines(session, frame)
+                    if frame.source_event_frame_id is not None
+                    or frame.destination_event_frame_id is not None
+                    else []
+                )
                 session.rollback()
             except ServiceError as exc:
                 session.rollback()
@@ -367,10 +392,12 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
             return page(
                 request,
                 "batch_confirm.html",
+                crumbs=trail(session, element),
                 heading=(
                     f"Start {template.name} “{clean_name}” on "
                     f"{element.name} at {_shown_time(start, zone)}?"
                 ),
+                changes=transfer,
                 warnings=_future_warning(start, "That start time"),
                 notes=[],
                 action_url=f"/equipment/{element_id}/start",
@@ -394,6 +421,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         return page(
             request,
             "batch_close.html",
+            crumbs=batch_trail(session, frame),
             status_code=status_code,
             frame=frame,
             type_name=_type_name(session, frame),
@@ -467,6 +495,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
             return page(
                 request,
                 "batch_confirm.html",
+                crumbs=batch_trail(session, frame),
                 heading=f"{heading} at {_shown_time(end, zone)}?",
                 warnings=_future_warning(end, "That end time"),
                 notes=notes,
@@ -516,6 +545,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
             return page(
                 request,
                 "batch_confirm.html",
+                crumbs=batch_trail(session, frame),
                 heading=(
                     f"Reopen {type_name} “{name}” on {vessel}?"
                 ),
@@ -581,6 +611,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         return page(
             request,
             "batch_edit.html",
+            crumbs=batch_trail(session, frame),
             status_code=status_code,
             frame=frame,
             type_name=_type_name(session, frame),
@@ -707,6 +738,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
             return page(
                 request,
                 "batch_confirm.html",
+                crumbs=batch_trail(session, frame),
                 heading=f"Save these changes to “{old_name}”?",
                 changes=changed,
                 warnings=warnings,
@@ -753,6 +785,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         return page(
             request,
             "batch_transfer.html",
+            crumbs=batch_trail(session, frame),
             status_code=status_code,
             frame=frame,
             type_name=_type_name(session, frame),
@@ -827,26 +860,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                 updated = services.link_transfer(
                     session, frame.id, updated_by_id=caller_id(), **changes
                 )
-                source_row = _optional_frame(
-                    session, updated.source_event_frame_id
-                )
-                destination_row = _optional_frame(
-                    session, updated.destination_event_frame_id
-                )
-                lines = [
-                    "Drew from: "
-                    + (
-                        _choice(session, source_row)["label"]
-                        if source_row
-                        else "nothing recorded"
-                    ),
-                    "Moved into: "
-                    + (
-                        _choice(session, destination_row)["label"]
-                        if destination_row
-                        else "nothing recorded"
-                    ),
-                ]
+                lines = _transfer_lines(session, updated)
                 if action == "confirm":
                     session.commit()
                     return RedirectResponse(
@@ -870,6 +884,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
             return page(
                 request,
                 "batch_confirm.html",
+                crumbs=batch_trail(session, frame),
                 heading=f"Save the transfer for “{name}”?",
                 changes=lines,
                 warnings=[],
@@ -903,6 +918,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                 return page(
                     request,
                     "batch_delete_blocked.html",
+                    crumbs=batch_trail(session, frame),
                     status_code=409,
                     frame=frame,
                     blockers=[_choice(session, b) for b in blockers],
@@ -918,6 +934,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
             return page(
                 request,
                 "batch_confirm.html",
+                crumbs=batch_trail(session, frame),
                 heading=(
                     f"Delete {_type_name(session, frame)} "
                     f"“{frame.name}” on "

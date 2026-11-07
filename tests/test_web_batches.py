@@ -458,8 +458,19 @@ def test_batch_page_shows_transfers_both_ways(client, world):
     assert "Transfers out" in source
     assert "Move 1239" in source
     transfer = client.get(f"/batches/{ids['knockout']}").text
-    assert "Drew from" in transfer
+    assert "<h2>Source</h2>" in transfer
     assert "Batch 1240" in transfer
+
+
+def test_batch_breadcrumb_runs_through_the_equipment_it_sits_in(
+    client, world
+):
+    _, ids = world
+    text = client.get(f"/batches/{ids['running_mash']}").text
+    crumbs = text.split('aria-label="Breadcrumb">')[1].split("</nav>")[0]
+    assert crumbs.index(f'href="/sites/{ids["spr"]}"') < crumbs.index(
+        f'href="/equipment/{ids["bh1"]}"'
+    ) < crumbs.index(f'href="/equipment/{ids["mm1"]}"')
 
 
 def test_a_batch_with_no_author_says_nothing_about_one(client, world):

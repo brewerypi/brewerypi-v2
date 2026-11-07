@@ -103,6 +103,7 @@ window.addEventListener("pageshow", (event) => {
   {% endif %}
 </div></header>
 <main>
+{% if crumbs %}<nav class="crumbs" aria-label="Breadcrumb">{% for crumb in crumbs %}{% if not loop.first %}<span>/</span>{% endif %}<a href="{{ crumb.href }}">{{ crumb.name }}</a>{% endfor %}</nav>{% endif %}
 {% if notice %}<p class="notice" role="status">{{ notice }}</p>{% endif %}
 {% block content %}{% endblock %}
 </main>
