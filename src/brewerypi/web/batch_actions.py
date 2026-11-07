@@ -150,6 +150,21 @@ def _choice(session: Session, frame: EventFrame) -> dict:
     }
 
 
+def _transfer_lines(session: Session, frame: EventFrame) -> list[str]:
+    """What a review page says about a batch's two transfer ends."""
+
+    def end(label: str, frame_id: int | None) -> str:
+        row = _optional_frame(session, frame_id)
+        return f"{label}: " + (
+            _choice(session, row)["label"] if row else "nothing recorded"
+        )
+
+    return [
+        end("Source", frame.source_event_frame_id),
+        end("Destination", frame.destination_event_frame_id),
+    ]
+
+
 def _site_id(session: Session, element: Element) -> int:
     template = session.get(ElementTemplate, element.element_template_id)
     return template.site_id
@@ -351,6 +366,14 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                         f"/batches/{new_id}?done=started", status_code=303
                     )
                 clean_name = frame.name
+                # Read before the rollback, which takes the new row away.
+                # An implied end counts: the review should show it too.
+                transfer = (
+                    _transfer_lines(session, frame)
+                    if frame.source_event_frame_id is not None
+                    or frame.destination_event_frame_id is not None
+                    else []
+                )
                 session.rollback()
             except ServiceError as exc:
                 session.rollback()
@@ -374,6 +397,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                     f"Start {template.name} “{clean_name}” on "
                     f"{element.name} at {_shown_time(start, zone)}?"
                 ),
+                changes=transfer,
                 warnings=_future_warning(start, "That start time"),
                 notes=[],
                 action_url=f"/equipment/{element_id}/start",
@@ -836,26 +860,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                 updated = services.link_transfer(
                     session, frame.id, updated_by_id=caller_id(), **changes
                 )
-                source_row = _optional_frame(
-                    session, updated.source_event_frame_id
-                )
-                destination_row = _optional_frame(
-                    session, updated.destination_event_frame_id
-                )
-                lines = [
-                    "Source: "
-                    + (
-                        _choice(session, source_row)["label"]
-                        if source_row
-                        else "nothing recorded"
-                    ),
-                    "Destination: "
-                    + (
-                        _choice(session, destination_row)["label"]
-                        if destination_row
-                        else "nothing recorded"
-                    ),
-                ]
+                lines = _transfer_lines(session, updated)
                 if action == "confirm":
                     session.commit()
                     return RedirectResponse(
