@@ -1,8 +1,9 @@
 {% extends "base.html" %}
+{% from "_forms.html" import notices, save %}
 {% block title %}Start {{ template.name }}{% endblock %}
 {% block content %}
 <h1>Start {{ template.name }} on {{ element.name }}</h1>
-{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+{{ notices(error, warnings) }}
 <form method="post" action="/equipment/{{ element.id }}/start" class="fields">
   <input type="hidden" name="type_id" value="{{ template.id }}">
   <label class="field" for="name">Batch name
@@ -41,9 +42,6 @@
   <p class="muted">Its destination is the batch it's part of.</p>
   {% endif %}
   <p class="muted">For a transfer, the batches at both ends must already be running at the start time. You can add the receiving batch later.</p>
-  <div class="actions">
-    <button class="btn" id="review" type="submit" name="action" value="review">Review</button>
-    <a class="btn quiet" href="/equipment/{{ element.id }}">Cancel</a>
-  </div>
+  {{ save("Start batch", token, warnings, accepted, "/equipment/" ~ element.id) }}
 </form>
 {% endblock %}

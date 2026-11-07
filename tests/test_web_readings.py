@@ -190,15 +190,28 @@ def client(world):
 
 def _token(page: str) -> str:
     match = re.search(r'name="token" value="([^"]+)"', page)
-    assert match, "the page has no confirm token"
+    assert match, "the page has no pass"
     return match.group(1)
 
 
-def _review_and_confirm(client, url, data):
-    review = client.post(url, data=data)
-    assert review.status_code == 200, review.text
+def _press(client, url, data):
+    """Open a form, fill it in, and press its button once."""
+    form = client.get(url)
+    assert form.status_code == 200, form.text
+    return client.post(url, data={**data, "token": _token(form.text)})
+
+
+def _again(client, url, data, shown):
+    """Press the button on a form that came back with a warning."""
+    accepted = re.search(r'name="accepted" value="([^"]*)"', shown.text)
+    assert accepted, "the form shows no warning to accept"
     return client.post(
-        url, data={**data, "action": "confirm", "token": _token(review.text)}
+        url,
+        data={
+            **data,
+            "token": _token(shown.text),
+            "accepted": html.unescape(accepted.group(1)),
+        },
     )
 
 
@@ -307,19 +320,14 @@ def test_readings_page_through_older_ones(world):
 # -- recording -------------------------------------------------------------
 
 
-def test_recording_reviews_then_saves_with_an_author(client, world):
+def test_recording_is_one_press_with_an_author(client, world):
     factory, ids = world
     url = f"/measurements/{ids['temperature']}"
-    data = {"value": "19.25", "observed_at": "2026-01-06T07:30"}
-    review = client.post(url, data=data)
-    assert review.status_code == 200
-    assert (
-        "Record 19.25 °C for Temperature on FV01 at 6 Jan 2026, 7:30 AM?"
-        in review.text
-    )
-    assert len(_readings(factory, ids["temperature"])) == 1
-    response = client.post(
-        url, data={**data, "action": "confirm", "token": _token(review.text)}
+    form = client.get(url).text
+    assert ">Record reading</button>" in form
+    assert "Review" not in form
+    response = _press(
+        client, url, {"value": "19.25", "observed_at": "2026-01-06T07:30"}
     )
     assert response.status_code == 303
     assert response.headers["location"] == f"{url}?done=recorded"
@@ -334,7 +342,7 @@ def test_recording_reviews_then_saves_with_an_author(client, world):
 
 def test_recording_a_list_value(client, world):
     factory, ids = world
-    response = _review_and_confirm(
+    response = _press(
         client,
         f"/measurements/{ids['status']}",
         {"value": "Fermenting", "observed_at": "2026-01-06T07:30"},
@@ -357,9 +365,10 @@ def test_a_bad_number_is_refused_with_the_form_kept(
     client, world, value, message
 ):
     factory, ids = world
-    response = client.post(
+    response = _press(
+        client,
         f"/measurements/{ids['temperature']}",
-        data={"value": value, "observed_at": "2026-01-06T07:30"},
+        {"value": value, "observed_at": "2026-01-06T07:30"},
     )
     assert response.status_code == 400
     assert message in response.text
@@ -369,9 +378,10 @@ def test_a_bad_number_is_refused_with_the_form_kept(
 
 def test_an_option_not_on_the_list_is_refused(client, world):
     factory, ids = world
-    response = client.post(
+    response = _press(
+        client,
         f"/measurements/{ids['status']}",
-        data={"value": "Retired", "observed_at": "2026-01-06T07:30"},
+        {"value": "Retired", "observed_at": "2026-01-06T07:30"},
     )
     assert response.status_code == 400
     assert "Choose one of the options on the list." in response.text
@@ -380,9 +390,10 @@ def test_an_option_not_on_the_list_is_refused(client, world):
 
 def test_a_missing_time_is_refused(client, world):
     _, ids = world
-    response = client.post(
+    response = _press(
+        client,
         f"/measurements/{ids['temperature']}",
-        data={"value": "19", "observed_at": ""},
+        {"value": "19", "observed_at": ""},
     )
     assert response.status_code == 400
     assert "Enter the reading's date and time." in html.unescape(
@@ -390,43 +401,35 @@ def test_a_missing_time_is_refused(client, world):
     )
 
 
-def test_a_reading_in_the_future_is_flagged_but_allowed(client, world):
-    _, ids = world
-    review = client.post(
-        f"/measurements/{ids['temperature']}",
-        data={"value": "19", "observed_at": "2099-01-01T10:00"},
-    )
-    assert review.status_code == 200
-    assert "That time is in the future." in review.text
+def test_a_reading_in_the_future_stops_once_then_saves(client, world):
+    factory, ids = world
+    url = f"/measurements/{ids['temperature']}"
+    data = {"value": "19", "observed_at": "2099-01-01T10:00"}
+    shown = _press(client, url, data)
+    assert shown.status_code == 200
+    assert "That time is in the future." in shown.text
+    assert ">Record reading anyway</button>" in shown.text
+    assert 'value="19"' in shown.text
+    assert len(_readings(factory, ids["temperature"])) == 1
+    assert _again(client, url, data, shown).status_code == 303
+    assert len(_readings(factory, ids["temperature"])) == 2
 
 
-def test_change_goes_back_to_the_form_with_what_was_typed(client, world):
-    _, ids = world
-    response = client.post(
-        f"/measurements/{ids['temperature']}",
-        data={
-            "value": "19.25",
-            "observed_at": "2026-01-06T07:30",
-            "action": "change",
-        },
-    )
-    assert response.status_code == 200
-    assert 'value="19.25"' in response.text
-
-
-def test_a_record_confirm_without_the_review_token_is_refused(client, world):
+def test_a_record_without_its_pass_saves_nothing_and_keeps_the_form(
+    client, world
+):
     factory, ids = world
     response = client.post(
         f"/measurements/{ids['temperature']}",
         data={
             "value": "19",
             "observed_at": "2026-01-06T07:30",
-            "action": "confirm",
             "token": "forged",
         },
     )
     assert response.status_code == 409
-    assert "check the measurement" in response.text
+    assert "Nothing was saved" in response.text
+    assert 'value="19"' in response.text
     assert len(_readings(factory, ids["temperature"])) == 1
 
 
@@ -434,10 +437,10 @@ def test_a_double_tap_records_only_once(client, world):
     factory, ids = world
     url = f"/measurements/{ids['temperature']}"
     data = {"value": "19", "observed_at": "2026-01-06T07:30"}
-    review = client.post(url, data=data)
-    confirm = {**data, "action": "confirm", "token": _token(review.text)}
-    assert client.post(url, data=confirm).status_code == 303
-    assert client.post(url, data=confirm).status_code == 409
+    token = _token(client.get(url).text)
+    assert client.post(url, data={**data, "token": token}).status_code == 303
+    second = client.post(url, data={**data, "token": token})
+    assert second.status_code == 409
     assert len(_readings(factory, ids["temperature"])) == 2
 
 
@@ -451,13 +454,9 @@ def test_correcting_shows_the_change_and_records_who(client, world):
     assert 'value="18.5"' in form
     assert 'value="2026-01-04T23:00"' not in form  # stays in Chicago time
     assert 'value="2026-01-05T06:00"' in form
-    data = {"value": "18.0", "observed_at": "2026-01-05T06:00"}
-    review = client.post(url, data=data)
-    assert review.status_code == 200
-    assert "Value: 18.5 °C to 18 °C" in review.text
-    assert "Time:" not in review.text
-    response = client.post(
-        url, data={**data, "action": "confirm", "token": _token(review.text)}
+    assert ">Save changes</button>" in form
+    response = _press(
+        client, url, {"value": "18.0", "observed_at": "2026-01-05T06:00"}
     )
     assert response.status_code == 303
     assert response.headers["location"].endswith("done=reading_updated")
@@ -469,7 +468,7 @@ def test_correcting_shows_the_change_and_records_who(client, world):
 
 def test_moving_a_reading_in_time(client, world):
     factory, ids = world
-    response = _review_and_confirm(
+    response = _press(
         client,
         f"/readings/{ids['reading']}/edit",
         {"value": "18.5", "observed_at": "2026-01-05T08:15"},
@@ -482,12 +481,28 @@ def test_moving_a_reading_in_time(client, world):
 
 def test_a_correction_that_changes_nothing_is_refused(client, world):
     _, ids = world
-    response = client.post(
+    response = _press(
+        client,
         f"/readings/{ids['reading']}/edit",
-        data={"value": "18.50", "observed_at": "2026-01-05T06:00"},
+        {"value": "18.50", "observed_at": "2026-01-05T06:00"},
     )
     assert response.status_code == 400
     assert "Nothing has changed." in response.text
+
+
+def test_a_correction_into_the_future_stops_once_then_saves(client, world):
+    factory, ids = world
+    url = f"/readings/{ids['reading']}/edit"
+    data = {"value": "18.5", "observed_at": "2099-01-01T10:00"}
+    shown = _press(client, url, data)
+    assert "The new time is in the future." in shown.text
+    # The form keeps what was typed; the reading keeps its stored time.
+    assert 'value="2099-01-01T10:00"' in shown.text
+    (kept,) = _readings(factory, ids["temperature"])
+    assert kept.observed_at == datetime(2026, 1, 5, 12)
+    assert _again(client, url, data, shown).status_code == 303
+    (moved,) = _readings(factory, ids["temperature"])
+    assert moved.observed_at.year == 2099
 
 
 def test_deleting_asks_first_then_removes_the_reading(client, world):
@@ -623,7 +638,7 @@ def test_recording_for_a_batch_comes_back_to_the_batch_view(client, world):
     url = _batch_view(ids)
     text = client.get(url).text
     assert f'action="{url}"' in html.unescape(text)
-    response = _review_and_confirm(
+    response = _press(
         client, url, {"value": "4", "observed_at": "2026-01-07T07:30"}
     )
     assert response.status_code == 303
@@ -633,17 +648,36 @@ def test_recording_for_a_batch_comes_back_to_the_batch_view(client, world):
 
 def test_a_reading_outside_the_batch_is_flagged(client, world):
     _, ids = world
-    review = client.post(
+    shown = _press(
+        client,
         _batch_view(ids),
-        data={"value": "4", "observed_at": "2026-01-01T07:30"},
+        {"value": "4", "observed_at": "2026-01-01T07:30"},
     )
-    assert review.status_code == 200
-    assert "That time is before this batch started." in review.text
-    earlier = client.post(
+    assert shown.status_code == 200
+    assert "That time is before this batch started." in shown.text
+    earlier = _press(
+        client,
         f"/measurements/{ids['gravity']}?batch={ids['earlier']}",
-        data={"value": "4", "observed_at": "2026-01-06T07:30"},
+        {"value": "4", "observed_at": "2026-01-06T07:30"},
     )
     assert "That time is after this batch finished." in earlier.text
+
+
+def test_accepting_one_warning_doesnt_accept_another(client, world):
+    factory, ids = world
+    url = _batch_view(ids)
+    before = len(_readings(factory, ids["gravity"]))
+    shown = _press(
+        client, url, {"value": "4", "observed_at": "2026-01-01T07:30"}
+    )
+    assert "before this batch started" in shown.text
+    # Retyped into the future: a different warning, so it stops again.
+    moved = _again(
+        client, url, {"value": "4", "observed_at": "2099-01-01T07:30"}, shown
+    )
+    assert moved.status_code == 200
+    assert "That time is in the future." in moved.text
+    assert len(_readings(factory, ids["gravity"])) == before
 
 
 def test_correcting_and_deleting_from_a_batch_view_keep_it(client, world):
@@ -658,15 +692,15 @@ def test_correcting_and_deleting_from_a_batch_view_keep_it(client, world):
     assert f'href="{delete}"' in html.unescape(view)
     crumbs = _crumbs(client.get(edit).text)
     assert f'href="/batches/{ids["batch"]}"' in crumbs
-    fixed = _review_and_confirm(
+    fixed = _press(
         client, edit, {"value": "4.25", "observed_at": "2026-01-06T06:00"}
     )
     assert fixed.headers["location"] == (
         f"{_batch_view(ids)}&done=reading_updated"
     )
-    review = client.get(delete)
+    confirm = client.get(delete)
     gone = client.post(
-        delete, data={"action": "confirm", "token": _token(review.text)}
+        delete, data={"action": "confirm", "token": _token(confirm.text)}
     )
     assert gone.headers["location"] == (
         f"{_batch_view(ids)}&done=reading_deleted"

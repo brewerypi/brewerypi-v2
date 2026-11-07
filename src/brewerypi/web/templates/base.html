@@ -74,6 +74,7 @@ footer { color: var(--muted); font-size: 14px; }
 .field { display: grid; gap: 4px; font-weight: 600; }
 input:not([type="hidden"]), select { width: 100%; min-height: 48px; padding: 8px 12px; font: inherit; font-weight: 400; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); }
 .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.actions form { display: contents; }
 .actions .btn.quiet { min-height: 44px; padding: 10px 18px; }
 .btn.danger { background: var(--bad); border-color: var(--bad); }
 .plain { list-style: none; margin: 0; padding: 0; }
@@ -91,6 +92,15 @@ window.addEventListener("pageshow", (event) => {
   const nav = performance.getEntriesByType("navigation")[0];
   if (event.persisted || (nav && nav.type === "back_forward")) {
     location.reload();
+  }
+});
+// One press, one save: a second tap while the first is on its way would
+// arrive with a spent pass and replace the result with "out of date".
+document.addEventListener("submit", (event) => {
+  if (event.target.dataset.sent) {
+    event.preventDefault();
+  } else {
+    event.target.dataset.sent = "1";
   }
 });
 </script>

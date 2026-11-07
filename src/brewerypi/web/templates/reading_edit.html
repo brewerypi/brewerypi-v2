@@ -1,17 +1,15 @@
 {% extends "base.html" %}
+{% from "_forms.html" import notices, save %}
 {% from "_measurements.html" import value_field %}
 {% block title %}Correct a reading{% endblock %}
 {% block content %}
 <h1>Correct a {{ title }} reading</h1>
-{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+{{ notices(error, warnings) }}
 <form method="post" action="{{ action_url }}" class="fields">
   {{ value_field(options, unit, value) }}
   <label class="field" for="observed_at">Time ({{ timezone }})
     <input id="observed_at" name="observed_at" type="datetime-local" value="{{ observed_at }}" required>
   </label>
-  <div class="actions">
-    <button class="btn" id="review" type="submit" name="action" value="review">Review</button>
-    <a class="btn quiet" href="{{ cancel_url }}">Cancel</a>
-  </div>
+  {{ save("Save changes", token, warnings, accepted, cancel_url) }}
 </form>
 {% endblock %}

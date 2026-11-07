@@ -1,0 +1,15 @@
+{# What every write form shares: its notices and its one press. #}
+{% macro notices(error, warnings) %}
+{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+{% for warning in warnings %}<p class="warn" role="alert">{{ warning }}</p>{% endfor %}
+{% endmacro %}
+
+{# The pass and the button. After a warning the button saves anyway. #}
+{% macro save(label, token, warnings, accepted, cancel_url=none) %}
+<input type="hidden" name="token" value="{{ token }}">
+{% if warnings %}<input type="hidden" name="accepted" value="{{ accepted }}">{% endif %}
+<div class="actions">
+  <button class="btn" id="save" type="submit">{{ label }}{% if warnings %} anyway{% endif %}</button>
+  {% if cancel_url %}<a class="btn quiet" href="{{ cancel_url }}">Cancel</a>{% endif %}
+</div>
+{% endmacro %}

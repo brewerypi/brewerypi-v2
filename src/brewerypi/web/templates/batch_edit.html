@@ -1,8 +1,9 @@
 {% extends "base.html" %}
+{% from "_forms.html" import notices, save %}
 {% block title %}Edit {{ frame.name }}{% endblock %}
 {% block content %}
 <h1>Edit {{ type_name }} on {{ vessel }}</h1>
-{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+{{ notices(error, warnings) }}
 <form method="post" action="/batches/{{ frame.id }}/edit" class="fields">
   <label class="field" for="name">Batch name
     <input id="name" name="name" value="{{ name }}" maxlength="45" required autocomplete="off">
@@ -18,9 +19,6 @@
   <p class="muted">It's still running. To end it, close the batch.</p>
   {% endif %}
   <p class="muted">Readings already recorded stay where they are.</p>
-  <div class="actions">
-    <button class="btn" id="review" type="submit" name="action" value="review">Review</button>
-    <a class="btn quiet" href="/batches/{{ frame.id }}">Cancel</a>
-  </div>
+  {{ save("Save changes", token, warnings, accepted, "/batches/" ~ frame.id) }}
 </form>
 {% endblock %}

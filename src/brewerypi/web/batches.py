@@ -30,7 +30,7 @@ from brewerypi.models import (
 from brewerypi.serializers import event_frame_dict
 from brewerypi.timezones import resolve_timezone
 from brewerypi.web.auth import signed_in_user
-from brewerypi.web.forms import readable
+from brewerypi.web.forms import mint_token, readable
 from brewerypi.web.measurements import (
     areas_with_measurements,
     batch_measurements,
@@ -424,6 +424,11 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                 "batch.html",
                 crumbs=trail(session, element),
                 batch=_batch(session, frame),
+                # Reopening is one press, so a finished batch's page carries
+                # the pass for it.
+                token=(
+                    mint_token(request) if frame.ended_at is not None else ""
+                ),
                 measurements=batch_measurements(session, frame),
                 site=site,
                 timezone=resolve_timezone(session, site),

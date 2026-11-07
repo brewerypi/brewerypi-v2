@@ -1,10 +1,10 @@
 """Readings from the web: see a measurement, record, correct and delete.
 
-Writes follow the batch pages' pattern (see ``batch_actions``): a form, then
-a review that runs the real service call and rolls it back, then a confirm
-carrying a one-use token. Recording, correcting and deleting are open to
-every role at the site, as on the MCP operator tier, so the rules stay in
-``services.tag_values`` and ``access``.
+Recording and correcting take one press, deleting keeps its confirm page;
+see ``forms`` for the pass and how warnings are accepted. Recording,
+correcting and deleting are open to every role at the site, as on the MCP
+operator tier, so the rules stay in ``services.tag_values`` and
+``access``.
 """
 
 from __future__ import annotations
@@ -31,6 +31,8 @@ from brewerypi.services import (
 from brewerypi.timezones import resolve_timezone, zone_for_tag
 from brewerypi.web.auth import signed_in_user
 from brewerypi.web.forms import (
+    OUT_OF_DATE,
+    accepted_key,
     future_warning,
     input_time,
     mint_token,
@@ -40,6 +42,7 @@ from brewerypi.web.forms import (
     shown_time,
     spend_token,
     stale_page,
+    unaccepted,
     utc_now,
 )
 from brewerypi.web.measurements import (
@@ -79,6 +82,13 @@ def _parse_value(
 
 
 _NOT_ON_THE_LIST = "Choose one of the options on the list."
+
+
+def _message(exc: ServiceError) -> str:
+    """A refusal in words for the form it came from."""
+    if isinstance(exc, NotSelectableError):
+        return _NOT_ON_THE_LIST
+    return str(exc)
 
 
 def _measurement_url(
@@ -185,6 +195,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         error: str | None = None,
         status_code: int = 200,
         frame: EventFrame | None = None,
+        warnings: list[str] = (),
     ):
         zone = zone_for_tag(session, tag)
         element, name = owner(session, tag)
@@ -234,6 +245,9 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
             page_number=page_number,
             has_older=len(found) > READINGS_PAGE_SIZE,
             error=error,
+            warnings=list(warnings),
+            accepted=accepted_key(list(warnings)),
+            token=mint_token(request),
         )
 
     @router.get("/measurements/{tag_id}")
@@ -257,7 +271,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         tag_id: int,
         value: str = Form(""),
         observed_at: str = Form(""),
-        action: str = Form("review"),
+        accepted: str = Form(""),
         token: str = Form(""),
         batch_id: int | None = Query(None, alias="batch"),
         user: CurrentUser = Depends(signed_in_user),
@@ -265,8 +279,8 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         with session_factory() as session:
             tag = operable(session, user, Tag, tag_id)
             frame = _batch_for(session, user, tag, batch_id)
-            back = _measurement_url(tag.id, frame)
-            if action == "change":
+
+            def again(**notice):
                 return measurement_form(
                     request,
                     session,
@@ -274,14 +288,16 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                     value=value,
                     observed_at=observed_at,
                     frame=frame,
+                    **notice,
                 )
-            if action == "confirm" and not spend_token(request, token):
-                return stale_page(request, back, "measurement")
+
+            if not spend_token(request, token):
+                return again(error=OUT_OF_DATE, status_code=409)
             zone = zone_for_tag(session, tag)
             try:
                 when = parse_time(observed_at, zone, "reading's")
                 number_value, option = _parse_value(session, tag, value)
-                reading = services.record_tag_value(
+                services.record_tag_value(
                     session,
                     tag.id,
                     when,
@@ -289,54 +305,22 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                     option,
                     recorded_by_id=caller_id(),
                 )
-                text = value_text(session, tag, reading)
-                if action == "confirm":
-                    session.commit()
-                    return RedirectResponse(
-                        _measurement_url(tag.id, frame, done="recorded"),
-                        status_code=303,
-                    )
-                session.rollback()
             except ServiceError as exc:
                 session.rollback()
                 if isinstance(exc, (NotFoundError, PermissionDeniedError)):
                     raise
-                message = (
-                    _NOT_ON_THE_LIST
-                    if isinstance(exc, NotSelectableError)
-                    else str(exc)
-                )
-                return measurement_form(
-                    request,
-                    session,
-                    tag,
-                    value=value,
-                    observed_at=observed_at,
-                    error=message,
-                    status_code=400,
-                    frame=frame,
-                )
-            return page(
-                request,
-                "batch_confirm.html",
-                crumbs=_tag_crumbs(session, tag, frame),
-                heading=(
-                    f"Record {text} for {_title(session, tag)} at "
-                    f"{shown_time(when, zone)}?"
-                ),
-                changes=[],
-                warnings=[
-                    *future_warning(when, "That time"),
-                    *_window_warnings(frame, when),
-                ],
-                notes=[],
-                action_url=back,
-                hidden={"value": value, "observed_at": observed_at},
-                token=mint_token(request),
-                confirm_label="Record reading",
-                timezone=zone,
-                can_change=True,
-                cancel_url=back,
+                return again(error=_message(exc), status_code=400)
+            warnings = [
+                *future_warning(when, "That time"),
+                *_window_warnings(frame, when),
+            ]
+            if unaccepted(warnings, accepted):
+                session.rollback()
+                return again(warnings=warnings)
+            session.commit()
+            return RedirectResponse(
+                _measurement_url(tag.id, frame, done="recorded"),
+                status_code=303,
             )
 
     def edit_form(
@@ -348,6 +332,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         error: str | None = None,
         status_code: int = 200,
         frame: EventFrame | None = None,
+        warnings: list[str] = (),
     ):
         tag = session.get(Tag, tv.tag_id)
         zone = zone_for_tag(session, tag)
@@ -374,6 +359,9 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
             ),
             timezone=zone,
             error=error,
+            warnings=list(warnings),
+            accepted=accepted_key(list(warnings)),
+            token=mint_token(request),
         )
 
     @router.get("/readings/{reading_id}/edit")
@@ -395,7 +383,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         reading_id: int,
         value: str = Form(""),
         observed_at: str = Form(""),
-        action: str = Form("review"),
+        accepted: str = Form(""),
         token: str = Form(""),
         batch_id: int | None = Query(None, alias="batch"),
         user: CurrentUser = Depends(signed_in_user),
@@ -404,21 +392,25 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
             tv = operable(session, user, TagValue, reading_id)
             tag = session.get(Tag, tv.tag_id)
             frame = _batch_for(session, user, tag, batch_id)
-            back = _measurement_url(tag.id, frame)
-            if action == "change":
+
+            def again(**notice):
                 return edit_form(
-                    request, session, tv, value, observed_at, frame=frame
+                    request,
+                    session,
+                    tv,
+                    value,
+                    observed_at,
+                    frame=frame,
+                    **notice,
                 )
-            if action == "confirm" and not spend_token(request, token):
-                return stale_page(request, back, "measurement")
+
+            if not spend_token(request, token):
+                return again(error=OUT_OF_DATE, status_code=409)
             zone = zone_for_tag(session, tag)
             old_raw = raw_value(session, tv)
-            old_text = value_text(session, tag, tv)
-            old_time = tv.observed_at
             # Inputs are to the minute and stored times may not be, so only
             # what the person actually retyped counts as a change.
             changes: dict = {}
-            lines: list[str] = []
             moved = None
             try:
                 number_value, option = _parse_value(session, tag, value)
@@ -427,77 +419,37 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                         changes["lookup_value"] = option
                     elif number_value != tv.value:
                         changes["value"] = number_value
-                if observed_at != input_time(old_time, zone):
+                if observed_at != input_time(tv.observed_at, zone):
                     moved = parse_time(observed_at, zone, "reading's")
                     changes["observed_at"] = moved.isoformat()
                 if not changes:
                     raise ValidationError("Nothing has changed.")
-                updated = services.update_tag_value(
+                services.update_tag_value(
                     session,
                     tv.id,
                     updated_by_id=caller_id(),
                     **changes,
                 )
-                if "value" in changes or "lookup_value" in changes:
-                    lines.append(
-                        f"Value: {old_text} to "
-                        f"{value_text(session, tag, updated)}"
-                    )
-                if moved is not None:
-                    lines.append(
-                        f"Time: {shown_time(old_time, zone)} to "
-                        f"{shown_time(moved, zone)}"
-                    )
-                if action == "confirm":
-                    session.commit()
-                    return RedirectResponse(
-                        _measurement_url(
-                            tag.id, frame, done="reading_updated"
-                        ),
-                        status_code=303,
-                    )
-                session.rollback()
             except ServiceError as exc:
                 session.rollback()
                 if isinstance(exc, (NotFoundError, PermissionDeniedError)):
                     raise
-                message = (
-                    _NOT_ON_THE_LIST
-                    if isinstance(exc, NotSelectableError)
-                    else str(exc)
-                )
-                return edit_form(
-                    request,
-                    session,
-                    tv,
-                    value,
-                    observed_at,
-                    message,
-                    400,
-                    frame=frame,
-                )
-            return page(
-                request,
-                "batch_confirm.html",
-                crumbs=_reading_trail(session, tag, frame),
-                heading=f"Correct this {_title(session, tag)} reading?",
-                changes=lines,
-                warnings=(
-                    [
-                        *future_warning(moved, "The new time"),
-                        *_window_warnings(frame, moved),
-                    ]
-                    if moved is not None
-                    else []
-                ),
-                notes=[],
-                action_url=_with_batch(f"/readings/{reading_id}/edit", frame),
-                hidden={"value": value, "observed_at": observed_at},
-                token=mint_token(request),
-                confirm_label="Save changes",
-                timezone=zone,
-                can_change=True,
-                cancel_url=back,
+                return again(error=_message(exc), status_code=400)
+            warnings = (
+                [
+                    *future_warning(moved, "The new time"),
+                    *_window_warnings(frame, moved),
+                ]
+                if moved is not None
+                else []
+            )
+            if unaccepted(warnings, accepted):
+                session.rollback()
+                return again(warnings=warnings)
+            session.commit()
+            return RedirectResponse(
+                _measurement_url(tag.id, frame, done="reading_updated"),
+                status_code=303,
             )
 
     @router.get("/readings/{reading_id}/delete")
@@ -532,7 +484,6 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                 confirm_label="Delete reading",
                 timezone=zone,
                 danger=True,
-                can_change=False,
                 cancel_url=_measurement_url(tag.id, frame),
             )
 
