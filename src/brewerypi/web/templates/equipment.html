@@ -23,7 +23,7 @@
   {{ notices(entry.error, entry.warnings) }}
   <form method="post" action="/equipment/{{ element.id }}/readings" class="fields">
   {% for m in measurements %}
-  <div class="reading{% if entry.errors.get(m.id) %} has-error{% endif %}">
+  <div class="reading entry-row{% if entry.errors.get(m.id) %} has-error{% endif %}">
     <span class="batch-head">
       <span class="vessel">{{ m.name }}</span>
       {% if m.latest %}
@@ -33,10 +33,8 @@
       <span class="meta">No readings yet.</span>
       {% endif %}
     </span>
-    <span class="chips">
-      {{ entry_box(m.id, m.name, m.unit, m.options, entry) }}
-      <a class="btn quiet" href="/measurements/{{ m.id }}">See all</a>
-    </span>
+    {{ entry_box(m.id, m.name, m.unit, m.options, entry) }}
+    <span class="see-all"><a class="btn quiet" href="/measurements/{{ m.id }}">See all</a></span>
     {{ entry_error(m.id, entry) }}
   </div>
   {% endfor %}
