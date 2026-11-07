@@ -432,7 +432,11 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
   equipment measurements stay on the equipment), over the batch's window
   with BOTH ends inclusive so the close's end value counts; `?batch=` keeps a
   measurement page and its record/edit/delete to that window, and is "not
-  found" unless the tag holds one of that batch's measurements.
+  found" unless the tag holds one of that batch's measurements. Overlapping
+  batches on non-exclusive equipment share tags, and touching batches share
+  the boundary instant -- read `docs/design-decisions.md`, *Batch
+  measurements and their window*, before adding measurements to a brew-like
+  batch type.
 - Web batch screens (`web/batches.py`, Jinja templates in `web/templates/`,
   autoescaped): a page checks the row its address names with `_readable`, and
   lists filter through `access.visible`. Anything missing or out of scope gets

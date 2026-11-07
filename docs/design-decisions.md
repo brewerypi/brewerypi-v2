@@ -503,6 +503,66 @@ themselves; the people tools remain admin-only.
 
 ---
 
+## Batch measurements and their window
+
+**Status: the window is built; the convention and both warnings are decided,
+not built.**
+
+A batch's measurements are event frame attributes, and their wiring is
+ELEMENT-scoped, as upstream's is: one tag per element and attribute template,
+shared by every batch of that type run on that element. A reading carries no
+batch id. What makes a reading "this batch's" is only its time: the batch page
+counts readings from `started_at` to `ended_at`, **both ends inclusive**, so
+the end value written at close is part of the batch it closes. That choice has
+two edges.
+
+### Batches running side by side
+
+On a non-exclusive element such as a brewhouse, two brews overlap and share
+the same Gravity tag, so each brew's window takes in the other's readings. An
+exclusive element can't overlap itself, so a fermenter is unaffected.
+
+**Convention: a batch on non-exclusive equipment is a shell.** A Brew holds no
+measurements of its own; its steps do, because each step runs on an exclusive
+child element (one mash in the mash mixer, one boil in the kettle) whose
+batches cannot collide. Measurements that feel brew-wide still have a step to
+live on: Original Gravity is taken at knockout or wort cooling, and Brand can
+go on the first step.
+
+**Follow-up:** warn when someone adds a measurement to a batch type whose
+element template is non-exclusive, and point them at a step instead. A
+warning rather than a refusal, in case a brewery has a reason; it belongs in
+the service's return or the admin tool's reply so that every consumer sees
+it.
+
+**Held in reserve:** an optional batch id on `tag_values`, so a batch shows
+only readings recorded for it. It is the only option that fully removes the
+overlap, but it is a schema change, a departure from upstream, and every
+write path (MCP included) would have to say which batch a reading is for.
+Worth it only if a brewery needs brew-level measurements on overlapping
+brews. A tag per batch was considered and rejected, as upstream rejected it:
+tags would multiply with every batch.
+
+### Back-to-back batches
+
+Half-open frames may touch: one batch can end at exactly the moment the next
+starts on the same element. A reading at that instant then falls in both
+windows. With boundary defaults it is worse than a duplicate: the closing
+batch's end value (say, FV Status "Empty") and the next batch's start value
+("Ready to fill") are written at the same instant on the same tag, and the
+later-written start value becomes the finished batch's latest.
+
+No counting rule gets both cases right -- excluding the end instant would drop
+the end value written at close -- and refusing touching batches would break
+transfers, which line up end to end on purpose.
+
+**Follow-up:** warn on the web review pages when a start, close, reopen or time
+edit would make a batch touch another on the same element: the reading at that
+moment counts for both, so leave a minute between them if that matters. This
+is web-only and changes no rule.
+
+---
+
 ## Delete philosophy
 
 **Status: built.**
