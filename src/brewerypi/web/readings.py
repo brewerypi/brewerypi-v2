@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import RedirectResponse
@@ -18,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from brewerypi import access, services
 from brewerypi.identity import CurrentUser, caller_id
-from brewerypi.models import Area, Site, Tag, TagValue
+from brewerypi.models import Area, EventFrame, Site, Tag, TagValue
 from brewerypi.serializers import reading_authors
 from brewerypi.services import (
     NotFoundError,
@@ -42,6 +43,7 @@ from brewerypi.web.forms import (
     utc_now,
 )
 from brewerypi.web.measurements import (
+    batch_tag,
     measurement,
     owner,
     raw_value,
@@ -49,7 +51,7 @@ from brewerypi.web.measurements import (
     unit_of,
     value_text,
 )
-from brewerypi.web.navigation import HOME
+from brewerypi.web.navigation import HOME, batch_trail
 from brewerypi.web.rendering import page
 
 #: Readings per page on a measurement's page.
@@ -79,17 +81,64 @@ def _parse_value(
 _NOT_ON_THE_LIST = "Choose one of the options on the list."
 
 
-def _measurement_url(tag_id: int) -> str:
-    return f"/measurements/{tag_id}"
+def _measurement_url(
+    tag_id: int, frame: EventFrame | None = None, **extra: str
+) -> str:
+    """A measurement page's address, kept to a batch's readings if given."""
+    params = {"batch": frame.id} if frame is not None else {}
+    params.update(extra)
+    query = urlencode(params)
+    return f"/measurements/{tag_id}" + (f"?{query}" if query else "")
 
 
-def _reading_trail(session: Session, tag: Tag) -> list[dict]:
+def _with_batch(path: str, frame: EventFrame | None) -> str:
+    return path if frame is None else f"{path}?batch={frame.id}"
+
+
+def _batch_for(
+    session: Session, user: CurrentUser, tag: Tag, batch_id: int | None
+) -> EventFrame | None:
+    """The batch a page is seen through, or None for the whole history.
+
+    The batch must be readable and be one whose measurements this tag
+    holds; anything else is not found, as an unknown address would be.
+    """
+    if batch_id is None:
+        return None
+    frame = readable(session, user, EventFrame, batch_id)
+    if not batch_tag(session, frame, tag):
+        raise NotFoundError(f"tag {tag.id} is not measured by {batch_id}")
+    return frame
+
+
+def _tag_crumbs(
+    session: Session, tag: Tag, frame: EventFrame | None
+) -> list[dict]:
+    if frame is not None:
+        return batch_trail(session, frame)
+    return tag_trail(session, tag)
+
+
+def _reading_trail(
+    session: Session, tag: Tag, frame: EventFrame | None
+) -> list[dict]:
     """The breadcrumb for a page about one reading: down to its tag."""
     _, name = owner(session, tag)
     return [
-        *tag_trail(session, tag),
-        {"href": _measurement_url(tag.id), "name": name},
+        *_tag_crumbs(session, tag, frame),
+        {"href": _measurement_url(tag.id, frame), "name": name},
     ]
+
+
+def _window_warnings(frame: EventFrame | None, when) -> list[str]:
+    """Say when a reading taken for a batch falls outside it."""
+    if frame is None:
+        return []
+    if when < frame.started_at:
+        return ["That time is before this batch started."]
+    if frame.ended_at is not None and when > frame.ended_at:
+        return ["That time is after this batch finished."]
+    return []
 
 
 def _title(session: Session, tag: Tag) -> str:
@@ -135,12 +184,15 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         observed_at: str | None = None,
         error: str | None = None,
         status_code: int = 200,
+        frame: EventFrame | None = None,
     ):
         zone = zone_for_tag(session, tag)
         element, name = owner(session, tag)
         found = services.list_tag_values(
             session,
             tag.id,
+            start=frame.started_at if frame is not None else None,
+            end=frame.ended_at if frame is not None else None,
             limit=READINGS_PAGE_SIZE + 1,
             offset=(page_number - 1) * READINGS_PAGE_SIZE,
         )
@@ -157,8 +209,12 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
             request,
             "measurement.html",
             status_code=status_code,
-            crumbs=tag_trail(session, tag),
+            crumbs=_tag_crumbs(session, tag, frame),
             tag=tag,
+            batch=frame,
+            action_url=_measurement_url(tag.id, frame),
+            batch_query=f"?batch={frame.id}" if frame is not None else "",
+            paging_query={"batch": frame.id} if frame is not None else {},
             name=name,
             element=element,
             unit=unit_of(tag),
@@ -185,11 +241,15 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         request: Request,
         tag_id: int,
         page_number: int = Query(1, alias="page", ge=1),
+        batch_id: int | None = Query(None, alias="batch"),
         user: CurrentUser = Depends(signed_in_user),
     ):
         with session_factory() as session:
             tag = readable(session, user, Tag, tag_id)
-            return measurement_form(request, session, tag, page_number)
+            frame = _batch_for(session, user, tag, batch_id)
+            return measurement_form(
+                request, session, tag, page_number, frame=frame
+            )
 
     @router.post("/measurements/{tag_id}")
     def record_reading(
@@ -199,14 +259,21 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         observed_at: str = Form(""),
         action: str = Form("review"),
         token: str = Form(""),
+        batch_id: int | None = Query(None, alias="batch"),
         user: CurrentUser = Depends(signed_in_user),
     ):
         with session_factory() as session:
             tag = operable(session, user, Tag, tag_id)
-            back = _measurement_url(tag.id)
+            frame = _batch_for(session, user, tag, batch_id)
+            back = _measurement_url(tag.id, frame)
             if action == "change":
                 return measurement_form(
-                    request, session, tag, value=value, observed_at=observed_at
+                    request,
+                    session,
+                    tag,
+                    value=value,
+                    observed_at=observed_at,
+                    frame=frame,
                 )
             if action == "confirm" and not spend_token(request, token):
                 return stale_page(request, back, "measurement")
@@ -226,7 +293,8 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                 if action == "confirm":
                     session.commit()
                     return RedirectResponse(
-                        f"{back}?done=recorded", status_code=303
+                        _measurement_url(tag.id, frame, done="recorded"),
+                        status_code=303,
                     )
                 session.rollback()
             except ServiceError as exc:
@@ -246,17 +314,21 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                     observed_at=observed_at,
                     error=message,
                     status_code=400,
+                    frame=frame,
                 )
             return page(
                 request,
                 "batch_confirm.html",
-                crumbs=tag_trail(session, tag),
+                crumbs=_tag_crumbs(session, tag, frame),
                 heading=(
                     f"Record {text} for {_title(session, tag)} at "
                     f"{shown_time(when, zone)}?"
                 ),
                 changes=[],
-                warnings=future_warning(when, "That time"),
+                warnings=[
+                    *future_warning(when, "That time"),
+                    *_window_warnings(frame, when),
+                ],
                 notes=[],
                 action_url=back,
                 hidden={"value": value, "observed_at": observed_at},
@@ -275,6 +347,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         observed_at: str | None = None,
         error: str | None = None,
         status_code: int = 200,
+        frame: EventFrame | None = None,
     ):
         tag = session.get(Tag, tv.tag_id)
         zone = zone_for_tag(session, tag)
@@ -282,8 +355,10 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
             request,
             "reading_edit.html",
             status_code=status_code,
-            crumbs=_reading_trail(session, tag),
+            crumbs=_reading_trail(session, tag, frame),
             reading=tv,
+            action_url=_with_batch(f"/readings/{tv.id}/edit", frame),
+            cancel_url=_measurement_url(tag.id, frame),
             title=_title(session, tag),
             unit=unit_of(tag),
             options=(
@@ -305,11 +380,14 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
     def edit_page(
         request: Request,
         reading_id: int,
+        batch_id: int | None = Query(None, alias="batch"),
         user: CurrentUser = Depends(signed_in_user),
     ):
         with session_factory() as session:
             tv = operable(session, user, TagValue, reading_id)
-            return edit_form(request, session, tv)
+            tag = session.get(Tag, tv.tag_id)
+            frame = _batch_for(session, user, tag, batch_id)
+            return edit_form(request, session, tv, frame=frame)
 
     @router.post("/readings/{reading_id}/edit")
     def edit_reading(
@@ -319,14 +397,18 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         observed_at: str = Form(""),
         action: str = Form("review"),
         token: str = Form(""),
+        batch_id: int | None = Query(None, alias="batch"),
         user: CurrentUser = Depends(signed_in_user),
     ):
         with session_factory() as session:
             tv = operable(session, user, TagValue, reading_id)
             tag = session.get(Tag, tv.tag_id)
-            back = _measurement_url(tag.id)
+            frame = _batch_for(session, user, tag, batch_id)
+            back = _measurement_url(tag.id, frame)
             if action == "change":
-                return edit_form(request, session, tv, value, observed_at)
+                return edit_form(
+                    request, session, tv, value, observed_at, frame=frame
+                )
             if action == "confirm" and not spend_token(request, token):
                 return stale_page(request, back, "measurement")
             zone = zone_for_tag(session, tag)
@@ -369,7 +451,10 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                 if action == "confirm":
                     session.commit()
                     return RedirectResponse(
-                        f"{back}?done=reading_updated", status_code=303
+                        _measurement_url(
+                            tag.id, frame, done="reading_updated"
+                        ),
+                        status_code=303,
                     )
                 session.rollback()
             except ServiceError as exc:
@@ -382,21 +467,31 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                     else str(exc)
                 )
                 return edit_form(
-                    request, session, tv, value, observed_at, message, 400
+                    request,
+                    session,
+                    tv,
+                    value,
+                    observed_at,
+                    message,
+                    400,
+                    frame=frame,
                 )
             return page(
                 request,
                 "batch_confirm.html",
-                crumbs=_reading_trail(session, tag),
+                crumbs=_reading_trail(session, tag, frame),
                 heading=f"Correct this {_title(session, tag)} reading?",
                 changes=lines,
                 warnings=(
-                    future_warning(moved, "The new time")
+                    [
+                        *future_warning(moved, "The new time"),
+                        *_window_warnings(frame, moved),
+                    ]
                     if moved is not None
                     else []
                 ),
                 notes=[],
-                action_url=f"/readings/{reading_id}/edit",
+                action_url=_with_batch(f"/readings/{reading_id}/edit", frame),
                 hidden={"value": value, "observed_at": observed_at},
                 token=mint_token(request),
                 confirm_label="Save changes",
@@ -409,16 +504,18 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
     def delete_page(
         request: Request,
         reading_id: int,
+        batch_id: int | None = Query(None, alias="batch"),
         user: CurrentUser = Depends(signed_in_user),
     ):
         with session_factory() as session:
             tv = operable(session, user, TagValue, reading_id)
             tag = session.get(Tag, tv.tag_id)
+            frame = _batch_for(session, user, tag, batch_id)
             zone = zone_for_tag(session, tag)
             return page(
                 request,
                 "batch_confirm.html",
-                crumbs=_reading_trail(session, tag),
+                crumbs=_reading_trail(session, tag, frame),
                 heading=(
                     f"Delete the {value_text(session, tag, tv)} reading "
                     f"for {_title(session, tag)} at "
@@ -427,14 +524,16 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                 changes=[],
                 warnings=["This can't be undone."],
                 notes=[],
-                action_url=f"/readings/{reading_id}/delete",
+                action_url=_with_batch(
+                    f"/readings/{reading_id}/delete", frame
+                ),
                 hidden={},
                 token=mint_token(request),
                 confirm_label="Delete reading",
                 timezone=zone,
                 danger=True,
                 can_change=False,
-                cancel_url=_measurement_url(tag.id),
+                cancel_url=_measurement_url(tag.id, frame),
             )
 
     @router.post("/readings/{reading_id}/delete")
@@ -443,21 +542,27 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         reading_id: int,
         action: str = Form(""),
         token: str = Form(""),
+        batch_id: int | None = Query(None, alias="batch"),
         user: CurrentUser = Depends(signed_in_user),
     ):
         with session_factory() as session:
             tv = operable(session, user, TagValue, reading_id)
-            back = _measurement_url(tv.tag_id)
+            tag = session.get(Tag, tv.tag_id)
+            frame = _batch_for(session, user, tag, batch_id)
             if action != "confirm":
                 return RedirectResponse(
-                    f"/readings/{reading_id}/delete", status_code=303
+                    _with_batch(f"/readings/{reading_id}/delete", frame),
+                    status_code=303,
                 )
             if not spend_token(request, token):
-                return stale_page(request, back, "measurement")
+                return stale_page(
+                    request, _measurement_url(tag.id, frame), "measurement"
+                )
             services.delete_tag_value(session, tv.id)
             session.commit()
             return RedirectResponse(
-                f"{back}?done=reading_deleted", status_code=303
+                _measurement_url(tag.id, frame, done="reading_deleted"),
+                status_code=303,
             )
 
     return router

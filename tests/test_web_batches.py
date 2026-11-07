@@ -10,17 +10,26 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from brewerypi.database import Base
-from brewerypi.models import Enterprise, Site
+from brewerypi.models import (
+    Element,
+    Enterprise,
+    EventFrameAttribute,
+    Site,
+    TagValue,
+)
 from brewerypi.services import (
     close_event_frame,
+    create_area,
     create_element,
     create_element_template,
     create_event_frame,
+    create_event_frame_attribute_template,
     create_event_frame_template,
+    create_measurement_unit,
     create_membership,
     create_user,
 )
@@ -471,6 +480,78 @@ def test_batch_breadcrumb_runs_through_the_equipment_it_sits_in(
     assert crumbs.index(f'href="/sites/{ids["spr"]}"') < crumbs.index(
         f'href="/equipment/{ids["bh1"]}"'
     ) < crumbs.index(f'href="/equipment/{ids["mm1"]}"')
+
+
+def _measured_batch(factory, ids, close=False):
+    """A fermentation on a new FV09 whose Gravity is measured, with readings.
+
+    The fixture's FV01 has no area for its tags, so its Gravity isn't set
+    up; FV09 has one.
+    """
+    with factory() as s:
+        site = s.get(Site, ids["spr"])
+        cellar = create_area(s, site.id, "CEL", "Cellar")
+        plato = create_measurement_unit(s, site.enterprise_id, "°P", "Plato")
+        create_event_frame_attribute_template(
+            s, ids["fermentation"], "Gravity", measurement_unit_id=plato.id
+        )
+        fermenter_t = s.get(Element, ids["fv01"]).element_template_id
+        fv09 = create_element(s, fermenter_t, "FV09", tag_area_id=cellar.id)
+        gravity = next(
+            w.tag_id
+            for w in s.scalars(select(EventFrameAttribute))
+            if w.element_id == fv09.id
+        )
+        batch = create_event_frame(
+            s, fv09.id, ids["fermentation"], "Batch 2001",
+            started_at=_at(20),
+        )
+        for when, value in [(_at(19), 1.0), (_at(20, 13), 12.0),
+                            (_at(21), 4.5)]:
+            s.add(TagValue(tag_id=gravity, observed_at=when, value=value))
+        if close:
+            close_event_frame(s, batch.id, _at(22))
+        s.commit()
+        return batch.id, gravity
+
+
+def test_a_batch_page_sums_up_its_measurements(client, world):
+    factory, ids = world
+    batch, gravity = _measured_batch(factory, ids)
+    text = client.get(f"/batches/{batch}").text
+    section = text.split("<h2>Measurements</h2>")[1].split("</section>")[0]
+    assert "Gravity" in section
+    assert "4.5 °P" in section
+    assert "Started at 12 °P" in section
+    # The reading before the batch started isn't counted.
+    assert "2 readings" in section
+    view = f"/measurements/{gravity}?batch={batch}"
+    assert f'href="{view}"' in section
+    assert f'href="{view}#record"' in section
+
+
+def test_a_finished_batch_offers_no_record_button(client, world):
+    factory, ids = world
+    batch, gravity = _measured_batch(factory, ids, close=True)
+    section = client.get(f"/batches/{batch}").text.split(
+        "<h2>Measurements</h2>"
+    )[1]
+    assert f"/measurements/{gravity}?batch={batch}#record" not in section
+    assert f'href="/measurements/{gravity}?batch={batch}"' in section
+
+
+def test_a_measurement_the_equipment_isnt_set_up_for_says_so(client, world):
+    factory, ids = world
+    _measured_batch(factory, ids)
+    text = client.get(f"/batches/{ids['running_ferment']}").text
+    section = text.split("<h2>Measurements</h2>")[1]
+    assert "Not set up on FV01 yet." in section
+
+
+def test_a_batch_type_without_measurements_shows_no_section(client, world):
+    _, ids = world
+    text = client.get(f"/batches/{ids['running_brew']}").text
+    assert "<h2>Measurements</h2>" not in text
 
 
 def test_a_batch_with_no_author_says_nothing_about_one(client, world):

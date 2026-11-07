@@ -32,6 +32,32 @@
   <a class="btn quiet" href="/batches/{{ batch.id }}/transfer">Transfer</a>
   <a class="btn quiet" href="/batches/{{ batch.id }}/delete">Delete</a>
 </div>
+{% if measurements %}
+<section class="section">
+  <h2>Measurements</h2>
+  {% for m in measurements %}
+  <div class="reading">
+    <span class="batch-head">
+      <span class="vessel">{{ m.name }}</span>
+      {% if m.tag_id is none %}
+      <span class="meta">Not set up on {{ batch.element_name }} yet.</span>
+      {% elif not m.count %}
+      <span class="meta">No readings yet.</span>
+      {% else %}
+      <span class="batch-name">{{ m.latest.value }}</span>
+      <span class="meta">{% if m.count > 1 %}Started at {{ m.first.value }} · {% endif %}{{ m.latest.at }} · {{ m.count }} reading{{ "" if m.count == 1 else "s" }}</span>
+      {% endif %}
+    </span>
+    {% if m.tag_id is not none %}
+    <span class="chips">
+      {% if m.count %}<a class="btn quiet" href="/measurements/{{ m.tag_id }}?batch={{ batch.id }}">See all</a>{% endif %}
+      {% if batch.open %}<a class="btn quiet" href="/measurements/{{ m.tag_id }}?batch={{ batch.id }}#record">Record</a>{% endif %}
+    </span>
+    {% endif %}
+  </div>
+  {% endfor %}
+</section>
+{% endif %}
 {% if parent %}
 <section class="section">
   <h2>Part of</h2>

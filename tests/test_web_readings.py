@@ -18,6 +18,7 @@ from brewerypi.database import Base
 from brewerypi.models import (
     ElementAttribute,
     Enterprise,
+    EventFrameAttribute,
     LookupValue,
     Site,
     TagValue,
@@ -27,6 +28,9 @@ from brewerypi.services import (
     create_element,
     create_element_attribute_template,
     create_element_template,
+    create_event_frame,
+    create_event_frame_attribute_template,
+    create_event_frame_template,
     create_lookup,
     create_lookup_value,
     create_measurement_unit,
@@ -91,6 +95,13 @@ def world(tmp_path):
         create_element_attribute_template(
             s, fermenter.id, "Status", lookup_id=status.id
         )
+        fermentation = create_event_frame_template(
+            s, fermenter.id, "Fermentation"
+        )
+        plato = create_measurement_unit(s, mine.id, "°P", "Plato")
+        create_event_frame_attribute_template(
+            s, fermentation.id, "Gravity", measurement_unit_id=plato.id
+        )
         fv01 = create_element(s, fermenter.id, "FV01", tag_area_id=cellar.id)
         glycol = create_tag(
             s, utilities.id, "Glycol Supply", measurement_unit_id=celsius.id
@@ -123,6 +134,21 @@ def world(tmp_path):
             tag_id=secret.id, observed_at=_at(5), value=1.0
         )
         s.add_all([reading, secret_reading])
+        gravity = next(
+            w.tag_id
+            for w in s.scalars(select(EventFrameAttribute))
+            if w.element_id == fv01.id
+        )
+        earlier = create_event_frame(
+            s, fv01.id, fermentation.id, "Batch 1239",
+            started_at=_at(1), ended_at=_at(3),
+        )
+        batch = create_event_frame(
+            s, fv01.id, fermentation.id, "Batch 1240", started_at=_at(4)
+        )
+        gravity_readings = [(_at(2), 1.050), (_at(4, 13), 12.0), (_at(6), 4.5)]
+        for when, value in gravity_readings:
+            s.add(TagValue(tag_id=gravity, observed_at=when, value=value))
         s.commit()
         ids = {
             "spr": spr.id, "cellar": cellar.id, "utilities": utilities.id,
@@ -132,6 +158,7 @@ def world(tmp_path):
             "secret_area": secret_area.id,
             "secret_reading": secret_reading.id,
             "sam": sam.id, "pat": pat.id,
+            "gravity": gravity, "batch": batch.id, "earlier": earlier.id,
         }
     return factory, ids
 
@@ -563,3 +590,96 @@ def test_every_reading_page_needs_sign_in(world):
         response = anonymous.get(path)
         assert response.status_code == 303, path
         assert response.headers["location"] == "/login"
+
+
+# -- seen through a batch --------------------------------------------------
+
+
+def _batch_view(ids):
+    return f"/measurements/{ids['gravity']}?batch={ids['batch']}"
+
+
+def test_a_batch_view_shows_only_that_batchs_readings(client, world):
+    _, ids = world
+    text = client.get(_batch_view(ids)).text
+    readings = text.split("Readings during this batch")[1]
+    assert "12 °P" in readings
+    assert "4.5 °P" in readings
+    assert "1.05 °P" not in readings  # Batch 1239's
+    assert "Readings during Batch 1240." in text
+    everything = client.get(f"/measurements/{ids['gravity']}").text
+    assert "1.05 °P" in everything
+
+
+def test_a_batch_view_breadcrumb_runs_through_the_batch(client, world):
+    _, ids = world
+    crumbs = _crumbs(client.get(_batch_view(ids)).text)
+    assert f'href="/batches/{ids["batch"]}"' in crumbs
+    assert f'href="/equipment/{ids["fv01"]}"' in crumbs
+
+
+def test_recording_for_a_batch_comes_back_to_the_batch_view(client, world):
+    factory, ids = world
+    url = _batch_view(ids)
+    text = client.get(url).text
+    assert f'action="{url}"' in html.unescape(text)
+    response = _review_and_confirm(
+        client, url, {"value": "4", "observed_at": "2026-01-07T07:30"}
+    )
+    assert response.status_code == 303
+    assert response.headers["location"] == f"{url}&done=recorded"
+    assert _readings(factory, ids["gravity"])[-1].value == 4.0
+
+
+def test_a_reading_outside_the_batch_is_flagged(client, world):
+    _, ids = world
+    review = client.post(
+        _batch_view(ids),
+        data={"value": "4", "observed_at": "2026-01-01T07:30"},
+    )
+    assert review.status_code == 200
+    assert "That time is before this batch started." in review.text
+    earlier = client.post(
+        f"/measurements/{ids['gravity']}?batch={ids['earlier']}",
+        data={"value": "4", "observed_at": "2026-01-06T07:30"},
+    )
+    assert "That time is after this batch finished." in earlier.text
+
+
+def test_correcting_and_deleting_from_a_batch_view_keep_it(client, world):
+    factory, ids = world
+    view = client.get(_batch_view(ids)).text
+    reading = max(
+        r.id for r in _readings(factory, ids["gravity"]) if r.value == 4.5
+    )
+    edit = f"/readings/{reading}/edit?batch={ids['batch']}"
+    delete = f"/readings/{reading}/delete?batch={ids['batch']}"
+    assert f'href="{edit}"' in html.unescape(view)
+    assert f'href="{delete}"' in html.unescape(view)
+    crumbs = _crumbs(client.get(edit).text)
+    assert f'href="/batches/{ids["batch"]}"' in crumbs
+    fixed = _review_and_confirm(
+        client, edit, {"value": "4.25", "observed_at": "2026-01-06T06:00"}
+    )
+    assert fixed.headers["location"] == (
+        f"{_batch_view(ids)}&done=reading_updated"
+    )
+    review = client.get(delete)
+    gone = client.post(
+        delete, data={"action": "confirm", "token": _token(review.text)}
+    )
+    assert gone.headers["location"] == (
+        f"{_batch_view(ids)}&done=reading_deleted"
+    )
+
+
+def test_a_batch_view_of_a_tag_the_batch_doesnt_measure_is_not_found(
+    client, world
+):
+    _, ids = world
+    for path in (
+        f"/measurements/{ids['temperature']}?batch={ids['batch']}",
+        f"/measurements/{ids['gravity']}?batch=99999",
+        f"/readings/{ids['reading']}/edit?batch={ids['batch']}",
+    ):
+        assert client.get(path).status_code == 404, path

@@ -133,6 +133,7 @@ from brewerypi.services.sites import (
     update_site,
 )
 from brewerypi.services.tag_values import (
+    count_tag_values,
     delete_tag_value,
     get_tag_value,
     list_tag_values,
@@ -175,6 +176,7 @@ __all__ = [
     "build_tag_name",
     "close_event_frame",
     "count_finished_top_level_by_template",
+    "count_tag_values",
     "create_area",
     "create_element",
     "create_element_attribute_template",
