@@ -33,6 +33,7 @@ from brewerypi.web.auth import signed_in_user
 from brewerypi.web.forms import readable
 from brewerypi.web.measurements import (
     areas_with_measurements,
+    batch_measurements,
     element_measurements,
 )
 from brewerypi.web.navigation import HOME, trail
@@ -423,6 +424,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                 "batch.html",
                 crumbs=trail(session, element),
                 batch=_batch(session, frame),
+                measurements=batch_measurements(session, frame),
                 site=site,
                 timezone=resolve_timezone(session, site),
                 parent=one(frame.parent_id),

@@ -21,6 +21,7 @@ from brewerypi.services import (
     NotFoundError,
     NotSelectableError,
     ValidationError,
+    count_tag_values,
     delete_tag_value,
     get_tag_value,
     list_tag_values,
@@ -142,6 +143,22 @@ def test_list_newest_first_within_inclusive_bounds(ctx):
     assert list_tag_values(
         session, ids["num_tag"], start=_TS + hour, end=_TS + 2 * hour
     ) == [made[1], made[0]]
+
+
+def test_count_and_oldest_first_share_the_bounds(ctx):
+    session, ids = ctx
+    hour = datetime.timedelta(hours=1)
+    for n in (1, 2, 3):
+        record_tag_value(
+            session, ids["num_tag"], _TS + n * hour, value=float(n)
+        )
+    bounds = {"start": _TS + hour, "end": _TS + 3 * hour}
+    assert count_tag_values(session, ids["num_tag"]) == 4
+    assert count_tag_values(session, ids["num_tag"], **bounds) == 3
+    oldest = list_tag_values(
+        session, ids["num_tag"], **bounds, oldest_first=True, limit=1
+    )
+    assert [r.value for r in oldest] == [1.0]
 
 
 def test_list_pages_without_repeats_when_times_tie(ctx):

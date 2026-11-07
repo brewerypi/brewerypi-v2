@@ -19,6 +19,7 @@ from brewerypi.models import (
     Element,
     ElementAttribute,
     ElementAttributeTemplate,
+    EventFrame,
     EventFrameAttribute,
     EventFrameAttributeTemplate,
     LookupValue,
@@ -140,6 +141,72 @@ def element_measurements(
         tag = session.get(Tag, attribute.tag_id)
         rows.append(measurement(session, tag, template.name))
     return sorted(rows, key=lambda m: m["name"].lower())
+
+
+def batch_tag(session: Session, frame: EventFrame, tag: Tag) -> bool:
+    """Whether a tag holds one of this batch's measurements.
+
+    Wiring is per equipment, so a tag belongs to every batch of its type
+    run on that equipment; the batch's window picks out its own readings.
+    """
+    return any(
+        wiring.tag_id == tag.id
+        and session.get(
+            EventFrameAttributeTemplate,
+            wiring.event_frame_attribute_template_id,
+        ).event_frame_template_id
+        == frame.event_frame_template_id
+        for wiring in services.list_event_frame_attributes(
+            session, element_id=frame.element_id
+        )
+    )
+
+
+def batch_measurements(session: Session, frame: EventFrame) -> list[dict]:
+    """A batch's own measurements, each summed up over the batch's window.
+
+    Only what the batch type defines: equipment measurements belong to the
+    equipment. A measurement the equipment has no tag for yet (it has no
+    area for its tags) is listed with ``tag_id`` None.
+    """
+    wired = {
+        w.event_frame_attribute_template_id: w.tag_id
+        for w in services.list_event_frame_attributes(
+            session, element_id=frame.element_id
+        )
+    }
+    out = []
+    for template in services.list_event_frame_attribute_templates(
+        session, frame.event_frame_template_id
+    ):
+        tag_id = wired.get(template.id)
+        row = {"name": template.name, "tag_id": tag_id, "count": 0}
+        if tag_id is not None:
+            tag = session.get(Tag, tag_id)
+            zone = zone_for_tag(session, tag)
+            bounds = {"start": frame.started_at, "end": frame.ended_at}
+
+            def shown(found: list[TagValue]) -> dict | None:
+                if not found:
+                    return None
+                return {
+                    "value": value_text(session, tag, found[0]),
+                    "at": local_time(from_utc(found[0].observed_at, zone)),
+                }
+
+            row["count"] = services.count_tag_values(
+                session, tag_id, **bounds
+            )
+            row["first"] = shown(
+                services.list_tag_values(
+                    session, tag_id, **bounds, limit=1, oldest_first=True
+                )
+            )
+            row["latest"] = shown(
+                services.list_tag_values(session, tag_id, **bounds, limit=1)
+            )
+        out.append(row)
+    return out
 
 
 def areas_with_measurements(

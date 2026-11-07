@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from brewerypi.models import LookupValue, Tag, TagValue
@@ -78,26 +78,44 @@ def list_tag_values(
     end: datetime | None = None,
     limit: int | None = None,
     offset: int = 0,
+    oldest_first: bool = False,
 ) -> list[TagValue]:
     """A tag's readings, newest first, between optional UTC bounds.
 
-    Both bounds are inclusive. Ties on time break on id, so paging with
-    ``limit`` and ``offset`` never repeats or skips a reading.
+    Both bounds are inclusive, so a batch's window takes in the end value
+    written at its close. Ties on time break on id, so paging with ``limit``
+    and ``offset`` never repeats or skips a reading.
     """
-    stmt = (
-        select(TagValue)
-        .where(TagValue.tag_id == tag_id)
-        .order_by(TagValue.observed_at.desc(), TagValue.id.desc())
-    )
-    if start is not None:
-        stmt = stmt.where(TagValue.observed_at >= start)
-    if end is not None:
-        stmt = stmt.where(TagValue.observed_at <= end)
+    if oldest_first:
+        order = (TagValue.observed_at.asc(), TagValue.id.asc())
+    else:
+        order = (TagValue.observed_at.desc(), TagValue.id.desc())
+    stmt = _bounded(tag_id, start, end, select(TagValue)).order_by(*order)
     if offset:
         stmt = stmt.offset(offset)
     if limit is not None:
         stmt = stmt.limit(limit)
     return list(session.scalars(stmt).all())
+
+
+def count_tag_values(
+    session: Session,
+    tag_id: int,
+    start: datetime | None = None,
+    end: datetime | None = None,
+) -> int:
+    """How many readings a tag has between optional inclusive UTC bounds."""
+    stmt = _bounded(tag_id, start, end, select(func.count(TagValue.id)))
+    return session.scalar(stmt)
+
+
+def _bounded(tag_id: int, start, end, stmt):
+    stmt = stmt.where(TagValue.tag_id == tag_id)
+    if start is not None:
+        stmt = stmt.where(TagValue.observed_at >= start)
+    if end is not None:
+        stmt = stmt.where(TagValue.observed_at <= end)
+    return stmt
 
 
 def selectable_values(session: Session, lookup_id: int) -> list[str]:

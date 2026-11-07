@@ -26,7 +26,7 @@ delete guards.
   because an artifact shared from one Claude account gets no connector access
   for viewers outside its organization. So far it has sign-in, batch
   screens that view and change batches, and reading entry (record, correct,
-  delete); a batch's measurements on its page come next. It shares
+  delete), including a batch's own measurements on its page. It shares
   `access.py`,
   `identity.py`, `timezones.py` and `serializers.py` with the MCP tools, so a
   consumer never needs its own copy of the access rules, time conversion or
@@ -427,7 +427,12 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
   tags (`services.list_standalone_tags`: wired to no element or event frame
   attribute -- continuous data like a utility meter), linked from the site
   page. A measurement page records, and each reading can be corrected or
-  deleted by any role at the site, as on the MCP operator tier.
+  deleted by any role at the site, as on the MCP operator tier. A batch page
+  sums up only its batch type's measurements (event frame attributes --
+  equipment measurements stay on the equipment), over the batch's window
+  with BOTH ends inclusive so the close's end value counts; `?batch=` keeps a
+  measurement page and its record/edit/delete to that window, and is "not
+  found" unless the tag holds one of that batch's measurements.
 - Web batch screens (`web/batches.py`, Jinja templates in `web/templates/`,
   autoescaped): a page checks the row its address names with `_readable`, and
   lists filter through `access.visible`. Anything missing or out of scope gets
