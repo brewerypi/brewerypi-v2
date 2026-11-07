@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Please confirm{% endblock %}
+{# Only deletes still ask first: they leave no trace. #}
 {% block content %}
 <h1>{{ heading }}</h1>
 {% if changes %}
@@ -11,7 +12,6 @@
   {% for field, value in hidden.items() %}<input type="hidden" name="{{ field }}" value="{{ value }}">{% endfor %}
   <input type="hidden" name="token" value="{{ token }}">
   <button class="btn{% if danger %} danger{% endif %}" id="confirm" type="submit" name="action" value="confirm">{{ confirm_label }}</button>
-  {% if can_change %}<button class="btn quiet" id="change" type="submit" name="action" value="change">Change</button>{% endif %}
   <a class="btn quiet" href="{{ cancel_url }}">Cancel</a>
 </form>
 <footer>Times are in {{ timezone }}.</footer>

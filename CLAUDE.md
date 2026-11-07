@@ -414,11 +414,14 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
   dependency because a sync dependency runs in a copied context, so the user
   wouldn't reach the route. Pages use `Depends(signed_in_user)`.
 - Web batch writes (`web/batch_actions.py`; `docs/design-decisions.md`,
-  *Signing in to the web app*): form, then review, then confirm. The review runs
-  the real service call and rolls back, so refusals show before confirming and
-  no rule is copied into the web layer. The confirm button's one-use token, kept
-  in the session, stops double taps and cross-site posts, and only review pages
-  mint it. The token, time-parsing and read/operate checks are in
+  *Changing batches from the web*): one form, one press; only deletes keep
+  a confirm page. Pressing runs the real service call, so a refusal comes
+  back on the form and no rule is copied into the web layer; a WARNING
+  stops the save once and "... anyway" accepts exactly the warnings shown
+  (`forms.unaccepted`). Every form carries a one-use pass from the session
+  (last `KEPT_PASSES` kept, so several tabs work); a spent one brings the
+  form back with what was typed. The pass, warnings, time-parsing and
+  read/operate checks are in
   `web/forms.py`, breadcrumbs in `web/navigation.py`. A NEW web write must
   follow this pattern, pass `caller_id()`, and get a test in its module's
   test file (`tests/test_web_batch_actions.py`, `tests/test_web_readings.py`).
@@ -447,4 +450,5 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
   template ids sharing that name, because that list pages); equipment counts as
   busy when it or anything inside it runs a batch. Only `base.html` holds
   CSS, and it holds
-  the script that reloads a page restored on Back.
+  the scripts that reload a page restored on Back and drop a second tap
+  on a form.

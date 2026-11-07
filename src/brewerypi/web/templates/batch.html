@@ -26,7 +26,10 @@
   {% if batch.open %}
   <a class="btn" href="/batches/{{ batch.id }}/close">Close batch</a>
   {% else %}
-  <a class="btn" href="/batches/{{ batch.id }}/reopen">Reopen batch</a>
+  <form method="post" action="/batches/{{ batch.id }}/reopen">
+    <input type="hidden" name="token" value="{{ token }}">
+    <button class="btn" id="reopen" type="submit" title="Only if it was closed by mistake. To fix the end time, use Edit.">Reopen batch</button>
+  </form>
   {% endif %}
   <a class="btn quiet" href="/batches/{{ batch.id }}/edit">Edit</a>
   <a class="btn quiet" href="/batches/{{ batch.id }}/transfer">Transfer</a>

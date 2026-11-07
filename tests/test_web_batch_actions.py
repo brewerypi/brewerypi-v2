@@ -1,11 +1,12 @@
 """Tests for changing batches from the web, from the browser's side.
 
-Mostly about what must never happen: a write without a confirmation, the same
-write twice, a change with no name on it, or a change to another company's
-batch. The rules themselves are tested on the services, so a few refusals here
-only prove that they reach the person, before they confirm.
+Mostly about what must never happen: a write without its form's pass, the
+same write twice, a warning saved unseen, a change with no name on it, or a
+change to another company's batch. The rules themselves are tested on the
+services, so a few refusals here only prove that they reach the person.
 """
 
+import html
 import re
 from datetime import datetime
 from urllib.parse import parse_qs, urlsplit
@@ -18,15 +19,19 @@ from sqlalchemy.orm import sessionmaker
 from brewerypi.database import Base
 from brewerypi.models import Enterprise, EventFrame, Site, User
 from brewerypi.services import (
+    create_area,
     create_element,
     create_element_template,
     create_event_frame,
+    create_event_frame_attribute_template,
     create_event_frame_template,
     create_membership,
     create_user,
+    update_element,
 )
 from brewerypi.web.app import create_app
 from brewerypi.web.auth import Settings, SignIn
+from brewerypi.web.forms import KEPT_PASSES
 
 _SETTINGS = Settings(
     client_id="client_123",
@@ -126,7 +131,7 @@ def world(tmp_path):
         )
         s.commit()
         ids = {
-            "sam": sam.id, "pat": pat.id,
+            "sam": sam.id, "pat": pat.id, "spr": spr.id,
             "bh1": bh1.id, "wc1": wc1.id,
             "fv01": fv01.id, "fv02": fv02.id, "fv03": fv03.id,
             "brew": brew.id, "cooling": cooling.id,
@@ -163,18 +168,37 @@ def client(world):
     return _client(world[0])
 
 
-def _token(html: str) -> str:
-    match = re.search(r'name="token" value="([^"]+)"', html)
-    assert match, "the page has no confirm token"
+def _token(page: str) -> str:
+    match = re.search(r'name="token" value="([^"]+)"', page)
+    assert match, "the page has no pass"
     return match.group(1)
 
 
-def _review_and_confirm(client, url, data):
-    """Fill in a form, read the review page, and confirm it."""
-    review = client.post(url, data=data)
-    assert review.status_code == 200, review.text
+def _form_url(url: str, data: dict) -> str:
+    # The start form is the same address with the batch type asked for.
+    if url.endswith("/start"):
+        return f"{url}?type_id={data['type_id']}"
+    return url
+
+
+def _press(client, url, data):
+    """Open a form, fill it in, and press its button once."""
+    form = client.get(_form_url(url, data))
+    assert form.status_code == 200, form.text
+    return client.post(url, data={**data, "token": _token(form.text)})
+
+
+def _again(client, url, data, shown):
+    """Press the button on a form that came back with a warning."""
+    accepted = re.search(r'name="accepted" value="([^"]*)"', shown.text)
+    assert accepted, "the form shows no warning to accept"
     return client.post(
-        url, data={**data, "action": "confirm", "token": _token(review.text)}
+        url,
+        data={
+            **data,
+            "token": _token(shown.text),
+            "accepted": html.unescape(accepted.group(1)),
+        },
     )
 
 
@@ -235,25 +259,22 @@ def test_the_form_offers_the_current_time_in_the_right_zone(client, world):
     )
 
 
-def test_reviewing_says_what_will_happen_and_writes_nothing(client, world):
-    factory, ids = world
-    before = len(_frames(factory))
-    review = client.post(
-        f"/equipment/{ids['fv03']}/start", data=_start_data(ids)
-    )
-    assert review.status_code == 200
-    assert "Start Fermentation" in review.text
-    assert "Batch 1241" in review.text
-    assert "FV03" in review.text
-    assert "20 Jan 2026, 10:44 AM" in review.text
-    assert len(_frames(factory)) == before
+def test_the_form_has_one_button_and_no_review(client, world):
+    _, ids = world
+    form = client.get(
+        f"/equipment/{ids['fv03']}/start",
+        params={"type_id": ids["fermentation"]},
+    ).text
+    assert 'name="token"' in form
+    assert ">Start batch</button>" in form
+    assert "Review" not in form
 
 
-def test_confirming_starts_the_batch_in_local_time_with_an_author(
+def test_one_press_starts_the_batch_in_local_time_with_an_author(
     client, world
 ):
     factory, ids = world
-    response = _review_and_confirm(
+    response = _press(
         client, f"/equipment/{ids['fv03']}/start", _start_data(ids)
     )
     assert response.status_code == 303
@@ -268,31 +289,36 @@ def test_confirming_starts_the_batch_in_local_time_with_an_author(
 def test_times_use_the_signed_in_users_own_zone(world):
     factory, ids = world
     client = _client(factory, "london@brewery.com")
-    _review_and_confirm(
-        client, f"/equipment/{ids['fv03']}/start", _start_data(ids)
-    )
+    _press(client, f"/equipment/{ids['fv03']}/start", _start_data(ids))
     made = next(f for f in _frames(factory) if f.name == "Batch 1241")
     assert made.started_at == datetime(2026, 1, 20, 10, 44)
 
 
-def test_a_write_without_the_review_token_is_refused(client, world):
+def test_a_write_without_the_pass_saves_nothing_and_keeps_the_form(
+    client, world
+):
     factory, ids = world
     before = len(_frames(factory))
     response = client.post(
-        f"/equipment/{ids['fv03']}/start",
-        data=_start_data(ids, action="confirm"),
+        f"/equipment/{ids['fv03']}/start", data=_start_data(ids)
     )
     assert response.status_code == 409
+    assert "Nothing was saved" in response.text
+    assert 'value="Batch 1241"' in response.text
+    assert 'value="2026-01-20T10:44"' in response.text
     assert len(_frames(factory)) == before
 
 
-def test_a_forged_token_is_refused(client, world):
+def test_a_forged_pass_is_refused(client, world):
     factory, ids = world
     before = len(_frames(factory))
-    client.post(f"/equipment/{ids['fv03']}/start", data=_start_data(ids))
+    client.get(
+        f"/equipment/{ids['fv03']}/start",
+        params={"type_id": ids["fermentation"]},
+    )
     response = client.post(
         f"/equipment/{ids['fv03']}/start",
-        data=_start_data(ids, action="confirm", token="forged"),
+        data=_start_data(ids, token="forged"),
     )
     assert response.status_code == 409
     assert len(_frames(factory)) == before
@@ -304,61 +330,69 @@ def test_a_double_tap_starts_one_batch(client, world):
         ids, type_id=str(ids["brew"]), name="Brew 9"
     )
     url = f"/equipment/{ids['bh1']}/start"
-    review = client.post(url, data=data)
-    confirm = {**data, "action": "confirm", "token": _token(review.text)}
-    assert client.post(url, data=confirm).status_code == 303
-    second = client.post(url, data=confirm)
+    token = _token(client.get(_form_url(url, data)).text)
+    assert client.post(url, data={**data, "token": token}).status_code == 303
+    second = client.post(url, data={**data, "token": token})
     assert second.status_code == 409
-    assert "already used" in second.text
+    assert "Nothing was saved" in second.text
     assert sum(f.name == "Brew 9" for f in _frames(factory)) == 1
 
 
-def test_a_refusal_appears_before_confirming(client, world):
+def test_a_refusal_comes_back_on_the_form(client, world):
     factory, ids = world
     before = len(_frames(factory))
-    response = client.post(
-        f"/equipment/{ids['fv01']}/start", data=_start_data(ids)
+    response = _press(
+        client, f"/equipment/{ids['fv01']}/start", _start_data(ids)
     )
     assert response.status_code == 400
     assert 'class="error"' in response.text
-    assert 'name="token"' not in response.text
     assert 'value="Batch 1241"' in response.text
+    # A fresh pass, so fixing the form takes one more press.
+    assert 'name="token"' in response.text
     assert len(_frames(factory)) == before
 
 
 def test_a_blank_name_and_a_blank_time_are_refused(client, world):
     _, ids = world
     url = f"/equipment/{ids['fv03']}/start"
-    assert client.post(
-        url, data=_start_data(ids, name="  ")
+    assert _press(
+        client, url, _start_data(ids, name="  ")
     ).status_code == 400
-    blank_time = client.post(url, data=_start_data(ids, started_at=""))
+    blank_time = _press(client, url, _start_data(ids, started_at=""))
     assert blank_time.status_code == 400
     assert "Enter the start date and time." in blank_time.text
-    junk_time = client.post(url, data=_start_data(ids, started_at="soon"))
+    junk_time = _press(client, url, _start_data(ids, started_at="soon"))
     assert junk_time.status_code == 400
     assert "Enter a valid start date and time." in junk_time.text
 
 
-def test_a_start_in_the_future_is_flagged_but_allowed(client, world):
-    _, ids = world
-    review = client.post(
-        f"/equipment/{ids['fv03']}/start",
-        data=_start_data(ids, started_at="2099-01-01T10:00"),
-    )
-    assert review.status_code == 200
-    assert "in the future" in review.text
+def test_a_start_in_the_future_stops_once_then_saves(client, world):
+    factory, ids = world
+    url = f"/equipment/{ids['fv03']}/start"
+    data = _start_data(ids, started_at="2099-01-01T10:00")
+    shown = _press(client, url, data)
+    assert shown.status_code == 200
+    assert "That start time is in the future." in shown.text
+    assert ">Start batch anyway</button>" in shown.text
+    assert 'value="2099-01-01T10:00"' in shown.text
+    assert not any(f.name == "Batch 1241" for f in _frames(factory))
+    saved = _again(client, url, data, shown)
+    assert saved.status_code == 303
+    assert any(f.name == "Batch 1241" for f in _frames(factory))
 
 
-def test_change_goes_back_to_the_form_with_what_was_typed(client, world):
-    _, ids = world
-    response = client.post(
-        f"/equipment/{ids['fv03']}/start",
-        data=_start_data(ids, action="change"),
+def test_a_warning_cant_be_accepted_without_seeing_it(client, world):
+    factory, ids = world
+    url = f"/equipment/{ids['fv03']}/start"
+    response = _press(
+        client,
+        url,
+        _start_data(
+            ids, started_at="2099-01-01T10:00", accepted="something else"
+        ),
     )
     assert response.status_code == 200
-    assert 'value="Batch 1241"' in response.text
-    assert 'value="2026-01-20T10:44"' in response.text
+    assert not any(f.name == "Batch 1241" for f in _frames(factory))
 
 
 def test_a_step_needs_a_running_parent_and_picks_a_sole_one(client, world):
@@ -392,7 +426,7 @@ def test_a_step_with_a_parent_flow_records_that_end_itself(client, world):
     assert crumbs.index(f'href="/equipment/{ids["bh1"]}"') < crumbs.index(
         f'href="/equipment/{ids["wc1"]}"'
     )
-    response = _review_and_confirm(
+    response = _press(
         client,
         url,
         {
@@ -410,54 +444,16 @@ def test_a_step_with_a_parent_flow_records_that_end_itself(client, world):
     assert made.destination_event_frame_id == ids["running"]
 
 
-def test_the_start_review_names_both_transfer_ends(client, world):
-    factory, ids = world
-    with factory() as s:
-        brew = create_event_frame(
-            s, ids["bh1"], ids["brew"], "Brew 7", started_at=_at(20)
-        )
-        s.commit()
-        brew_id = brew.id
-    review = client.post(
-        f"/equipment/{ids['wc1']}/start",
-        data={
-            "type_id": str(ids["cooling"]),
-            "name": "Knockout 7",
-            "started_at": "2026-01-20T10:00",
-            "parent_id": str(brew_id),
-            "destination_id": str(ids["running"]),
-        },
-    ).text
-    # The source is implied by the step's parent, and still shown.
-    assert "Source: BH1: Brew 7 (Brew)" in review
-    assert "Destination: FV01: Batch 1240 (Fermentation)" in review
-
-
-def test_the_start_review_says_nothing_of_transfers_for_a_plain_batch(
-    client, world
-):
-    _, ids = world
-    review = client.post(
-        f"/equipment/{ids['fv03']}/start", data=_start_data(ids)
-    ).text
-    assert "Source:" not in review
-    assert "Destination:" not in review
-
-
 # -- closing and reopening -------------------------------------------------
 
 
-def test_closing_needs_a_review_and_names_who_closed_it(client, world):
+def test_closing_is_one_press_and_names_who_closed_it(client, world):
     factory, ids = world
     url = f"/batches/{ids['running']}/close"
-    data = {"ended_at": "2026-01-20T10:00"}
-    review = client.post(url, data=data)
-    assert review.status_code == 200
-    assert "Close Fermentation" in review.text
-    assert _frame(factory, ids["running"]).ended_at is None
-    response = client.post(
-        url, data={**data, "action": "confirm", "token": _token(review.text)}
-    )
+    form = client.get(url).text
+    assert "Close Fermentation" in form
+    assert ">Close batch</button>" in form
+    response = _press(client, url, {"ended_at": "2026-01-20T10:00"})
     assert response.status_code == 303
     closed = _frame(factory, ids["running"])
     assert closed.ended_at == datetime(2026, 1, 20, 16, 0)
@@ -465,7 +461,7 @@ def test_closing_needs_a_review_and_names_who_closed_it(client, world):
     assert closed.started_by_id == ids["pat"]
 
 
-def test_closing_warns_about_the_steps_inside(client, world):
+def test_the_close_form_names_the_steps_it_also_closes(client, world):
     factory, ids = world
     with factory() as s:
         brew = create_event_frame(
@@ -477,21 +473,62 @@ def test_closing_warns_about_the_steps_inside(client, world):
         )
         s.commit()
         brew_id = brew.id
-    review = client.post(
-        f"/batches/{brew_id}/close", data={"ended_at": "2026-01-21T10:00"}
-    )
-    assert "also closes 1 running step inside" in review.text
+    form = client.get(f"/batches/{brew_id}/close").text
+    assert "also closes the step still running inside it" in form
+    assert "Wort cooling “Knockout 7” on WC1" in form
+
+
+def test_the_close_form_names_the_end_values_it_records(client, world):
+    factory, ids = world
+    with factory() as s:
+        area = create_area(s, ids["spr"], "CEL", "Cellar")
+        create_event_frame_attribute_template(
+            s, ids["fermentation"], "Volume", default_end_value=0
+        )
+        create_event_frame_attribute_template(
+            s, ids["fermentation"], "Gravity"
+        )
+        update_element(s, ids["fv01"], tag_area_id=area.id)
+        s.commit()
+    form = client.get(f"/batches/{ids['running']}/close").text
+    assert "Closing records:" in form
+    assert "<li>Volume: 0</li>" in form
+    assert "Gravity" not in form
 
 
 def test_closing_before_it_started_is_refused_on_the_form(client, world):
     factory, ids = world
-    response = client.post(
+    response = _press(
+        client,
         f"/batches/{ids['running']}/close",
-        data={"ended_at": "2026-01-02T10:00"},
+        {"ended_at": "2026-01-02T10:00"},
     )
     assert response.status_code == 400
-    assert 'name="token"' not in response.text
+    assert 'class="error"' in response.text
+    assert 'value="2026-01-02T10:00"' in response.text
     assert _frame(factory, ids["running"]).ended_at is None
+
+
+def test_a_close_in_the_future_stops_once_then_saves(client, world):
+    factory, ids = world
+    url = f"/batches/{ids['running']}/close"
+    data = {"ended_at": "2099-01-01T10:00"}
+    shown = _press(client, url, data)
+    assert "That end time is in the future." in shown.text
+    assert _frame(factory, ids["running"]).ended_at is None
+    assert _again(client, url, data, shown).status_code == 303
+    assert _frame(factory, ids["running"]).ended_at is not None
+
+
+def test_closing_from_a_second_tab_goes_to_the_batch(client, world):
+    factory, ids = world
+    url = f"/batches/{ids['running']}/close"
+    data = {"ended_at": "2026-01-20T10:00"}
+    other_tab = _token(client.get(url).text)
+    assert _press(client, url, data).status_code == 303
+    late = client.post(url, data={**data, "token": other_tab})
+    assert late.status_code == 303
+    assert late.headers["location"] == f"/batches/{ids['running']}"
 
 
 def test_a_finished_batch_has_no_close_form(client, world):
@@ -500,32 +537,42 @@ def test_a_finished_batch_has_no_close_form(client, world):
     assert response.status_code == 303
 
 
-def test_reopening_clears_the_end_and_names_who_did_it(client, world):
+def _reopen(client, batch_id):
+    """Press Reopen on a finished batch's page."""
+    page = client.get(f"/batches/{batch_id}").text
+    return client.post(
+        f"/batches/{batch_id}/reopen", data={"token": _token(page)}
+    )
+
+
+def test_reopening_is_one_press_and_names_who_did_it(client, world):
     factory, ids = world
-    url = f"/batches/{ids['finished']}/reopen"
-    review = client.get(url)
-    assert review.status_code == 200
-    assert "Reopen Fermentation" in review.text
-    assert _frame(factory, ids["finished"]).ended_at is not None
-    response = client.post(url, data={"token": _token(review.text)})
+    response = _reopen(client, ids["finished"])
     assert response.status_code == 303
+    assert response.headers["location"].endswith("?done=reopened")
     reopened = _frame(factory, ids["finished"])
     assert reopened.ended_at is None
     assert reopened.updated_by_id == ids["sam"]
 
 
-def test_reopening_into_a_busy_vessel_is_refused_before_confirming(
-    client, world
-):
+def test_an_old_reopen_link_lands_on_the_batch(client, world):
+    factory, ids = world
+    response = client.get(f"/batches/{ids['finished']}/reopen")
+    assert response.status_code == 303
+    assert response.headers["location"] == f"/batches/{ids['finished']}"
+    assert _frame(factory, ids["finished"]).ended_at is not None
+
+
+def test_reopening_into_a_busy_vessel_is_refused(client, world):
     factory, ids = world
     with factory() as s:
         create_event_frame(
             s, ids["fv02"], ids["fermentation"], "Now", started_at=_at(20)
         )
         s.commit()
-    response = client.get(f"/batches/{ids['finished']}/reopen")
+    response = _reopen(client, ids["finished"])
     assert response.status_code == 409
-    assert 'name="token"' not in response.text
+    assert "reopen that batch" in response.text
     assert _frame(factory, ids["finished"]).ended_at is not None
 
 
@@ -541,26 +588,21 @@ def test_reopen_needs_the_token(client, world):
 # -- editing ---------------------------------------------------------------
 
 
-def test_editing_shows_the_changes_then_saves_them_with_an_author(
-    client, world
-):
+def test_editing_is_one_press_and_names_who_did_it(client, world):
     factory, ids = world
     url = f"/batches/{ids['finished']}/edit"
-    data = {
-        "name": "Batch 1239B",
-        "started_at": "2026-01-01T05:00",
-        "ended_at": "2026-01-05T06:00",
-    }
-    review = client.post(url, data=data)
-    assert review.status_code == 200
-    assert "Batch 1239B" in review.text
-    assert "Start: 1 Jan 2026, 6:00 AM to 1 Jan 2026, 5:00 AM" in review.text
-    assert "stay where they are" in review.text
-    assert _frame(factory, ids["finished"]).name == "Batch 1239"
-    response = client.post(
-        url, data={**data, "action": "confirm", "token": _token(review.text)}
+    assert "stay where they are" in client.get(url).text
+    response = _press(
+        client,
+        url,
+        {
+            "name": "Batch 1239B",
+            "started_at": "2026-01-01T05:00",
+            "ended_at": "2026-01-05T06:00",
+        },
     )
     assert response.status_code == 303
+    assert response.headers["location"].endswith("?done=updated")
     edited = _frame(factory, ids["finished"])
     assert edited.name == "Batch 1239B"
     assert edited.started_at == datetime(2026, 1, 1, 11, 0)
@@ -580,26 +622,14 @@ def test_changing_a_batch_keeps_the_whole_breadcrumb(client, world, action):
     assert f'href="/batches/{batch}"' in crumbs
 
 
-def test_the_review_page_keeps_the_breadcrumb_too(client, world):
+def test_an_edit_that_changes_nothing_is_refused_with_its_breadcrumb(
+    client, world
+):
     _, ids = world
-    review = client.post(
+    response = _press(
+        client,
         f"/batches/{ids['finished']}/edit",
-        data={
-            "name": "Renamed",
-            "started_at": "2026-01-01T06:00",
-            "ended_at": "2026-01-05T06:00",
-        },
-    ).text
-    crumbs = review.split('aria-label="Breadcrumb">')[1].split("</nav>")[0]
-    assert f'href="/batches/{ids["finished"]}"' in crumbs
-    assert f'href="/equipment/{ids["fv02"]}"' in crumbs
-
-
-def test_an_edit_that_changes_nothing_is_refused(client, world):
-    _, ids = world
-    response = client.post(
-        f"/batches/{ids['finished']}/edit",
-        data={
+        {
             "name": "Batch 1239",
             "started_at": "2026-01-01T06:00",
             "ended_at": "2026-01-05T06:00",
@@ -607,6 +637,10 @@ def test_an_edit_that_changes_nothing_is_refused(client, world):
     )
     assert response.status_code == 400
     assert "Nothing has changed" in response.text
+    crumbs = response.text.split('aria-label="Breadcrumb">')[1]
+    crumbs = crumbs.split("</nav>")[0]
+    assert f'href="/batches/{ids["finished"]}"' in crumbs
+    assert f'href="/equipment/{ids["fv02"]}"' in crumbs
 
 
 def test_an_edit_moving_a_time_into_the_future_is_flagged(client, world):
@@ -622,16 +656,17 @@ def test_an_edit_moving_a_time_into_the_future_is_flagged(client, world):
         s.commit()
         batch_id = batch.id
     url = f"/batches/{batch_id}/edit"
-    review = client.post(
-        url, data={"name": "Later", "started_at": "2099-01-01T10:00"}
+    shown = _press(
+        client, url, {"name": "Later", "started_at": "2099-01-01T10:00"}
     )
-    assert review.status_code == 200
-    assert "The new start time is in the future." in review.text
-    rename = client.post(
-        url, data={"name": "Later 2", "started_at": "2026-01-15T06:00"}
+    assert shown.status_code == 200
+    assert "The new start time is in the future." in shown.text
+    assert _frame(factory, batch_id).started_at == datetime(2026, 1, 15, 12)
+    # Only a moved time is checked: a rename alone saves at once.
+    rename = _press(
+        client, url, {"name": "Later 2", "started_at": "2026-01-15T06:00"}
     )
-    assert rename.status_code == 200
-    assert "in the future" not in rename.text
+    assert rename.status_code == 303
 
 
 def test_renaming_leaves_seconds_on_the_stored_times_alone(client, world):
@@ -643,7 +678,7 @@ def test_renaming_leaves_seconds_on_the_stored_times_alone(client, world):
         )
         s.commit()
         batch_id = batch.id
-    response = _review_and_confirm(
+    response = _press(
         client,
         f"/batches/{batch_id}/edit",
         {"name": "Exact 2", "started_at": "2026-01-15T12:30", "ended_at": ""},
@@ -658,7 +693,7 @@ def test_a_running_batch_cant_be_ended_from_the_edit_page(client, world):
     factory, ids = world
     form = client.get(f"/batches/{ids['running']}/edit").text
     assert 'name="ended_at"' not in form
-    _review_and_confirm(
+    _press(
         client,
         f"/batches/{ids['running']}/edit",
         {
@@ -685,7 +720,7 @@ def test_linking_a_transfer_late_names_who_did_it(client, world):
     form = client.get(url).text
     assert f'<option value="{ids["running"]}"' in form
     assert f'<option value="{ids["finished"]}"' not in form
-    response = _review_and_confirm(
+    response = _press(
         client, url, {"source_id": str(ids["running"]), "destination_id": ""}
     )
     assert response.status_code == 303
@@ -705,7 +740,7 @@ def test_clearing_a_transfer_end(client, world):
         move_id = move.id
     url = f"/batches/{move_id}/transfer"
     assert f'value="{ids["running"]}" selected' in client.get(url).text
-    _review_and_confirm(client, url, {"source_id": "", "destination_id": ""})
+    _press(client, url, {"source_id": "", "destination_id": ""})
     assert _frame(factory, move_id).source_event_frame_id is None
 
 
@@ -717,12 +752,13 @@ def test_a_transfer_end_that_doesnt_fit_is_refused_on_the_form(client, world):
         )
         s.commit()
         move_id = move.id
-    response = client.post(
+    response = _press(
+        client,
         f"/batches/{move_id}/transfer",
-        data={"source_id": str(ids["finished"]), "destination_id": ""},
+        {"source_id": str(ids["finished"]), "destination_id": ""},
     )
     assert response.status_code == 400
-    assert 'name="token"' not in response.text
+    assert 'class="error"' in response.text
     assert _frame(factory, move_id).source_event_frame_id is None
 
 
@@ -740,7 +776,7 @@ def test_an_implied_transfer_end_stays_fixed(client, world):
         brew_id, cool_id = brew.id, cool.id
     url = f"/batches/{cool_id}/transfer"
     assert 'name="source_id"' not in client.get(url).text
-    _review_and_confirm(
+    _press(
         client, url, {"destination_id": str(ids["running"])}
     )
     linked = _frame(factory, cool_id)
@@ -809,16 +845,12 @@ def test_delete_needs_the_token(client, world):
     assert _frame(factory, ids["finished"]) is not None
 
 
-def test_a_token_from_one_review_is_spent_by_any_write(client, world):
+def test_a_pass_works_once_whichever_form_spends_it(client, world):
     factory, ids = world
     token = _token(client.get(f"/batches/{ids['finished']}/delete").text)
     other = client.post(
         f"/batches/{ids['running']}/close",
-        data={
-            "ended_at": "2026-01-20T10:00",
-            "action": "confirm",
-            "token": token,
-        },
+        data={"ended_at": "2026-01-20T10:00", "token": token},
     )
     assert other.status_code == 303
     again = client.post(
@@ -826,6 +858,43 @@ def test_a_token_from_one_review_is_spent_by_any_write(client, world):
     )
     assert again.status_code == 409
     assert _frame(factory, ids["finished"]) is not None
+
+
+def test_several_open_forms_each_work(client, world):
+    factory, ids = world
+    close = _token(client.get(f"/batches/{ids['running']}/close").text)
+    edit = _token(client.get(f"/batches/{ids['finished']}/edit").text)
+    renamed = client.post(
+        f"/batches/{ids['finished']}/edit",
+        data={
+            "name": "Renamed",
+            "started_at": "2026-01-01T06:00",
+            "ended_at": "2026-01-05T06:00",
+            "token": edit,
+        },
+    )
+    assert renamed.status_code == 303
+    closed = client.post(
+        f"/batches/{ids['running']}/close",
+        data={"ended_at": "2026-01-20T10:00", "token": close},
+    )
+    assert closed.status_code == 303
+    assert _frame(factory, ids["running"]).ended_at is not None
+
+
+def test_only_the_most_recent_passes_are_kept(client, world):
+    factory, ids = world
+    url = f"/batches/{ids['running']}/close"
+    oldest = _token(client.get(url).text)
+    for _ in range(KEPT_PASSES):
+        client.get(url)
+    response = client.post(
+        url, data={"ended_at": "2026-01-20T10:00", "token": oldest}
+    )
+    assert response.status_code == 409
+    assert "Nothing was saved" in response.text
+    assert 'value="2026-01-20T10:00"' in response.text
+    assert _frame(factory, ids["running"]).ended_at is None
 
 
 # -- who may do it ---------------------------------------------------------
@@ -939,13 +1008,17 @@ def test_someone_deactivated_mid_review_cant_confirm(client, world):
     assert _frame(factory, ids["finished"]) is not None
 
 
-def test_typed_text_is_escaped_on_review_pages(client, world):
+def test_typed_text_is_escaped_when_a_form_comes_back(client, world):
     _, ids = world
-    review = client.post(
+    shown = _press(
+        client,
         f"/equipment/{ids['fv03']}/start",
-        data=_start_data(ids, name="<script>x</script>"),
+        _start_data(
+            ids, name="<script>x</script>", started_at="2099-01-01T10:00"
+        ),
     )
-    assert "<script>x</script>" not in review.text
+    assert shown.status_code == 200
+    assert "<script>x</script>" not in shown.text
 
 
 def test_the_batch_page_offers_what_fits_its_state(client, world):
@@ -975,9 +1048,10 @@ def test_closing_a_batch_a_transfer_runs_through_is_refused(client, world):
             source_event_frame_id=ids["running"],
         )
         s.commit()
-    response = client.post(
+    response = _press(
+        client,
         f"/batches/{ids['running']}/close",
-        data={"ended_at": "2026-01-20T10:00"},
+        {"ended_at": "2026-01-20T10:00"},
     )
     assert response.status_code == 400
     assert 'class="error"' in response.text

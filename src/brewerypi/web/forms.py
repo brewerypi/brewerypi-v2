@@ -1,10 +1,15 @@
-"""What every web write shares: the one-use confirmation, and reading forms.
+"""What every web write shares: the one-use pass, warnings, reading forms.
 
-A write goes form, then review, then confirm (see ``batch_actions``). The
-review page mints a token kept in the session, and confirming spends it,
-which stops both a double tap and another site submitting the form. Only
-one token is held per sign-in, so a newer review page makes an older one
-out of date.
+A write is one form and one press. The form carries a pass minted into the
+session, and saving spends it, which stops both a double tap and another
+site submitting the form. A press that brings a refusal or a warning back
+shows the same form again, with what was typed and a fresh pass; a warning
+is accepted by pressing again (see :func:`unaccepted`). Only deletes keep a
+separate confirm page.
+
+The last :data:`KEPT_PASSES` passes are kept per sign-in, so several open
+pages each work. A pass that is spent or has aged out gets the form back
+with :data:`OUT_OF_DATE` and nothing saved.
 """
 
 from __future__ import annotations
@@ -22,18 +27,52 @@ from brewerypi.services import NotFoundError, ValidationError
 from brewerypi.timezones import from_utc, to_utc
 from brewerypi.web.rendering import local_time, message_page
 
-_TOKEN_KEY = "write_token"
+_TOKENS_KEY = "write_tokens"
+
+#: How many unspent passes a sign-in keeps: one per open form, roughly.
+KEPT_PASSES = 20
+
+#: What a form says when its pass was spent or aged out.
+OUT_OF_DATE = (
+    "Nothing was saved: this page was out of date, or the button was "
+    "pressed twice. Check the page, then press again."
+)
 
 
 def mint_token(request: Request) -> str:
-    token = secrets.token_urlsafe(32)
-    request.session[_TOKEN_KEY] = token
+    token = secrets.token_urlsafe(16)
+    request.session.pop("write_token", None)  # the one-pass-only key
+    kept = [
+        t for t in request.session.get(_TOKENS_KEY, []) if isinstance(t, str)
+    ]
+    request.session[_TOKENS_KEY] = (kept + [token])[-KEPT_PASSES:]
     return token
 
 
 def spend_token(request: Request, given: str) -> bool:
-    expected = request.session.pop(_TOKEN_KEY, None)
-    return bool(expected) and secrets.compare_digest(expected, given)
+    kept = list(request.session.get(_TOKENS_KEY, []))
+    for token in kept:
+        if given and isinstance(token, str) and secrets.compare_digest(
+            token, given
+        ):
+            kept.remove(token)
+            request.session[_TOKENS_KEY] = kept
+            return True
+    return False
+
+
+def accepted_key(warnings: list[str]) -> str:
+    """What a form sends back to say these exact warnings were seen."""
+    return "|".join(warnings)
+
+
+def unaccepted(warnings: list[str], accepted: str) -> bool:
+    """Whether a save must stop to show its warnings.
+
+    Pressing again accepts the warnings the form showed, and only those:
+    a value changed into a new warning stops once more.
+    """
+    return bool(warnings) and accepted != accepted_key(warnings)
 
 
 def stale_page(request: Request, back_to: str, what: str = "batch"):

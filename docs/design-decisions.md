@@ -323,18 +323,29 @@ in through the WorkOS Staging environment.
 
 ### Changing batches from the web
 
-Every web write is a form, then a review page, then a confirmation.
+Every web write but a delete is **one form and one press**. Staff asked for
+fewer clicks more than once, and a review page doubled every write. A delete
+still goes to a confirm page, because it leaves no trace.
 
-**The review runs the real write and rolls it back.** A refusal then appears
-before the person confirms, in the service's own words, and the web layer holds
-no copy of the batch rules to drift from them. The services leave the
-transaction to their callers, which is what makes this safe.
+**Pressing runs the real write.** A refusal comes back on the same form, in
+the service's own words, with what was typed kept, and the web layer holds no
+copy of the batch rules to drift from them. The services leave the
+transaction to their callers, so a refused or warned write rolls back whole.
 
-**The confirm button carries a token spent on use**, kept in the session and
-issued only by a review page. One mechanism covers three risks: a double tap
-can't start two batches, another site can't submit the form, and no write can
-skip its review. The cost is that reviewing in a second tab invalidates the
-first tab's token. That fails safely with a message to check the batch.
+**Only a warning stops a save** (a time in the future, a reading outside its
+batch). The form comes back with the warning and a "... anyway" button.
+Pressing it accepts those exact warnings, which the form sends back: a value
+retyped into a different warning stops once more, so nothing is saved
+against a warning nobody saw. Whatever a review page used to tell people is
+on the form itself, such as the steps and end values a close records.
+
+**Every form carries a pass spent on use**, kept in the session. One
+mechanism covers two risks: a double tap can't start two batches, and
+another site can't submit the form. A sign-in keeps its last twenty passes,
+so several open tabs each work. A spent or aged-out pass brings the form
+back with what was typed and "Nothing was saved", never a lost entry. A
+small script also drops a second tap before it is sent, which would
+otherwise replace the saved result with that message.
 
 **Plain forms, no HTMX.** HTMX was the plan, but a form followed by a full page
 does this job with no JavaScript dependency to keep current. It remains an easy
@@ -556,7 +567,7 @@ No counting rule gets both cases right -- excluding the end instant would drop
 the end value written at close -- and refusing touching batches would break
 transfers, which line up end to end on purpose.
 
-**Follow-up:** warn on the web review pages when a start, close, reopen or time
+**Follow-up:** warn on the web forms (as their other warnings do) when a start, close, reopen or time
 edit would make a batch touch another on the same element: the reading at that
 moment counts for both, so leave a minute between them if that matters. This
 is web-only and changes no rule.
