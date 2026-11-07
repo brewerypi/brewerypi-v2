@@ -93,7 +93,7 @@ from brewerypi.serializers import (
     unit_dict,
     user_dict,
 )
-from brewerypi.services import ServiceError
+from brewerypi.services import NotSelectableError, ServiceError
 from brewerypi.timezones import (
     DEFAULT_TIMEZONE,
     from_utc,
@@ -409,14 +409,10 @@ def get_tag_values(
             end_dt = to_utc(end, zone) if end is not None else None
         except ServiceError as exc:
             return {"error": str(exc)}
-        stmt = select(TagValue).where(TagValue.tag_id == tag_id)
-        if start_dt is not None:
-            stmt = stmt.where(TagValue.observed_at >= start_dt)
-        if end_dt is not None:
-            stmt = stmt.where(TagValue.observed_at <= end_dt)
-        stmt = stmt.order_by(TagValue.observed_at.desc()).limit(limit)
         readings = []
-        for tv in session.scalars(stmt).all():
+        for tv in services.list_tag_values(
+            session, tag_id, start_dt, end_dt, limit=limit
+        ):
             if tv.lookup_value_id is not None:
                 lv = session.get(LookupValue, tv.lookup_value_id)
                 value: object = lv.name if lv is not None else None
@@ -545,77 +541,27 @@ def record_tag_value(
         except ServiceError as exc:
             return {"error": str(exc)}
 
-        if tag.lookup_id is not None:
-            if lookup_value is None or value is not None:
-                return {
-                    "error": (
-                        f"tag {tag_id} ({tag.name}) is lookup-typed; pass "
-                        "only 'lookup_value'"
-                    )
-                }
-            lv = session.scalars(
-                select(LookupValue).where(
-                    LookupValue.lookup_id == tag.lookup_id,
-                    LookupValue.name == lookup_value,
-                    LookupValue.is_selectable.is_(True),
-                )
-            ).first()
-            if lv is None:
-                allowed = session.scalars(
-                    select(LookupValue.name).where(
-                        LookupValue.lookup_id == tag.lookup_id,
-                        LookupValue.is_selectable.is_(True),
-                    )
-                ).all()
-                return {
-                    "error": (
-                        f"'{lookup_value}' is not a selectable value for "
-                        f"tag {tag_id}"
-                    ),
-                    "allowed": list(allowed),
-                }
-            reading = TagValue(
-                tag_id=tag_id,
-                observed_at=when,
-                lookup_value_id=lv.id,
-                recorded_by_id=caller_id(),
-            )
-            stored: object = lv.name
-            vtype = "lookup"
-        else:
-            if value is None or lookup_value is not None:
-                return {
-                    "error": (
-                        f"tag {tag_id} ({tag.name}) is numeric; pass only "
-                        "'value'"
-                    )
-                }
-            reading = TagValue(
-                tag_id=tag_id,
-                observed_at=when,
-                value=value,
-                recorded_by_id=caller_id(),
-            )
-            stored = value
-            vtype = "numeric"
-
-        session.add(reading)
         try:
+            reading = services.record_tag_value(
+                session,
+                tag_id,
+                when,
+                value,
+                lookup_value,
+                recorded_by_id=caller_id(),
+            )
             session.commit()
+        except NotSelectableError as exc:
+            session.rollback()
+            return {"error": str(exc), "allowed": exc.allowed}
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
         except IntegrityError:
             session.rollback()
             return {"error": "could not record the reading"}
         session.refresh(reading)
-        return {
-            "id": reading.id,
-            "tag_id": tag_id,
-            "tag_name": tag.name,
-            "observed_at": from_utc(reading.observed_at, zone),
-            "timezone": zone,
-            "value": stored,
-            "type": vtype,
-            **reading_authors(session, reading),
-        }
+        return {**reading_dict(session, reading), "tag_name": tag.name}
 
 
 @mcp.tool

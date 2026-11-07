@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% from "_measurements.html" import measurement_list %}
+{% block title %}{{ area.name }}{% endblock %}
+{% block content %}
+<h1>{{ area.name }}</h1>
+<section class="section">
+  <h2>Measurements</h2>
+  {{ measurement_list(measurements, "No measurements are kept in " ~ area.name ~ " on their own.") }}
+</section>
+<footer>Times are in {{ timezone }}.</footer>
+{% endblock %}

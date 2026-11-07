@@ -18,7 +18,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from brewerypi import access, services
-from brewerypi.access import READ
 from brewerypi.identity import CurrentUser
 from brewerypi.models import (
     Element,
@@ -29,59 +28,18 @@ from brewerypi.models import (
     Site,
 )
 from brewerypi.serializers import event_frame_dict
-from brewerypi.services import NotFoundError
 from brewerypi.timezones import resolve_timezone
 from brewerypi.web.auth import signed_in_user
+from brewerypi.web.forms import readable
+from brewerypi.web.measurements import (
+    areas_with_measurements,
+    element_measurements,
+)
+from brewerypi.web.navigation import HOME, trail
 from brewerypi.web.rendering import elapsed, page
 
 #: How many finished batches a page lists before offering older ones.
 PAGE_SIZE = 25
-
-
-def _readable(session: Session, user: CurrentUser, model: type, row_id: int):
-    """Return a row the user may read; anything else is simply not found."""
-    row = session.get(model, row_id)
-    if row is None:
-        raise NotFoundError(f"no {model.__name__} with id {row_id}")
-    access.check(session, user, row, READ)
-    return row
-
-
-_HOME = {"href": "/", "name": "Your breweries"}
-
-
-def trail(
-    session: Session, element: Element, include_self: bool = True
-) -> list[dict]:
-    """The breadcrumb down to a piece of equipment, through its parents.
-
-    Parents share the element's site, so whoever reads it reads them too.
-    """
-    template = session.get(ElementTemplate, element.element_template_id)
-    site = session.get(Site, template.site_id)
-    chain: list[Element] = []
-    node = element if include_self else None
-    parent_id = element.parent_id
-    if node is not None:
-        chain.append(node)
-    while parent_id is not None:
-        node = session.get(Element, parent_id)
-        chain.insert(0, node)
-        parent_id = node.parent_id
-    return [
-        _HOME,
-        {"href": f"/sites/{site.id}", "name": site.name},
-        *({"href": f"/equipment/{e.id}", "name": e.name} for e in chain),
-    ]
-
-
-def batch_trail(session: Session, frame: EventFrame) -> list[dict]:
-    """The breadcrumb down to a batch, for the pages that change it."""
-    element = session.get(Element, frame.element_id)
-    return [
-        *trail(session, element),
-        {"href": f"/batches/{frame.id}", "name": frame.name},
-    ]
 
 
 def _batch(session: Session, frame: EventFrame) -> dict:
@@ -297,7 +255,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         running_type = running_type or None
         finished_type = finished_type or None
         with session_factory() as session:
-            site = _readable(session, user, Site, site_id)
+            site = readable(session, user, Site, site_id)
             running = [
                 _batch(session, f)
                 for f in access.visible(
@@ -357,7 +315,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
             return page(
                 request,
                 "site.html",
-                crumbs=[_HOME],
+                crumbs=[HOME],
                 site=site,
                 timezone=resolve_timezone(session, site),
                 running=[
@@ -371,6 +329,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                     site.id, here, "running", running_counts, running_type
                 ),
                 kinds=_equipment_by_kind(session, user, site),
+                areas=areas_with_measurements(session, user, site),
                 finished=finished,
                 finished_type=finished_type,
                 finished_filter=_type_filter(
@@ -391,7 +350,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         user: CurrentUser = Depends(signed_in_user),
     ):
         with session_factory() as session:
-            element = _readable(session, user, Element, element_id)
+            element = readable(session, user, Element, element_id)
             template = session.get(
                 ElementTemplate, element.element_template_id
             )
@@ -418,6 +377,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                 site=site,
                 crumbs=trail(session, element, include_self=False),
                 inside=_chips(children, _site_busy(session, site.id)),
+                measurements=element_measurements(session, element),
                 timezone=resolve_timezone(session, site),
                 running=running,
                 finished=finished,
@@ -439,7 +399,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         user: CurrentUser = Depends(signed_in_user),
     ):
         with session_factory() as session:
-            frame = _readable(session, user, EventFrame, batch_id)
+            frame = readable(session, user, EventFrame, batch_id)
             element = session.get(Element, frame.element_id)
             template = session.get(
                 ElementTemplate, element.element_template_id

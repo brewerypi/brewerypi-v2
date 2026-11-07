@@ -1,0 +1,32 @@
+{# Shared pieces of the measurement pages. #}
+{% macro measurement_list(measurements, empty) %}
+{% if measurements %}
+{% for m in measurements %}
+<a class="measure" href="/measurements/{{ m.id }}">
+  <span class="batch-head">
+    <span class="vessel">{{ m.name }}</span>
+    <span class="batch-name">{% if m.latest %}{{ m.latest.value }}{% else %}No readings yet{% endif %}</span>
+  </span>
+  {% if m.latest %}<span class="meta">{{ m.latest.at }}</span>{% endif %}
+</a>
+{% endfor %}
+{% else %}
+<div class="empty">{{ empty }}</div>
+{% endif %}
+{% endmacro %}
+
+{# The value field for a tag: a list of options, or a number box. #}
+{% macro value_field(options, unit, value) %}
+{% if options is not none %}
+<label class="field" for="value">Value
+  <select id="value" name="value" required>
+    <option value="">Choose a value</option>
+    {% for option in options %}<option value="{{ option }}"{% if option == value %} selected{% endif %}>{{ option }}</option>{% endfor %}
+  </select>
+</label>
+{% else %}
+<label class="field" for="value">Value{% if unit %} ({{ unit }}){% endif %}
+  <input id="value" name="value" value="{{ value }}" inputmode="decimal" autocomplete="off" required>
+</label>
+{% endif %}
+{% endmacro %}

@@ -29,7 +29,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from brewerypi.config import DATABASE_URL
 from brewerypi.database import create_app_engine
 from brewerypi.services import NotFoundError, PermissionDeniedError
-from brewerypi.web import batch_actions, batches
+from brewerypi.web import batch_actions, batches, readings
 from brewerypi.web.auth import (
     CodeExchange,
     NotSignedIn,
@@ -203,6 +203,7 @@ def create_app(
 
     app.include_router(batches.create_router(session_factory))
     app.include_router(batch_actions.create_router(session_factory))
+    app.include_router(readings.create_router(session_factory))
     return app
 
 

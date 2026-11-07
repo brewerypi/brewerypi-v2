@@ -58,6 +58,9 @@ _NOTICES = {
     "updated": "Changes saved.",
     "linked": "Transfer saved.",
     "deleted": "Batch deleted.",
+    "recorded": "Reading recorded.",
+    "reading_updated": "Reading corrected.",
+    "reading_deleted": "Reading deleted.",
 }
 
 _templates = Jinja2Templates(directory=Path(__file__).parent / "templates")

@@ -26,6 +26,14 @@
   <div class="empty">No equipment has been set up yet.</div>
   {% endfor %}
 </section>
+{% if areas %}
+<section class="section">
+  <h2>Other measurements</h2>
+  <div class="chips">
+    {% for area in areas %}<a class="chip" href="/areas/{{ area.id }}">{{ area.name }} <span class="pill idle">{{ area.count }}</span></a>{% endfor %}
+  </div>
+</section>
+{% endif %}
 <section class="section">
   <h2>Recently finished</h2>
   {{ type_filter(finished_filter, "Show finished batch type") }}

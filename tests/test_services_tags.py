@@ -19,9 +19,15 @@ from brewerypi.services import (
     ConflictError,
     NotFoundError,
     ValidationError,
+    create_element,
+    create_element_attribute_template,
+    create_element_template,
+    create_event_frame_attribute_template,
+    create_event_frame_template,
     create_tag,
     delete_tag,
     get_tag,
+    list_standalone_tags,
     list_tags,
     update_tag,
 )
@@ -64,6 +70,20 @@ def ctx():
             "mu2": mu2.id,
         }
         yield session, ids
+
+
+def test_standalone_tags_leave_out_what_equipment_and_batches_use(ctx):
+    session, ids = ctx
+    site_id = session.get(Area, ids["area_id"]).site_id
+    meter = create_tag(session, ids["area_id"], "Water Meter")
+    tank_t = create_element_template(session, site_id, "Tank")
+    create_element_attribute_template(session, tank_t.id, "Temp")
+    batch_t = create_event_frame_template(session, tank_t.id, "Fill")
+    create_event_frame_attribute_template(session, batch_t.id, "Volume")
+    create_element(session, tank_t.id, "T1", tag_area_id=ids["area_id"])
+    # Wiring made a tag for each attribute, in the same area.
+    assert len(list_tags(session, ids["area_id"])) == 3
+    assert list_standalone_tags(session, ids["area_id"]) == [meter]
 
 
 def test_create_numeric_tag(ctx):
