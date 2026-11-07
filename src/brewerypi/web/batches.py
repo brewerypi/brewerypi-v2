@@ -47,6 +47,43 @@ def _readable(session: Session, user: CurrentUser, model: type, row_id: int):
     return row
 
 
+_HOME = {"href": "/", "name": "Your breweries"}
+
+
+def trail(
+    session: Session, element: Element, include_self: bool = True
+) -> list[dict]:
+    """The breadcrumb down to a piece of equipment, through its parents.
+
+    Parents share the element's site, so whoever reads it reads them too.
+    """
+    template = session.get(ElementTemplate, element.element_template_id)
+    site = session.get(Site, template.site_id)
+    chain: list[Element] = []
+    node = element if include_self else None
+    parent_id = element.parent_id
+    if node is not None:
+        chain.append(node)
+    while parent_id is not None:
+        node = session.get(Element, parent_id)
+        chain.insert(0, node)
+        parent_id = node.parent_id
+    return [
+        _HOME,
+        {"href": f"/sites/{site.id}", "name": site.name},
+        *({"href": f"/equipment/{e.id}", "name": e.name} for e in chain),
+    ]
+
+
+def batch_trail(session: Session, frame: EventFrame) -> list[dict]:
+    """The breadcrumb down to a batch, for the pages that change it."""
+    element = session.get(Element, frame.element_id)
+    return [
+        *trail(session, element),
+        {"href": f"/batches/{frame.id}", "name": frame.name},
+    ]
+
+
 def _batch(session: Session, frame: EventFrame) -> dict:
     """A batch as the pages show it: the serialized row plus its context."""
     batch_type = session.get(EventFrameTemplate, frame.event_frame_template_id)
@@ -320,6 +357,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
             return page(
                 request,
                 "site.html",
+                crumbs=[_HOME],
                 site=site,
                 timezone=resolve_timezone(session, site),
                 running=[
@@ -367,14 +405,6 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
             finished, has_older = _finished(
                 session, user, page_number, element_id=element.id
             )
-            # Parents share the element's site, so whoever reads it reads
-            # them too.
-            path = []
-            parent_id = element.parent_id
-            while parent_id is not None:
-                parent = session.get(Element, parent_id)
-                path.insert(0, parent)
-                parent_id = parent.parent_id
             children = access.visible(
                 session,
                 user,
@@ -386,7 +416,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                 element=element,
                 kind=template.name,
                 site=site,
-                path=path,
+                crumbs=trail(session, element, include_self=False),
                 inside=_chips(children, _site_busy(session, site.id)),
                 timezone=resolve_timezone(session, site),
                 running=running,
@@ -431,6 +461,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
             return page(
                 request,
                 "batch.html",
+                crumbs=trail(session, element),
                 batch=_batch(session, frame),
                 site=site,
                 timezone=resolve_timezone(session, site),

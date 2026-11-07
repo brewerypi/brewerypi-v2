@@ -2,10 +2,6 @@
 {% from "_batches.html" import batch_list, paging %}
 {% block title %}{{ element.name }}{% endblock %}
 {% block content %}
-<nav class="crumbs" aria-label="Breadcrumb">
-  <a href="/">Your breweries</a><span>/</span><a href="/sites/{{ site.id }}">{{ site.name }}</a>
-  {% for parent in path %}<span>/</span><a href="/equipment/{{ parent.id }}">{{ parent.name }}</a>{% endfor %}
-</nav>
 <div>
   <h1>{{ element.name }}</h1>
   <p class="muted">{{ kind }}</p>

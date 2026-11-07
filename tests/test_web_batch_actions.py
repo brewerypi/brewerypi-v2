@@ -387,7 +387,11 @@ def test_a_step_with_a_parent_flow_records_that_end_itself(client, world):
     url = f"/equipment/{ids['wc1']}/start"
     form = client.get(url, params={"type_id": ids["cooling"]}).text
     assert 'name="source_id"' not in form
-    assert "draws from the batch" in form
+    assert "Its source is the batch it's part of." in form
+    crumbs = form.split("</nav>")[0]
+    assert crumbs.index(f'href="/equipment/{ids["bh1"]}"') < crumbs.index(
+        f'href="/equipment/{ids["wc1"]}"'
+    )
     response = _review_and_confirm(
         client,
         url,
@@ -528,6 +532,33 @@ def test_editing_shows_the_changes_then_saves_them_with_an_author(
     assert edited.started_at == datetime(2026, 1, 1, 11, 0)
     assert edited.ended_at == _at(5)
     assert edited.updated_by_id == ids["sam"]
+
+
+@pytest.mark.parametrize("action", ["edit", "close", "transfer"])
+def test_changing_a_batch_keeps_the_whole_breadcrumb(client, world, action):
+    _, ids = world
+    batch = ids["running"]
+    form = client.get(f"/batches/{batch}/{action}").text
+    crumbs = form.split('aria-label="Breadcrumb">')[1].split("</nav>")[0]
+    assert 'href="/"' in crumbs
+    assert 'href="/sites/' in crumbs
+    assert 'href="/equipment/' in crumbs
+    assert f'href="/batches/{batch}"' in crumbs
+
+
+def test_the_review_page_keeps_the_breadcrumb_too(client, world):
+    _, ids = world
+    review = client.post(
+        f"/batches/{ids['finished']}/edit",
+        data={
+            "name": "Renamed",
+            "started_at": "2026-01-01T06:00",
+            "ended_at": "2026-01-05T06:00",
+        },
+    ).text
+    crumbs = review.split('aria-label="Breadcrumb">')[1].split("</nav>")[0]
+    assert f'href="/batches/{ids["finished"]}"' in crumbs
+    assert f'href="/equipment/{ids["fv02"]}"' in crumbs
 
 
 def test_an_edit_that_changes_nothing_is_refused(client, world):

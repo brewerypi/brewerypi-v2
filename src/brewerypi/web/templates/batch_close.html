@@ -1,7 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Close {{ frame.name }}{% endblock %}
 {% block content %}
-<nav class="crumbs" aria-label="Breadcrumb"><a href="/batches/{{ frame.id }}">{{ frame.name }}</a></nav>
 <h1>Close {{ type_name }} “{{ frame.name }}” on {{ vessel }}</h1>
 {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
 {% if steps %}<p>This also closes {{ steps }} running step{{ "" if steps == 1 else "s" }} inside it.</p>{% endif %}

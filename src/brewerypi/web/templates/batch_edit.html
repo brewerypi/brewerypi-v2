@@ -1,7 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Edit {{ frame.name }}{% endblock %}
 {% block content %}
-<nav class="crumbs" aria-label="Breadcrumb"><a href="/batches/{{ frame.id }}">{{ frame.name }}</a></nav>
 <h1>Edit {{ type_name }} on {{ vessel }}</h1>
 {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
 <form method="post" action="/batches/{{ frame.id }}/edit" class="fields">
