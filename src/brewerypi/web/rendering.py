@@ -59,6 +59,7 @@ _NOTICES = {
     "linked": "Transfer saved.",
     "deleted": "Batch deleted.",
     "recorded": "Reading recorded.",
+    "readings_recorded": "Readings recorded.",
     "reading_updated": "Reading corrected.",
     "reading_deleted": "Reading deleted.",
 }

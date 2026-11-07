@@ -9,7 +9,6 @@ operator tier, so the rules stay in ``services.tag_values`` and
 
 from __future__ import annotations
 
-import math
 from collections.abc import Callable
 from urllib.parse import urlencode
 
@@ -23,13 +22,13 @@ from brewerypi.models import Area, EventFrame, Site, Tag, TagValue
 from brewerypi.serializers import reading_authors
 from brewerypi.services import (
     NotFoundError,
-    NotSelectableError,
     PermissionDeniedError,
     ServiceError,
     ValidationError,
 )
 from brewerypi.timezones import resolve_timezone, zone_for_tag
 from brewerypi.web.auth import signed_in_user
+from brewerypi.web.entry import parse_value, refusal, window_warnings
 from brewerypi.web.forms import (
     OUT_OF_DATE,
     accepted_key,
@@ -59,36 +58,6 @@ from brewerypi.web.rendering import page
 
 #: Readings per page on a measurement's page.
 READINGS_PAGE_SIZE = 10
-
-
-def _parse_value(
-    session: Session, tag: Tag, raw: str
-) -> tuple[float | None, str | None]:
-    """Read a form's value for this tag: a number, or a list option."""
-    raw = raw.strip()
-    if tag.lookup_id is not None:
-        if not raw:
-            raise ValidationError("Choose a value.")
-        return None, raw
-    if not raw:
-        raise ValidationError("Enter a value.")
-    try:
-        value = float(raw)
-    except ValueError as exc:
-        raise ValidationError("Enter a number, such as 18.5.") from exc
-    if not math.isfinite(value):
-        raise ValidationError("Enter a number, such as 18.5.")
-    return value, None
-
-
-_NOT_ON_THE_LIST = "Choose one of the options on the list."
-
-
-def _message(exc: ServiceError) -> str:
-    """A refusal in words for the form it came from."""
-    if isinstance(exc, NotSelectableError):
-        return _NOT_ON_THE_LIST
-    return str(exc)
 
 
 def _measurement_url(
@@ -138,17 +107,6 @@ def _reading_trail(
         *_tag_crumbs(session, tag, frame),
         {"href": _measurement_url(tag.id, frame), "name": name},
     ]
-
-
-def _window_warnings(frame: EventFrame | None, when) -> list[str]:
-    """Say when a reading taken for a batch falls outside it."""
-    if frame is None:
-        return []
-    if when < frame.started_at:
-        return ["That time is before this batch started."]
-    if frame.ended_at is not None and when > frame.ended_at:
-        return ["That time is after this batch finished."]
-    return []
 
 
 def _title(session: Session, tag: Tag) -> str:
@@ -296,7 +254,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
             zone = zone_for_tag(session, tag)
             try:
                 when = parse_time(observed_at, zone, "reading's")
-                number_value, option = _parse_value(session, tag, value)
+                number_value, option = parse_value(session, tag, value)
                 services.record_tag_value(
                     session,
                     tag.id,
@@ -309,10 +267,10 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                 session.rollback()
                 if isinstance(exc, (NotFoundError, PermissionDeniedError)):
                     raise
-                return again(error=_message(exc), status_code=400)
+                return again(error=refusal(exc), status_code=400)
             warnings = [
                 *future_warning(when, "That time"),
-                *_window_warnings(frame, when),
+                *window_warnings(frame, when),
             ]
             if unaccepted(warnings, accepted):
                 session.rollback()
@@ -413,7 +371,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
             changes: dict = {}
             moved = None
             try:
-                number_value, option = _parse_value(session, tag, value)
+                number_value, option = parse_value(session, tag, value)
                 if value.strip() != old_raw:
                     if option is not None:
                         changes["lookup_value"] = option
@@ -434,11 +392,11 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                 session.rollback()
                 if isinstance(exc, (NotFoundError, PermissionDeniedError)):
                     raise
-                return again(error=_message(exc), status_code=400)
+                return again(error=refusal(exc), status_code=400)
             warnings = (
                 [
                     *future_warning(moved, "The new time"),
-                    *_window_warnings(frame, moved),
+                    *window_warnings(frame, moved),
                 ]
                 if moved is not None
                 else []

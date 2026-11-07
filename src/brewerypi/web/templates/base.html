@@ -58,6 +58,10 @@ p { margin: 0; max-width: 65ch; }
 .batch-name { font-weight: 700; font-size: 19px; overflow-wrap: anywhere; }
 .pill { background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 1px 10px; font-size: 14px; font-weight: 600; }
 .pill.idle { background: var(--surface-2); color: var(--muted); }
+.entry { display: flex; align-items: center; gap: 6px; }
+.entry input:not([type="hidden"]), .entry select { width: 9rem; min-height: 44px; }
+.field-error { flex-basis: 100%; color: var(--bad); font-size: 15px; font-weight: 500; }
+.reading.has-error { border-color: var(--bad); }
 .meta { color: var(--muted); font-size: 15px; font-variant-numeric: tabular-nums; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .chip { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 6px 12px; font-family: var(--f-data); font-size: 15px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); color: inherit; text-decoration: none; }
