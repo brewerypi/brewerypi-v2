@@ -1,5 +1,7 @@
 {% extends "base.html" %}
 {% from "_batches.html" import batch_card, batch_list %}
+{% from "_forms.html" import notices, save %}
+{% from "_measurements.html" import entry_box, entry_error, entry_time %}
 {% block title %}{{ batch.name }}{% endblock %}
 {% block content %}
 <div>
@@ -36,10 +38,14 @@
   <a class="btn quiet" href="/batches/{{ batch.id }}/delete">Delete</a>
 </div>
 {% if measurements %}
-<section class="section">
+<section class="section" id="measurements">
   <h2>Measurements</h2>
+  {% if entry %}
+  {{ notices(entry.error, entry.warnings) }}
+  <form method="post" action="/batches/{{ batch.id }}/readings" class="fields">
+  {% endif %}
   {% for m in measurements %}
-  <div class="reading">
+  <div class="reading{% if entry and entry.errors.get(m.tag_id) %} has-error{% endif %}">
     <span class="batch-head">
       <span class="vessel">{{ m.name }}</span>
       {% if m.tag_id is none %}
@@ -53,12 +59,18 @@
     </span>
     {% if m.tag_id is not none %}
     <span class="chips">
+      {% if entry %}{{ entry_box(m.tag_id, m.name, m.unit, m.options, entry) }}{% endif %}
       {% if m.count %}<a class="btn quiet" href="/measurements/{{ m.tag_id }}?batch={{ batch.id }}">See all</a>{% endif %}
-      {% if batch.open %}<a class="btn quiet" href="/measurements/{{ m.tag_id }}?batch={{ batch.id }}#record">Record</a>{% endif %}
     </span>
+    {% if entry %}{{ entry_error(m.tag_id, entry) }}{% endif %}
     {% endif %}
   </div>
   {% endfor %}
+  {% if entry %}
+  {{ entry_time(entry) }}
+  {{ save("Record readings", entry.token, entry.warnings, entry.accepted) }}
+  </form>
+  {% endif %}
 </section>
 {% endif %}
 {% if parent %}

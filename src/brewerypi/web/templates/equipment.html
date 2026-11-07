@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "_batches.html" import batch_list, paging %}
-{% from "_measurements.html" import measurement_list %}
+{% from "_forms.html" import notices, save %}
+{% from "_measurements.html" import entry_box, entry_error, entry_time %}
 {% block title %}{{ element.name }}{% endblock %}
 {% block content %}
 <div>
@@ -17,9 +18,31 @@
   {{ batch_list(running, "No batch is running on " ~ element.name ~ ".") }}
 </section>
 {% if measurements %}
-<section class="section">
+<section class="section" id="measurements">
   <h2>Measurements</h2>
-  {{ measurement_list(measurements, "") }}
+  {{ notices(entry.error, entry.warnings) }}
+  <form method="post" action="/equipment/{{ element.id }}/readings" class="fields">
+  {% for m in measurements %}
+  <div class="reading{% if entry.errors.get(m.id) %} has-error{% endif %}">
+    <span class="batch-head">
+      <span class="vessel">{{ m.name }}</span>
+      {% if m.latest %}
+      <span class="batch-name">{{ m.latest.value }}</span>
+      <span class="meta">{{ m.latest.at }}</span>
+      {% else %}
+      <span class="meta">No readings yet.</span>
+      {% endif %}
+    </span>
+    <span class="chips">
+      {{ entry_box(m.id, m.name, m.unit, m.options, entry) }}
+      <a class="btn quiet" href="/measurements/{{ m.id }}">See all</a>
+    </span>
+    {{ entry_error(m.id, entry) }}
+  </div>
+  {% endfor %}
+  {{ entry_time(entry) }}
+  {{ save("Record readings", entry.token, entry.warnings, entry.accepted) }}
+  </form>
 </section>
 {% endif %}
 {% if inside %}

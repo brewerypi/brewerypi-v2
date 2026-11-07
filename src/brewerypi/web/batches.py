@@ -1,6 +1,8 @@
 """Viewing batches: what is running, and what has run.
 
-Changing them lives in ``batch_actions``.
+Changing them lives in ``batch_actions``. Entering several measurements
+at once is here, because a refused save brings back these same pages (see
+``entry``).
 
 Every page checks the row its address names with ``access.check``, and every
 list keeps only what the signed-in user may read, so another company's ids
@@ -14,6 +16,7 @@ from datetime import datetime, timezone
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -26,11 +29,29 @@ from brewerypi.models import (
     EventFrame,
     EventFrameTemplate,
     Site,
+    Tag,
 )
 from brewerypi.serializers import event_frame_dict
-from brewerypi.timezones import resolve_timezone
+from brewerypi.timezones import (
+    resolve_timezone,
+    zone_for_element,
+    zone_for_frame,
+)
 from brewerypi.web.auth import signed_in_user
-from brewerypi.web.forms import mint_token, readable
+from brewerypi.web.entry import (
+    entry_form,
+    form_fields,
+    record_entries,
+    typed_values,
+)
+from brewerypi.web.forms import (
+    OUT_OF_DATE,
+    mint_token,
+    operable,
+    readable,
+    spend_token,
+    unaccepted,
+)
 from brewerypi.web.measurements import (
     areas_with_measurements,
     batch_measurements,
@@ -352,45 +373,44 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
     ):
         with session_factory() as session:
             element = readable(session, user, Element, element_id)
-            template = session.get(
-                ElementTemplate, element.element_template_id
+            return _equipment_view(
+                request, session, user, element, page_number
             )
-            site = session.get(Site, template.site_id)
-            running = [
-                _batch(session, f)
-                for f in services.list_event_frames(
-                    session, element_id=element.id, open_only=True
-                )
+
+    @router.post("/equipment/{element_id}/readings")
+    def record_equipment_readings(
+        request: Request,
+        element_id: int,
+        fields: dict = Depends(form_fields),
+        user: CurrentUser = Depends(signed_in_user),
+    ):
+        with session_factory() as session:
+            element = operable(session, user, Element, element_id)
+            tags = [
+                session.get(Tag, m["id"])
+                for m in element_measurements(session, element)
             ]
-            finished, has_older = _finished(
-                session, user, page_number, element_id=element.id
-            )
-            children = access.visible(
-                session,
-                user,
-                services.list_elements(session, parent_id=element.id),
-            )
-            return page(
+
+            def again(status_code: int = 200, **notice):
+                entry = _typed_entry(request, session, element, tags, fields)
+                return _equipment_view(
+                    request,
+                    session,
+                    user,
+                    element,
+                    entry=entry(**notice),
+                    status_code=status_code,
+                )
+
+            return _record(
                 request,
-                "equipment.html",
-                element=element,
-                kind=template.name,
-                site=site,
-                crumbs=trail(session, element, include_self=False),
-                inside=_chips(children, _site_busy(session, site.id)),
-                measurements=element_measurements(session, element),
-                timezone=resolve_timezone(session, site),
-                running=running,
-                finished=finished,
-                page_number=page_number,
-                has_older=has_older,
-                # Only offer what the overlap rule would let through; the
-                # service still decides. A brewhouse runs several at once.
-                start_types=(
-                    services.list_event_frame_templates(session, template.id)
-                    if template.exclusive is False or not running
-                    else []
-                ),
+                session,
+                tags,
+                fields,
+                zone_for_element(session, element),
+                None,
+                again,
+                f"/equipment/{element_id}",
             )
 
     @router.get("/batches/{batch_id}")
@@ -401,58 +421,212 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
     ):
         with session_factory() as session:
             frame = readable(session, user, EventFrame, batch_id)
-            element = session.get(Element, frame.element_id)
-            template = session.get(
-                ElementTemplate, element.element_template_id
-            )
-            site = session.get(Site, template.site_id)
+            return _batch_view(request, session, user, frame)
 
-            def related(frames: list[EventFrame]) -> list[dict]:
-                return [
-                    _batch(session, f)
-                    for f in access.visible(session, user, frames)
-                ]
-
-            def one(frame_id: int | None) -> dict | None:
-                found = related(
-                    [session.get(EventFrame, frame_id)] if frame_id else []
+    @router.post("/batches/{batch_id}/readings")
+    def record_batch_readings(
+        request: Request,
+        batch_id: int,
+        fields: dict = Depends(form_fields),
+        user: CurrentUser = Depends(signed_in_user),
+    ):
+        with session_factory() as session:
+            frame = operable(session, user, EventFrame, batch_id)
+            if frame.ended_at is not None:
+                # Its form is gone: most likely closed in another tab.
+                return RedirectResponse(
+                    f"/batches/{batch_id}", status_code=303
                 )
-                return found[0] if found else None
+            tags = _batch_tags(session, frame)
+            element = session.get(Element, frame.element_id)
 
-            return page(
+            def again(status_code: int = 200, **notice):
+                entry = _typed_entry(request, session, element, tags, fields)
+                return _batch_view(
+                    request,
+                    session,
+                    user,
+                    frame,
+                    entry=entry(**notice),
+                    status_code=status_code,
+                )
+
+            return _record(
                 request,
-                "batch.html",
-                crumbs=trail(session, element),
-                batch=_batch(session, frame),
-                # Reopening is one press, so a finished batch's page carries
-                # the pass for it.
-                token=(
-                    mint_token(request) if frame.ended_at is not None else ""
-                ),
-                measurements=batch_measurements(session, frame),
-                site=site,
-                timezone=resolve_timezone(session, site),
-                parent=one(frame.parent_id),
-                source=one(frame.source_event_frame_id),
-                destination=one(frame.destination_event_frame_id),
-                steps=sorted(
-                    related(
-                        services.list_event_frames(
-                            session, parent_id=frame.id
-                        )
-                    ),
-                    key=lambda b: b["started_at"],
-                ),
-                moved_in=related(
-                    services.list_event_frames(
-                        session, destination_event_frame_id=frame.id
-                    )
-                ),
-                moved_out=related(
-                    services.list_event_frames(
-                        session, source_event_frame_id=frame.id
-                    )
-                ),
+                session,
+                tags,
+                fields,
+                zone_for_frame(session, frame),
+                frame,
+                again,
+                f"/batches/{batch_id}",
             )
 
     return router
+
+
+def _record(request, session, tags, fields, zone, frame, again, done_url):
+    """Save a page's several-measurements form, or bring the page back."""
+    if not spend_token(request, fields.get("token", "")):
+        return again(409, error=OUT_OF_DATE)
+    errors, error, warnings = record_entries(
+        session, tags, fields, zone, frame
+    )
+    if errors or error:
+        session.rollback()
+        return again(400, errors=errors, error=error)
+    if unaccepted(warnings, fields.get("accepted", "")):
+        session.rollback()
+        return again(warnings=warnings)
+    session.commit()
+    return RedirectResponse(
+        f"{done_url}?done=readings_recorded#measurements", status_code=303
+    )
+
+
+def _typed_entry(request, session, element, tags, fields):
+    """The form as it was sent, ready to be shown again with a notice."""
+    zone = zone_for_element(session, element)
+
+    def entry(**notice) -> dict:
+        return entry_form(
+            request,
+            zone,
+            values=typed_values(fields, tags),
+            observed_at=fields.get("observed_at", ""),
+            **notice,
+        )
+
+    return entry
+
+
+def _batch_tags(session: Session, frame: EventFrame) -> list[Tag]:
+    """The tags behind a batch's measurements that are set up to record."""
+    return [
+        session.get(Tag, m["tag_id"])
+        for m in batch_measurements(session, frame)
+        if m["tag_id"] is not None
+    ]
+
+
+def _equipment_view(
+    request: Request,
+    session: Session,
+    user: CurrentUser,
+    element: Element,
+    page_number: int = 1,
+    entry: dict | None = None,
+    status_code: int = 200,
+):
+    """A piece of equipment's page, with its measurement form as given."""
+    template = session.get(ElementTemplate, element.element_template_id)
+    site = session.get(Site, template.site_id)
+    zone = resolve_timezone(session, site)
+    running = [
+        _batch(session, f)
+        for f in services.list_event_frames(
+            session, element_id=element.id, open_only=True
+        )
+    ]
+    finished, has_older = _finished(
+        session, user, page_number, element_id=element.id
+    )
+    children = access.visible(
+        session,
+        user,
+        services.list_elements(session, parent_id=element.id),
+    )
+    measurements = element_measurements(session, element)
+    if entry is None and measurements:
+        entry = entry_form(request, zone)
+    return page(
+        request,
+        "equipment.html",
+        status_code=status_code,
+        element=element,
+        kind=template.name,
+        site=site,
+        crumbs=trail(session, element, include_self=False),
+        inside=_chips(children, _site_busy(session, site.id)),
+        measurements=measurements,
+        entry=entry,
+        timezone=zone,
+        running=running,
+        finished=finished,
+        page_number=page_number,
+        has_older=has_older,
+        # Only offer what the overlap rule would let through; the
+        # service still decides. A brewhouse runs several at once.
+        start_types=(
+            services.list_event_frame_templates(session, template.id)
+            if template.exclusive is False or not running
+            else []
+        ),
+    )
+
+
+def _batch_view(
+    request: Request,
+    session: Session,
+    user: CurrentUser,
+    frame: EventFrame,
+    entry: dict | None = None,
+    status_code: int = 200,
+):
+    """A batch's page, with its measurement form as given."""
+    element = session.get(Element, frame.element_id)
+    template = session.get(ElementTemplate, element.element_template_id)
+    site = session.get(Site, template.site_id)
+    zone = resolve_timezone(session, site)
+
+    def related(frames: list[EventFrame]) -> list[dict]:
+        return [
+            _batch(session, f) for f in access.visible(session, user, frames)
+        ]
+
+    def one(frame_id: int | None) -> dict | None:
+        found = related(
+            [session.get(EventFrame, frame_id)] if frame_id else []
+        )
+        return found[0] if found else None
+
+    measurements = batch_measurements(session, frame)
+    # Readings are entered while the batch runs; a finished one's are
+    # corrected one at a time, from See all.
+    if (
+        entry is None
+        and frame.ended_at is None
+        and any(m["tag_id"] is not None for m in measurements)
+    ):
+        entry = entry_form(request, zone)
+    return page(
+        request,
+        "batch.html",
+        status_code=status_code,
+        crumbs=trail(session, element),
+        batch=_batch(session, frame),
+        # Reopening is one press, so a finished batch's page carries the
+        # pass for it.
+        token=mint_token(request) if frame.ended_at is not None else "",
+        measurements=measurements,
+        entry=entry,
+        site=site,
+        timezone=zone,
+        parent=one(frame.parent_id),
+        source=one(frame.source_event_frame_id),
+        destination=one(frame.destination_event_frame_id),
+        steps=sorted(
+            related(services.list_event_frames(session, parent_id=frame.id)),
+            key=lambda b: b["started_at"],
+        ),
+        moved_in=related(
+            services.list_event_frames(
+                session, destination_event_frame_id=frame.id
+            )
+        ),
+        moved_out=related(
+            services.list_event_frames(
+                session, source_event_frame_id=frame.id
+            )
+        ),
+    )

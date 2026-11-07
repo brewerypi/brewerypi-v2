@@ -26,7 +26,8 @@ delete guards.
   because an artifact shared from one Claude account gets no connector access
   for viewers outside its organization. So far it has sign-in, batch
   screens that view and change batches, and reading entry (record, correct,
-  delete), including a batch's own measurements on its page. It shares
+  delete; several at once on a batch or equipment page), including a
+  batch's own measurements on its page. It shares
   `access.py`,
   `identity.py`, `timezones.py` and `serializers.py` with the MCP tools, so a
   consumer never needs its own copy of the access rules, time conversion or
@@ -430,7 +431,10 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
   tags (`services.list_standalone_tags`: wired to no element or event frame
   attribute -- continuous data like a utility meter), linked from the site
   page. A measurement page records, and each reading can be corrected or
-  deleted by any role at the site, as on the MCP operator tier. A batch page
+  deleted by any role at the site, as on the MCP operator tier. Running
+  batch and equipment pages also take SEVERAL at once (`web/entry.py`;
+  routes in `web/batches.py`, since a refusal re-renders those pages):
+  one shared time, blank boxes skipped, all or nothing. A batch page
   sums up only its batch type's measurements (event frame attributes --
   equipment measurements stay on the equipment), over the batch's window
   with BOTH ends inclusive so the close's end value counts; `?batch=` keeps a

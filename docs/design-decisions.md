@@ -347,6 +347,16 @@ back with what was typed and "Nothing was saved", never a lost entry. A
 small script also drops a second tap before it is sent, which would
 otherwise replace the saved result with that message.
 
+**Several measurements in one press.** A running batch's page, and a piece
+of equipment's page, show a box per measurement under one shared time.
+Blank boxes are skipped. It is all or nothing: one bad value saves none,
+and the page comes back with the message beside that box and every value
+kept, so nobody has to work out which half of a round went in. Boxes start
+empty rather than holding the latest value, which would make recording
+yesterday's gravity again one careless press away; the latest is shown
+beside each box instead. A finished batch has no boxes: its readings are
+corrected one at a time, from See all.
+
 **Plain forms, no HTMX.** HTMX was the plan, but a form followed by a full page
 does this job with no JavaScript dependency to keep current. It remains an easy
 addition if a screen ever needs to update in place.

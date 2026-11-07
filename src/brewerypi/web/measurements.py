@@ -105,6 +105,13 @@ def tag_trail(session: Session, tag: Tag) -> list[dict]:
     ]
 
 
+def options_of(session: Session, tag: Tag) -> list[str] | None:
+    """A list measurement's options to choose from; None for a number."""
+    if tag.lookup_id is None:
+        return None
+    return services.selectable_values(session, tag.lookup_id)
+
+
 def measurement(session: Session, tag: Tag, name: str) -> dict:
     """One measurement as a list shows it, with its latest reading."""
     latest = services.list_tag_values(session, tag.id, limit=1)
@@ -113,6 +120,7 @@ def measurement(session: Session, tag: Tag, name: str) -> dict:
         "id": tag.id,
         "name": name,
         "unit": unit_of(tag),
+        "options": options_of(session, tag),
         "latest": (
             {
                 "value": value_text(session, tag, latest[0]),
@@ -183,6 +191,8 @@ def batch_measurements(session: Session, frame: EventFrame) -> list[dict]:
         row = {"name": template.name, "tag_id": tag_id, "count": 0}
         if tag_id is not None:
             tag = session.get(Tag, tag_id)
+            row["unit"] = unit_of(tag)
+            row["options"] = options_of(session, tag)
             zone = zone_for_tag(session, tag)
             bounds = {"start": frame.started_at, "end": frame.ended_at}
 

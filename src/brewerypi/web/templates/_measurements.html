@@ -30,3 +30,35 @@
 </label>
 {% endif %}
 {% endmacro %}
+
+
+{# One measurement's box in a page's several-measurements form. Not
+   required: a blank box is skipped. #}
+{% macro entry_box(tag_id, name, unit, options, entry) %}
+{% set field = "value_" ~ tag_id %}
+{% set typed = entry.typed.get(tag_id, "") %}
+<span class="entry">
+  {% if options is not none %}
+  <select id="{{ field }}" name="{{ field }}" aria-label="{{ name }}">
+    <option value="">—</option>
+    {% for option in options %}<option value="{{ option }}"{% if option == typed %} selected{% endif %}>{{ option }}</option>{% endfor %}
+  </select>
+  {% else %}
+  <input id="{{ field }}" name="{{ field }}" value="{{ typed }}" aria-label="{{ name }}{% if unit %} ({{ unit }}){% endif %}" inputmode="decimal" autocomplete="off">
+  {% if unit %}<span class="meta">{{ unit }}</span>{% endif %}
+  {% endif %}
+</span>
+{% endmacro %}
+
+{# The refusal beside one box, if there is one. #}
+{% macro entry_error(tag_id, entry) %}
+{% if entry.errors.get(tag_id) %}<span class="field-error" role="alert">{{ entry.errors.get(tag_id) }}</span>{% endif %}
+{% endmacro %}
+
+{# The shared time and the one button, after the boxes. #}
+{% macro entry_time(entry) %}
+<label class="field" for="observed_at">Time ({{ entry.timezone }})
+  <input id="observed_at" name="observed_at" type="datetime-local" value="{{ entry.observed_at }}" required>
+</label>
+<p class="muted">Fill in any you have; blank ones are skipped.</p>
+{% endmacro %}
