@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from brewerypi import services
 from brewerypi.identity import caller_id
-from brewerypi.models import EventFrame, Tag
+from brewerypi.models import Element, EventFrame, EventFrameTemplate, Tag
 from brewerypi.services import (
     NotFoundError,
     NotSelectableError,
@@ -68,14 +68,16 @@ def refusal(exc: ServiceError) -> str:
     return str(exc)
 
 
-def window_warnings(frame: EventFrame | None, when: datetime) -> list[str]:
+def window_warnings(
+    frame: EventFrame | None, when: datetime, what: str = "this batch"
+) -> list[str]:
     """Say when a reading taken for a batch falls outside it."""
     if frame is None:
         return []
     if when < frame.started_at:
-        return ["That time is before this batch started."]
+        return [f"That time is before {what} started."]
     if frame.ended_at is not None and when > frame.ended_at:
-        return ["That time is after this batch finished."]
+        return [f"That time is after {what} finished."]
     return []
 
 
@@ -123,9 +125,14 @@ def record_entries(
     tags: list[Tag],
     fields: dict[str, str],
     zone: str,
-    frame: EventFrame | None = None,
+    frames: dict[int, EventFrame] | None = None,
+    own: EventFrame | None = None,
 ) -> tuple[dict[int, str], str | None, list[str]]:
     """Record every filled-in box at the shared time.
+
+    ``frames`` names the batch each tag's reading is for, so a time outside
+    it warns; ``own`` is the page's batch, called "this batch", and any
+    other is one of its steps, called by its type and equipment.
 
     Returns what stops the save: refusals by tag id, a refusal of the form
     as a whole, and warnings. The caller commits only when all three are
@@ -162,8 +169,22 @@ def record_entries(
             errors[tag.id] = refusal(exc)
     if errors:
         return errors, None, []
-    return (
-        {},
-        None,
-        [*future_warning(when, "That time"), *window_warnings(frame, when)],
-    )
+    warnings = future_warning(when, "That time")
+    for tag_id, _ in filled:
+        frame = (frames or {}).get(tag_id)
+        called = _called(session, frame, own)
+        for warning in window_warnings(frame, when, called):
+            if warning not in warnings:
+                warnings.append(warning)
+    return {}, None, warnings
+
+
+def _called(
+    session: Session, frame: EventFrame | None, own: EventFrame | None
+) -> str:
+    """How a window warning names the batch a reading is for."""
+    if frame is None or own is None or frame.id == own.id:
+        return "this batch"
+    template = session.get(EventFrameTemplate, frame.event_frame_template_id)
+    element = session.get(Element, frame.element_id)
+    return f"{template.name} on {element.name}"

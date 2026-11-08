@@ -353,8 +353,10 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         request: Request,
         element_id: int,
         type_id: str = "",
+        parent_id: str = "",
         user: CurrentUser = Depends(signed_in_user),
     ):
+        """The start form; ``parent_id`` comes from a batch's Steps."""
         with session_factory() as session:
             element = operable(session, user, Element, element_id)
             chosen = parse_id(type_id)
@@ -364,7 +366,10 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
             if template is None:
                 raise NotFoundError(f"no batch type {chosen}")
             access.check(session, user, template, READ)
-            return start_form(request, session, user, element, template)
+            return start_form(
+                request, session, user, element, template,
+                parent_id=parent_id,
+            )
 
     @router.post("/equipment/{element_id}/start")
     def start_batch(

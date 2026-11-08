@@ -60,6 +60,8 @@ _NOTICES = {
     "deleted": "Batch deleted.",
     "recorded": "Reading recorded.",
     "readings_recorded": "Readings recorded.",
+    "step_started": "Step started.",
+    "step_finished": "Step finished.",
     "reading_updated": "Reading corrected.",
     "reading_deleted": "Reading deleted.",
 }

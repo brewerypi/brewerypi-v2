@@ -357,6 +357,41 @@ yesterday's gravity again one careless press away; the latest is shown
 beside each box instead. A finished batch has no boxes: its readings are
 corrected one at a time, from See all.
 
+**A batch runs its steps from its own page.** Starting a Mashing used to
+mean going to the mash mixer, starting it there, and choosing the brew it
+belonged to. But the brew's type already names its steps and what kind of
+equipment each runs on, so its page lists them in step order and starting
+one is a single press: the equipment is the one of that kind inside the
+brewhouse (a short choice of buttons when there are several, with busy
+ones saying what they are busy with), the parent is the brew, and the
+name is the brew's. One time box above the steps, defaulting to now,
+serves every button, for when staff catch up after the fact. Finishing a
+step is a press too.
+
+- **Nothing finishes another step.** Starting Lautering leaves Mashing
+  running: steps often overlap, and the user decided against finishing
+  the running one automatically.
+- **A finished step offers "Start another".** Steps do repeat, such as a
+  double mash or a second wort cooling into a propagation tank. Step order
+  is only a hint: the first step that hasn't run and has free equipment
+  gets the main button, and nothing is enforced.
+- **Two cases still need a page.** A step whose type has a required
+  property with no default opens the start form with the rest filled in.
+  Finishing a step that has running steps of its own opens the close page,
+  which lists what closes with it.
+- **"... anyway" repeats only the press that was warned.** The accepted key
+  names the button as well as the warnings.
+- **Enter does nothing in the steps form.** Pressing Enter in the time box
+  would press the form's first button. A disabled, hidden button comes
+  first, so Enter starts or finishes nothing.
+
+While the batch runs, its several-measurements form also takes each
+running step's measurements, at any depth, under a heading per step
+("Lautering on LT1"). Each reading is checked against its own step's
+window, and a warning names the step. A finished step's readings are under
+its own page, as a finished batch's are. The equipment page keeps its
+Start buttons, so a step can still be started from there.
+
 **Plain forms, no HTMX.** HTMX was the plan, but a form followed by a full page
 does this job with no JavaScript dependency to keep current. It remains an easy
 addition if a screen ever needs to update in place.

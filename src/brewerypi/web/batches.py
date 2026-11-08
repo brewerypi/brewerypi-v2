@@ -32,6 +32,11 @@ from brewerypi.models import (
     Tag,
 )
 from brewerypi.serializers import event_frame_dict
+from brewerypi.services import (
+    NotFoundError,
+    PermissionDeniedError,
+    ServiceError,
+)
 from brewerypi.timezones import (
     resolve_timezone,
     zone_for_element,
@@ -48,19 +53,27 @@ from brewerypi.web.forms import (
     OUT_OF_DATE,
     mint_token,
     operable,
+    parse_time,
     readable,
     spend_token,
     unaccepted,
 )
 from brewerypi.web.measurements import (
     areas_with_measurements,
-    batch_measurements,
     batch_properties,
     element_measurements,
     property_text,
 )
 from brewerypi.web.navigation import HOME, trail
 from brewerypi.web.rendering import elapsed, page
+from brewerypi.web.steps import (
+    action_label,
+    entry_tags,
+    measurement_groups,
+    run_action,
+    step_form,
+    step_rows,
+)
 
 #: How many finished batches a page lists before offering older ones.
 PAGE_SIZE = 25
@@ -413,6 +426,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                 fields,
                 zone_for_element(session, element),
                 None,
+                None,
                 again,
                 f"/equipment/{element_id}",
             )
@@ -441,7 +455,9 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                 return RedirectResponse(
                     f"/batches/{batch_id}", status_code=303
                 )
-            tags = _batch_tags(session, frame)
+            tags, frames = entry_tags(
+                session, measurement_groups(session, user, frame)
+            )
             element = session.get(Element, frame.element_id)
 
             def again(status_code: int = 200, **notice):
@@ -461,20 +477,88 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                 tags,
                 fields,
                 zone_for_frame(session, frame),
+                frames,
                 frame,
                 again,
                 f"/batches/{batch_id}",
             )
 
+    @router.post("/batches/{batch_id}/steps")
+    def run_batch_step(
+        request: Request,
+        batch_id: int,
+        fields: dict = Depends(form_fields),
+        user: CurrentUser = Depends(signed_in_user),
+    ):
+        with session_factory() as session:
+            frame = operable(session, user, EventFrame, batch_id)
+            if frame.ended_at is not None:
+                # Its steps' buttons are gone: closed in another tab.
+                return RedirectResponse(
+                    f"/batches/{batch_id}", status_code=303
+                )
+            action = fields.get("action", "")
+            label = action_label(session, frame, action)
+            zone = zone_for_frame(session, frame)
+
+            def again(status_code: int = 200, **notice):
+                form = step_form(
+                    request,
+                    zone,
+                    at=fields.get("at", ""),
+                    action=action,
+                    label=label,
+                    **notice,
+                )
+                return _batch_view(
+                    request,
+                    session,
+                    user,
+                    frame,
+                    steps_form=form,
+                    status_code=status_code,
+                )
+
+            if not spend_token(request, fields.get("token", "")):
+                return again(409, error=OUT_OF_DATE)
+            try:
+                when = parse_time(fields.get("at", ""), zone, "step's")
+                done, warnings = run_action(
+                    session, user, frame, action, when
+                )
+            except (NotFoundError, PermissionDeniedError):
+                raise
+            except ServiceError as exc:
+                session.rollback()
+                return again(400, error=str(exc))
+            # The key names the press as well, so accepting a warning for
+            # one button doesn't accept it for another.
+            if warnings and unaccepted(
+                [action, *warnings], fields.get("accepted", "")
+            ):
+                session.rollback()
+                return again(warnings=warnings)
+            session.commit()
+            return RedirectResponse(
+                f"/batches/{batch_id}?done=step_{done}#steps",
+                status_code=303,
+            )
+
     return router
 
 
-def _record(request, session, tags, fields, zone, frame, again, done_url):
-    """Save a page's several-measurements form, or bring the page back."""
+def _record(
+    request, session, tags, fields, zone, frames, own, again, done_url
+):
+    """Save a page's several-measurements form, or bring the page back.
+
+    ``frames`` names the batch each tag's reading is for, ``own`` the
+    page's batch (see ``entry.record_entries``).
+    """
     if not spend_token(request, fields.get("token", "")):
         return again(409, error=OUT_OF_DATE)
     errors, error, warnings = record_entries(
-        session, tags, fields, zone, frame
+        session, tags, fields, zone, frames, own
     )
     if errors or error:
         session.rollback()
@@ -502,15 +586,6 @@ def _typed_entry(request, session, element, tags, fields):
         )
 
     return entry
-
-
-def _batch_tags(session: Session, frame: EventFrame) -> list[Tag]:
-    """The tags behind a batch's measurements that are set up to record."""
-    return [
-        session.get(Tag, m["tag_id"])
-        for m in batch_measurements(session, frame)
-        if m["tag_id"] is not None
-    ]
 
 
 def _equipment_view(
@@ -576,8 +651,9 @@ def _batch_view(
     frame: EventFrame,
     entry: dict | None = None,
     status_code: int = 200,
+    steps_form: dict | None = None,
 ):
-    """A batch's page, with its measurement form as given."""
+    """A batch's page, with its measurement and steps forms as given."""
     element = session.get(Element, frame.element_id)
     template = session.get(ElementTemplate, element.element_template_id)
     site = session.get(Site, template.site_id)
@@ -594,15 +670,23 @@ def _batch_view(
         )
         return found[0] if found else None
 
-    measurements = batch_measurements(session, frame)
-    # Readings are entered while the batch runs; a finished one's are
-    # corrected one at a time, from See all.
+    groups = measurement_groups(session, user, frame)
+    # Readings are entered while the batch runs, its running steps' along
+    # with its own; a finished one's are corrected one at a time, from
+    # See all.
     if (
         entry is None
         and frame.ended_at is None
-        and any(m["tag_id"] is not None for m in measurements)
+        and any(
+            m["tag_id"] is not None
+            for g in groups
+            for m in g["measurements"]
+        )
     ):
         entry = entry_form(request, zone)
+    steps = step_rows(session, user, frame)
+    if steps_form is None and frame.ended_at is None and steps:
+        steps_form = step_form(request, zone)
     return page(
         request,
         "batch.html",
@@ -613,17 +697,15 @@ def _batch_view(
         # Reopening is one press, so a finished batch's page carries the
         # pass for it.
         token=mint_token(request) if frame.ended_at is not None else "",
-        measurements=measurements,
+        groups=groups,
         entry=entry,
+        steps=steps,
+        steps_form=steps_form,
         site=site,
         timezone=zone,
         parent=one(frame.parent_id),
         source=one(frame.source_event_frame_id),
         destination=one(frame.destination_event_frame_id),
-        steps=sorted(
-            related(services.list_event_frames(session, parent_id=frame.id)),
-            key=lambda b: b["started_at"],
-        ),
         moved_in=related(
             services.list_event_frames(
                 session, destination_event_frame_id=frame.id
