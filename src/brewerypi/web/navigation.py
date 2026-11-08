@@ -38,10 +38,26 @@ def trail(
     ]
 
 
+def batch_page_trail(session: Session, frame: EventFrame) -> list[dict]:
+    """The breadcrumb above a batch's own page.
+
+    A top-level batch sits under its equipment. A step sits under the batch
+    it is part of, so the way back from a Mashing is its Brew; the step's
+    equipment is linked beside its type instead. Parents share the step's
+    site, so whoever reads the step reads them too.
+    """
+    if frame.parent_id is None:
+        return trail(session, session.get(Element, frame.element_id))
+    parent = session.get(EventFrame, frame.parent_id)
+    return [
+        *batch_page_trail(session, parent),
+        {"href": f"/batches/{parent.id}", "name": parent.name},
+    ]
+
+
 def batch_trail(session: Session, frame: EventFrame) -> list[dict]:
     """The breadcrumb down to a batch, for the pages that change it."""
-    element = session.get(Element, frame.element_id)
     return [
-        *trail(session, element),
+        *batch_page_trail(session, frame),
         {"href": f"/batches/{frame.id}", "name": frame.name},
     ]

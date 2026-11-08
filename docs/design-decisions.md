@@ -381,16 +381,25 @@ step is a press too.
   which lists what closes with it.
 - **"... anyway" repeats only the press that was warned.** The accepted key
   names the button as well as the warnings.
-- **Enter does nothing in the steps form.** Pressing Enter in the time box
-  would press the form's first button. A disabled, hidden button comes
-  first, so Enter starts or finishes nothing.
+- **Enter never presses a step's button.** Enter presses a form's first
+  button, so a hidden one comes first: it records the boxes when there
+  are some, and is disabled when there are none.
 
-While the batch runs, its several-measurements form also takes each
-running step's measurements, at any depth, under a heading per step
-("Lautering on LT1"). Each reading is checked against its own step's
-window, and a warning names the step. A finished step's readings are under
-its own page, as a finished batch's are. The equipment page keeps its
-Start buttons, so a step can still be started from there.
+**One form, measurements under each step.** The page is one form with one
+time: the batch's own measurements first, then its steps, each run with
+its measurements under it -- boxes while it runs (deeper running steps
+too, headed "Rest on P1"), a summary with See all once it has finished.
+Record readings saves the boxes. **Start and Finish save them too**, at
+the same time and all or nothing (the user's decision), so a mash-out
+temperature and Finish Mashing are one press; a bad value or a refused
+step saves neither. HTML can't nest forms, which is what forced one form,
+and one time for the page is simpler anyway. Each reading is checked
+against its own step's window, and a warning names the step.
+
+A step's breadcrumb runs through the batch it is part of (Springfield >
+BH1 > Brew 88), however it was reached, and its equipment is linked beside
+its type instead. The equipment page keeps its Start buttons, so a step
+can still be started from there.
 
 **Plain forms, no HTMX.** HTMX was the plan, but a form followed by a full page
 does this job with no JavaScript dependency to keep current. It remains an easy

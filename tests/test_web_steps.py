@@ -20,6 +20,7 @@ from brewerypi.models import (
     EventFrame,
     EventFrameAttribute,
     Site,
+    TagValue,
 )
 from brewerypi.services import (
     close_event_frame,
@@ -91,12 +92,12 @@ def _steps(text: str) -> str:
 
 
 def _press(client, batch_id, action, at="2026-01-20T08:00", **extra):
-    """Press one step's button on a batch page, with its time."""
+    """Press one step's button on a batch page, with the page's time."""
     url = f"/batches/{batch_id}"
-    token = _token(_steps(client.get(url).text))
+    token = _token(client.get(url).text)
     return client.post(
         f"{url}/steps",
-        data={"action": action, "at": at, "token": token, **extra},
+        data={"action": action, "observed_at": at, "token": token, **extra},
     )
 
 
@@ -111,12 +112,14 @@ def _frames(factory, **where) -> list[EventFrame]:
 def test_a_brew_lists_its_steps_in_order_with_what_to_press(client, world):
     factory, ids = world
     _brewhouse(factory, ids)
-    steps = _steps(client.get(f"/batches/{ids['running_brew']}").text)
+    page = client.get(f"/batches/{ids['running_brew']}").text
+    steps = _steps(page)
     assert steps.index("Mashing") < steps.index("Lautering") < steps.index(
         "Boiling"
     )
-    assert f'action="/batches/{ids["running_brew"]}/steps"' in steps
-    assert 'name="at"' in steps
+    assert f'formaction="/batches/{ids["running_brew"]}/steps"' in steps
+    # One time for the whole page, its steps and its readings alike.
+    assert page.count('name="observed_at"') == 1
     assert "MM1 · running since" in steps
     assert f'value="finish:{ids["running_mash"]}">Finish Mashing<' in steps
     # Busy with this brew's own Mashing: the Finish button says enough.
@@ -129,12 +132,22 @@ def test_a_brew_lists_its_steps_in_order_with_what_to_press(client, world):
     assert "Not started." in steps
 
 
-def test_enter_in_the_time_box_presses_nothing(client, world):
+def _first_button(page: str) -> str:
+    form = page.split('id="batch-form"')[1]
+    return re.search(r"<button[^>]*>", form).group(0)
+
+
+def test_enter_presses_no_step_button(client, world):
     factory, ids = world
-    _brewhouse(factory, ids)
-    steps = _steps(client.get(f"/batches/{ids['running_brew']}").text)
-    first = re.search(r"<button[^>]*>", steps).group(0)
-    assert "disabled" in first
+    made = _brewhouse(factory, ids)
+    # Nothing to record: Enter does nothing at all.
+    page = client.get(f"/batches/{ids['running_brew']}").text
+    assert "disabled" in _first_button(page)
+    # With boxes on the page, Enter records them and starts nothing.
+    _lautering(factory, ids, made)
+    first = _first_button(client.get(f"/batches/{ids['running_brew']}").text)
+    assert "disabled" not in first
+    assert "action" not in first
 
 
 def test_starting_a_step_is_one_press(client, world):
@@ -222,9 +235,8 @@ def test_a_refused_step_comes_back_on_the_page(client, world):
         at="2026-01-19T08:00",
     )
     assert response.status_code == 400
-    steps = _steps(response.text)
-    assert 'class="error"' in steps
-    assert 'value="2026-01-19T08:00"' in steps
+    assert 'class="error"' in response.text
+    assert 'value="2026-01-19T08:00"' in response.text
     assert _frames(factory, event_frame_template_id=made["lautering"]) == []
 
 
@@ -234,8 +246,8 @@ def test_a_future_time_stops_once_and_only_for_that_press(client, world):
     start = f"start:{made['lautering']}:{made['lt1']}"
     shown = _press(client, ids["running_brew"], start, at="2099-01-01T08:00")
     assert shown.status_code == 200
-    steps = _steps(shown.text)
-    assert "That start time is in the future." in steps
+    steps = shown.text
+    assert "That time is in the future." in steps
     assert ">Start Lautering on LT1 anyway</button>" in steps
     assert _frames(factory, event_frame_template_id=made["lautering"]) == []
     accepted = html.unescape(
@@ -246,7 +258,7 @@ def test_a_future_time_stops_once_and_only_for_that_press(client, world):
         f"/batches/{ids['running_brew']}/steps",
         data={
             "action": f"start:{made['boiling']}:{made['k1']}",
-            "at": "2099-01-01T08:00",
+            "observed_at": "2099-01-01T08:00",
             "token": _token(steps),
             "accepted": accepted,
         },
@@ -257,8 +269,8 @@ def test_a_future_time_stops_once_and_only_for_that_press(client, world):
         f"/batches/{ids['running_brew']}/steps",
         data={
             "action": start,
-            "at": "2099-01-01T08:00",
-            "token": _token(_steps(other.text)),
+            "observed_at": "2099-01-01T08:00",
+            "token": _token(other.text),
             "accepted": accepted,
         },
     )
@@ -273,7 +285,7 @@ def test_a_step_without_the_pass_saves_nothing(client, world):
         f"/batches/{ids['running_brew']}/steps",
         data={
             "action": f"start:{made['lautering']}:{made['lt1']}",
-            "at": "2026-01-20T08:00",
+            "observed_at": "2026-01-20T08:00",
         },
     )
     assert response.status_code == 409
@@ -361,7 +373,7 @@ def test_a_finished_batch_lists_its_steps_with_nothing_to_press(
         f"/batches/{ids['running_brew']}/steps",
         data={
             "action": f"start:{made['lautering']}:{made['lt1']}",
-            "at": "2026-01-20T08:00",
+            "observed_at": "2026-01-20T08:00",
             "token": _token(text),
         },
     )
@@ -374,12 +386,12 @@ def test_another_companys_batch_runs_no_steps(client, world):
     _, ids = world
     response = client.post(
         f"/batches/{ids['other_batch']}/steps",
-        data={"action": f"finish:{ids['other_batch']}", "at": "x"},
+        data={"action": f"finish:{ids['other_batch']}"},
     )
     assert response.status_code == 404
 
 
-# -- a running step's measurements on its batch's page ---------------------
+# -- each step's measurements, under it ----------------------------------
 
 
 def _lautering(factory, ids, made) -> int:
@@ -392,29 +404,109 @@ def _lautering(factory, ids, made) -> int:
         return step.id
 
 
-def test_a_brew_takes_its_running_steps_measurements(client, world):
+def _row(steps: str, name: str) -> str:
+    """One step's part of the steps list, up to the next step."""
+    part = steps.split(f'<span class="batch-name">{name}</span>')[1]
+    return part.split('<span class="batch-head"><span class="vessel">')[0]
+
+
+def test_a_running_steps_measurements_sit_under_it(client, world):
     factory, ids = world
     made = _brewhouse(factory, ids)
     step = _lautering(factory, ids, made)
     url = f"/batches/{ids['running_brew']}"
     page = client.get(url).text
-    section = page.split("<h2>Measurements</h2>")[1].split("</section>")[0]
-    assert "Runoff gravity" in section
-    assert f'name="value_{made["runoff"]}"' in section
+    lautering = _row(_steps(page), "Lautering")
+    assert "LT1 · running since" in lautering
+    assert "Runoff gravity" in lautering
+    assert f'name="value_{made["runoff"]}"' in lautering
+    assert "Runoff gravity" not in _row(_steps(page), "Mashing")
     response = client.post(
         f"{url}/readings",
         data={
             f"value_{made['runoff']}": "14.2",
             "observed_at": "2026-01-20T09:00",
-            "token": _token(section),
+            "token": _token(page),
         },
     )
     assert response.status_code == 303
     [reading] = _values(factory, made["runoff"])
     assert reading.value == 14.2
     assert reading.recorded_by_id == ids["sam"]
-    after = client.get(url).text.split("<h2>Measurements</h2>")[1]
+    after = _row(_steps(client.get(url).text), "Lautering")
     assert f'href="/measurements/{made["runoff"]}?batch={step}"' in after
+
+
+def test_the_batchs_own_measurements_stay_above_its_steps(client, world):
+    factory, ids = world
+    made = _brewhouse(factory, ids)
+    _lautering(factory, ids, made)
+    with factory() as s:
+        create_event_frame_attribute_template(s, ids["brew"], "Batch size")
+        s.commit()
+    page = client.get(f"/batches/{ids['running_brew']}").text
+    own = page.split("<h2>Measurements</h2>")[1].split("</section>")[0]
+    assert "Batch size" in own
+    assert "Runoff gravity" not in own
+    assert page.index("<h2>Measurements</h2>") < page.index("<h2>Steps</h2>")
+
+
+def test_finishing_a_step_saves_what_was_typed_with_it(client, world):
+    factory, ids = world
+    made = _brewhouse(factory, ids)
+    step = _lautering(factory, ids, made)
+    response = _press(
+        client,
+        ids["running_brew"],
+        f"finish:{step}",
+        at="2026-01-20T09:30",
+        **{f"value_{made['runoff']}": "13.8"},
+    )
+    assert response.status_code == 303
+    assert response.headers["location"].endswith(
+        "?done=step_finished_recorded#steps"
+    )
+    [reading] = _values(factory, made["runoff"])
+    assert reading.value == 13.8
+    assert reading.observed_at == datetime(2026, 1, 20, 15, 30)
+    [done] = _frames(factory, id=step)
+    assert done.ended_at == datetime(2026, 1, 20, 15, 30)
+    text = client.get(response.headers["location"]).text
+    assert "Step finished and readings recorded." in text
+
+
+def test_a_bad_value_stops_the_step_too(client, world):
+    factory, ids = world
+    made = _brewhouse(factory, ids)
+    step = _lautering(factory, ids, made)
+    response = _press(
+        client,
+        ids["running_brew"],
+        f"finish:{step}",
+        **{f"value_{made['runoff']}": "lots"},
+    )
+    assert response.status_code == 400
+    assert "Enter a number, such as 18.5." in response.text
+    assert f'name="value_{made["runoff"]}" value="lots"' in response.text
+    [still] = _frames(factory, id=step)
+    assert still.ended_at is None
+    assert _values(factory, made["runoff"]) == []
+
+
+def test_a_refused_step_saves_none_of_the_readings(client, world):
+    factory, ids = world
+    made = _brewhouse(factory, ids)
+    _lautering(factory, ids, made)
+    response = _press(
+        client,
+        ids["running_brew"],
+        f"start:{made['boiling']}:{made['k1']}",
+        at="2026-01-19T08:00",
+        **{f"value_{made['runoff']}": "14"},
+    )
+    assert response.status_code == 400
+    assert _values(factory, made["runoff"]) == []
+    assert _frames(factory, event_frame_template_id=made["boiling"]) == []
 
 
 def test_a_step_reading_before_the_step_started_names_the_step(
@@ -437,34 +529,26 @@ def test_a_step_reading_before_the_step_started_names_the_step(
     assert _values(factory, made["runoff"]) == []
 
 
-def test_a_finished_steps_measurements_stay_on_its_own_page(client, world):
+def test_a_finished_step_sums_up_its_measurements_under_it(client, world):
     factory, ids = world
     made = _brewhouse(factory, ids)
     step = _lautering(factory, ids, made)
     with factory() as s:
+        s.add(
+            TagValue(
+                tag_id=made["runoff"], observed_at=_at(20, 15), value=14.0
+            )
+        )
         close_event_frame(s, step, _at(20, 16))
         s.commit()
-    page = client.get(f"/batches/{ids['running_brew']}").text
-    assert "Runoff gravity" not in page
-    own = client.get(f"/batches/{step}").text
-    assert "Runoff gravity" in own
-
-
-def test_a_page_with_more_than_its_own_measurements_heads_each_group(
-    client, world
-):
-    factory, ids = world
-    made = _brewhouse(factory, ids)
-    _lautering(factory, ids, made)
-    with factory() as s:
-        create_event_frame_attribute_template(s, ids["brew"], "Batch size")
-        s.commit()
-    section = client.get(f"/batches/{ids['running_brew']}").text.split(
-        "<h2>Measurements</h2>"
-    )[1]
-    assert "<h3>Brew</h3>" in section
-    assert "<h3>Lautering on LT1</h3>" in section
-    assert section.index("Batch size") < section.index("Runoff gravity")
+    lautering = _row(
+        _steps(client.get(f"/batches/{ids['running_brew']}").text),
+        "Lautering",
+    )
+    assert "Runoff gravity" in lautering
+    assert "1 reading" in lautering
+    assert f'href="/measurements/{made["runoff"]}?batch={step}"' in lautering
+    assert 'name="value_' not in lautering
 
 
 def test_another_sites_user_cant_reach_the_steps(world):

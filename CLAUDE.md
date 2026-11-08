@@ -458,8 +458,11 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
   another". A required property with no default, or a step with running
   steps of its own, goes to the start or close page instead. The accepted
   key includes the `action`, so "... anyway" repeats only the press that
-  was warned. While the batch runs, its several-measurements form takes
-  its running steps' measurements too, under a heading per step.
+  was warned. The page is ONE form with one time (`observed_at`); step
+  buttons post to `/steps` via `formaction` and save any typed boxes in
+  the same transaction (all or nothing). Each step run's measurements sit
+  under it: boxes while running, a summary once finished. A step's
+  breadcrumb goes through its parent batch (`navigation.batch_page_trail`).
 - Web reading pages (`web/readings.py`, helpers in `web/measurements.py`):
   equipment lists its element attributes; an area page lists its STANDALONE
   tags (`services.list_standalone_tags`: wired to no element or event frame

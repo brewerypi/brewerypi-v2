@@ -13,16 +13,17 @@ without a choice, so its button opens the start form with the rest filled
 in. Finishing a step that has running steps of its own opens the close
 page, which lists what closes with it.
 
-While the batch runs, its page also takes the measurements of its running
-steps, grouped under each, in the one several-at-once form (see
-``entry``).
+The page is one form with one time. Each step run's measurements sit
+under it: boxes while it runs, a summary once it has finished. Start and
+Finish save whatever was typed in the boxes too, at the same time and all
+or nothing, so a mash-out temperature and Finish Mashing are one press;
+Record readings saves the boxes alone (see ``entry``).
 """
 
 from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import Request
 from sqlalchemy.orm import Session
 
 from brewerypi import access, services
@@ -37,13 +38,6 @@ from brewerypi.models import (
 )
 from brewerypi.serializers import event_frame_dict
 from brewerypi.services import NotFoundError, ValidationError
-from brewerypi.web.forms import (
-    accepted_key,
-    future_warning,
-    input_time,
-    mint_token,
-    utc_now,
-)
 from brewerypi.web.measurements import batch_measurements
 
 
@@ -160,33 +154,6 @@ def step_rows(
     return rows
 
 
-def step_form(
-    request: Request,
-    zone: str,
-    at: str | None = None,
-    action: str = "",
-    label: str = "",
-    error: str | None = None,
-    warnings: list[str] = (),
-) -> dict:
-    """What the steps section's form needs to show itself.
-
-    After a warning, the accepted key names the action too, so "... anyway"
-    can only repeat the press that was warned about.
-    """
-    warnings = list(warnings)
-    return {
-        "token": mint_token(request),
-        "at": input_time(utc_now(), zone) if at is None else at,
-        "timezone": zone,
-        "error": error,
-        "warnings": warnings,
-        "action": action,
-        "label": label,
-        "accepted": accepted_key([action, *warnings]) if warnings else "",
-    }
-
-
 def _parse_action(action: str) -> tuple[str, list[int]]:
     verb, _, rest = action.partition(":")
     try:
@@ -237,8 +204,10 @@ def run_action(
     """Start or finish one step at ``when``; the caller commits.
 
     Returns which happened (``started`` or ``finished``) and the warnings
-    that stop the save once. Every rule is the service's: the overlap on
-    the step's equipment, the window inside the batch, start values.
+    that stop the save once, apart from a time in the future, which the
+    caller checks once for the whole press. Every rule is the service's:
+    the overlap on the step's equipment, the window inside the batch,
+    start values.
     """
     verb, numbers = _parse_action(action)
     if verb == "start":
@@ -257,21 +226,24 @@ def run_action(
             frame.id,
             started_by_id=caller_id(),
         )
-        return "started", [
-            *future_warning(when, "That start time"),
-            *services.property_conflicts(session, step),
-        ]
+        return "started", services.property_conflicts(session, step)
     step = _own_step(session, frame, numbers[0])
     if step.ended_at is not None:
         raise ValidationError("That step has already finished.")
     services.close_event_frame(
         session, step.id, when, ended_by_id=caller_id()
     )
-    return "finished", future_warning(when, "That finish time")
+    return "finished", []
 
 
-def _open_steps(session: Session, frame: EventFrame) -> list[EventFrame]:
-    """Every running step inside a batch, at any depth, oldest first."""
+def _open_steps(
+    session: Session, frame: EventFrame, under: int | None = None
+) -> list[tuple[EventFrame, int]]:
+    """Every running step inside a batch, at any depth, oldest first.
+
+    Each comes with the id of the batch's own step it sits in: itself, or
+    the step that holds it.
+    """
     found = []
     for child in sorted(
         services.list_event_frames(
@@ -279,48 +251,90 @@ def _open_steps(session: Session, frame: EventFrame) -> list[EventFrame]:
         ),
         key=lambda f: f.started_at,
     ):
-        found.append(child)
-        found += _open_steps(session, child)
+        step_id = child.id if under is None else under
+        found.append((child, step_id))
+        found += _open_steps(session, child, step_id)
     return found
+
+
+def _group(
+    session: Session, frame: EventFrame, rows: list[dict], **extra
+) -> dict:
+    template = session.get(EventFrameTemplate, frame.event_frame_template_id)
+    element = session.get(Element, frame.element_id)
+    return {
+        "frame_id": frame.id,
+        "title": f"{template.name} on {element.name}",
+        "type_name": template.name,
+        "element_name": element.name,
+        "measurements": rows,
+        **extra,
+    }
 
 
 def measurement_groups(
     session: Session, user: CurrentUser, frame: EventFrame
 ) -> list[dict]:
-    """A batch's measurements, then each running step's, as page groups.
+    """The measurements a batch's page takes: its own, then its steps'.
 
-    Only a running batch takes its steps' measurements; a finished one
-    shows its own. A step with nothing measured gets no group. A tag
-    shared by two of them is listed once, under the first, so one box
-    never stands for two readings.
+    Only a running batch takes its running steps' measurements, at any
+    depth. ``step_id`` says which of the batch's own steps a group goes
+    under (None: the batch's own). A step with nothing measured gets no
+    group. A tag shared by two of them is listed once, under the first,
+    so one box never stands for two readings.
     """
-    frames = [frame]
+    frames: list[tuple[EventFrame, int | None]] = [(frame, None)]
     if frame.ended_at is None:
-        frames += access.visible(session, user, _open_steps(session, frame))
+        steps = _open_steps(session, frame)
+        seen_frames = {
+            f.id for f in access.visible(session, user, [f for f, _ in steps])
+        }
+        frames += [(f, under) for f, under in steps if f.id in seen_frames]
     seen: set[int] = set()
     groups = []
-    for f in frames:
+    for f, under in frames:
         rows = [
             m
             for m in batch_measurements(session, f)
             if m["tag_id"] is None or m["tag_id"] not in seen
         ]
         seen.update(m["tag_id"] for m in rows if m["tag_id"] is not None)
-        if not rows:
-            continue
-        template = session.get(EventFrameTemplate, f.event_frame_template_id)
-        element = session.get(Element, f.element_id)
-        groups.append(
-            {
-                "frame_id": f.id,
-                "own": f.id == frame.id,
-                "title": f"{template.name} on {element.name}",
-                "type_name": template.name,
-                "element_name": element.name,
-                "measurements": rows,
-            }
-        )
+        if rows:
+            groups.append(
+                _group(
+                    session,
+                    f,
+                    rows,
+                    step_id=under,
+                    # Its own run's line already names it.
+                    headed=under is not None and under != f.id,
+                )
+            )
     return groups
+
+
+def attach_groups(
+    session: Session, rows: list[dict], groups: list[dict]
+) -> None:
+    """Put each run's measurements under it on the steps list.
+
+    A running step gets its groups from the form's; a finished one gets a
+    summary of its own over its window, with nothing to fill in.
+    """
+    for row in rows:
+        for run in row["runs"]:
+            if run["open"]:
+                run["groups"] = [
+                    g for g in groups if g["step_id"] == run["id"]
+                ]
+                continue
+            step = session.get(EventFrame, run["id"])
+            measured = batch_measurements(session, step)
+            run["groups"] = (
+                [_group(session, step, measured, headed=False)]
+                if measured
+                else []
+            )
 
 
 def entry_tags(
