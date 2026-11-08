@@ -132,6 +132,11 @@ THE THREE SHAPES OF DATA (the distinction that actually matters)
 - An element with element attributes holds grouped continuous data for one
   piece of equipment.
 - An event frame with event frame attributes holds batch data.
+- A batch's properties say what the batch IS -- its brand, above all -- with
+  one value for the whole batch, set when it starts. They are not readings:
+  they are listed on the batch itself, and batches are found by them
+  (`list_event_frames` with ``property_value``). A brand can change from one
+  batch to the next: a Lager brew can feed a Dry Hopped Lager fermentation.
 
 HOW TO TALK
 - Lead with brewery words, not schema words. Say "equipment", "batch",
@@ -203,8 +208,14 @@ A SENSIBLE SETUP ORDER
    equipment carries (temperature, pressure, status).
 6. Add event frame templates for the batches each kind of equipment runs
    (Brew on the brewhouse, Fermentation on the fermenter), with their
-   attribute templates and default start/end values. A step that moves beer
-   out of, or into, the batch it sits inside gets a ``parent_flow`` -- wort
+   attribute templates and default start/end values. Brand is a property
+   (``is_property``, usually ``is_required``) on every batch type that makes
+   beer -- brew, fermentation, conditioning, packaging runs -- and on none
+   that doesn't, such as a cleaning. On equipment that runs several batches
+   at once (a brewhouse), give the batch properties only: its measurements
+   belong on its steps, whose equipment runs one at a time. A step that
+   moves beer out of, or into, the batch it sits inside gets a
+   ``parent_flow`` -- wort
    cooling draws from its brew ("source"), a yeast pitch delivers into its
    wort cooling ("destination") -- so that end is recorded automatically.
 7. Create the elements themselves -- FV01 through FV12 -- giving each a tag
@@ -749,14 +760,31 @@ def list_event_frame_templates(
 @mcp.tool
 @_guard(template_id=(EventFrameTemplate, READ))
 def get_event_frame_template(template_id: int) -> dict:
-    """Return one event frame template by id."""
+    """Return one event frame template (batch type) by id.
+
+    ``properties`` lists what a batch of this type is given when it starts,
+    such as its brand: each one's name, whether it is required, and the
+    options to choose from.
+    """
     with _Session() as session:
         try:
-            return event_frame_template_dict(
-                services.get_event_frame_template(session, template_id)
-            )
+            template = services.get_event_frame_template(session, template_id)
         except ServiceError as exc:
             return {"error": str(exc)}
+        result = event_frame_template_dict(template)
+        result["properties"] = [
+            {
+                "name": p.name,
+                "required": p.is_required,
+                "options": (
+                    services.selectable_values(session, p.lookup_id)
+                    if p.lookup_id is not None
+                    else None
+                ),
+            }
+            for p in services.property_templates(session, template_id)
+        ]
+        return result
 
 
 @mcp.tool
@@ -769,6 +797,7 @@ def list_event_frames(
     element_template_id: int | None = None,
     source_event_frame_id: int | None = None,
     destination_event_frame_id: int | None = None,
+    property_value: str | None = None,
 ) -> list[dict]:
     """List batches, newest first, optionally filtered.
 
@@ -784,6 +813,10 @@ def list_event_frames(
     ``open_only=true`` -- then choose from the list, which names the vessel.
     ``source_event_frame_id`` / ``destination_event_frame_id`` instead ask
     what moved out of, or into, one particular batch.
+
+    ``property_value`` keeps batches whose properties include that option --
+    "Lager" lists every Lager brew, fermentation and canning run. Each batch
+    lists its ``properties`` (its brand, for instance) by name.
     """
     with _Session() as session:
         rows = services.list_event_frames(
@@ -795,10 +828,30 @@ def list_event_frames(
             element_template_id,
             source_event_frame_id,
             destination_event_frame_id,
+            property_value=property_value,
         )
         return [
             event_frame_dict(session, f) for f in _visible(session, rows)
         ]
+
+
+def _with_property_warnings(session, frame: EventFrame) -> dict:
+    """A batch, plus warnings where the batches going into it disagree.
+
+    Checks the batch itself and, for a transfer, the batch it delivers into.
+    """
+    result = event_frame_dict(session, frame)
+    warnings = services.property_conflicts(session, frame)
+    if frame.destination_event_frame_id is not None:
+        warnings += services.property_conflicts(
+            session,
+            services.get_event_frame(
+                session, frame.destination_event_frame_id
+            ),
+        )
+    if warnings:
+        result["warnings"] = warnings
+    return result
 
 
 @mcp.tool
@@ -830,6 +883,7 @@ def create_event_frame(
     parent_id: int | None = None,
     source_event_frame_id: int | None = None,
     destination_event_frame_id: int | None = None,
+    properties: dict[str, str | float] | None = None,
 ) -> dict:
     """Start a batch on a piece of equipment.
 
@@ -860,6 +914,18 @@ def create_event_frame(
     its brew, a yeast pitch always delivers into its wort cooling -- so only
     ask for the other one: which fermentation the wort is going to, or which
     fermentation the yeast is coming from.
+
+    ``properties`` says what the batch is, by property name: its brand, for
+    instance, as ``{"Brand": "Dry Hopped Lager"}``, chosen from the list's
+    options. `get_event_frame_template` lists a batch type's properties and
+    which are required; a required one left out is refused, so ask for it.
+    A property left out takes the batch type's default, or else the value the
+    source batch holds on the same list -- a canning run drawing from a brite
+    tank takes its brand. A brand changes where the beer changes, so ask
+    rather than assume when a fermentation or conditioning starts. Any
+    ``warnings`` in the result say that the batches going into it hold
+    different values (a Lager brew and an IPA brew into one fermenter):
+    tell the user.
     """
     with _Session() as session:
         element = session.get(Element, element_id)
@@ -882,8 +948,9 @@ def create_event_frame(
                 source_event_frame_id,
                 destination_event_frame_id,
                 started_by_id=caller_id(),
+                properties=properties,
             )
-            result = event_frame_dict(session, frame)
+            result = _with_property_warnings(session, frame)
             session.commit()
             return result
         except ServiceError as exc:
@@ -988,6 +1055,38 @@ def update_event_frame(
 
 @mcp.tool
 @_guard(event_frame_id=(EventFrame, OPERATE))
+def update_event_frame_property(
+    event_frame_id: int, name: str, value: str | float | None = None
+) -> dict:
+    """Set, change or clear one property of a batch, such as its brand.
+
+    A property is what the batch is, not something measured during it, so it
+    has no time: there is one value per batch. ``name`` is the property
+    (``"Brand"``); ``value`` is an option from its list, or a number. Leaving
+    ``value`` out clears an optional property; a required one can only be
+    changed. Confirm the batch and the new value before writing.
+    """
+    with _Session() as session:
+        try:
+            services.update_event_frame_property(
+                session,
+                event_frame_id,
+                name,
+                value,
+                updated_by_id=caller_id(),
+            )
+            result = event_frame_dict(
+                session, services.get_event_frame(session, event_frame_id)
+            )
+            session.commit()
+            return result
+        except ServiceError as exc:
+            session.rollback()
+            return {"error": str(exc)}
+
+
+@mcp.tool
+@_guard(event_frame_id=(EventFrame, OPERATE))
 def delete_event_frame(
     event_frame_id: int, confirm: bool = False
 ) -> dict:
@@ -1071,6 +1170,9 @@ def link_transfer(
     An end that comes from where the step sits -- a wort cooling's brew, a
     yeast pitch's wort cooling -- is fixed: it cannot be cleared or pointed
     elsewhere, and is filled in here if an older batch is missing it.
+
+    Any ``warnings`` in the result say the batches going into the receiving
+    batch hold different values on a list, such as two brands: tell the user.
     """
     with _Session() as session:
         kwargs: dict = {}
@@ -1086,7 +1188,7 @@ def link_transfer(
             frame = services.link_transfer(
                 session, event_frame_id, updated_by_id=caller_id(), **kwargs
             )
-            result = event_frame_dict(session, frame)
+            result = _with_property_warnings(session, frame)
             session.commit()
             return result
         except ServiceError as exc:
@@ -2563,8 +2665,10 @@ def create_event_frame_attribute_template(
     default_end_value: float | None = None,
     default_start_lookup_value_id: int | None = None,
     default_end_lookup_value_id: int | None = None,
+    is_property: bool = False,
+    is_required: bool = False,
 ) -> dict:
-    """Define a measurement recorded on a kind of batch (admin, write).
+    """Define something recorded on a kind of batch (admin, write).
 
     Numeric measurements take ``measurement_unit_id``; text ones take
     ``lookup_id``. The defaults are recorded automatically when a batch starts
@@ -2573,6 +2677,19 @@ def create_event_frame_attribute_template(
     ``default_start_value``/``default_end_value``; text defaults use
     ``default_start_lookup_value_id``/``default_end_lookup_value_id``, which
     must be selectable options on the attribute's list.
+
+    ``is_property=true`` makes it a property instead of a measurement: what
+    the batch IS, one value for the whole batch, picked when it starts --
+    its brand is the usual one. A property is kept on each batch rather than
+    on the equipment's tag, so it is the only safe way to give a batch on
+    equipment that runs several at once (a brew on a brewhouse) a value of
+    its own. Ask the user whether something is a property or a measurement
+    when it is not obvious: a brand, a can format or a recipe is a property;
+    a gravity, a temperature or a status is a measurement. This cannot be
+    changed later. ``is_required=true`` (properties only) means a batch of
+    this type cannot start without it; set it for Brand so grouping by brand
+    has no gaps. A property takes a start default at most. A batch type that
+    has no brand, such as a cleaning, simply doesn't define one.
     """
     with _Session() as session:
         try:
@@ -2587,6 +2704,8 @@ def create_event_frame_attribute_template(
                 default_end_value,
                 default_start_lookup_value_id,
                 default_end_lookup_value_id,
+                is_property,
+                is_required,
             )
             result = event_frame_attribute_template_dict(t)
             session.commit()
@@ -2609,12 +2728,14 @@ def update_event_frame_attribute_template(
     default_end_value: float | None = None,
     default_start_lookup_value_id: int | None = None,
     default_end_lookup_value_id: int | None = None,
+    is_required: bool | None = None,
 ) -> dict:
     """Update an event frame attribute template (admin, write).
 
-    Edits name/description and/or the default values (a provided default is
-    set, re-validated against the attribute's type). Changing the type is not
-    supported here.
+    Edits name/description, the default values (a provided default is set,
+    re-validated against the attribute's type) and/or whether a property is
+    required (applies to batches started from then on). Changing the type,
+    or whether it is a property, is not supported here.
     """
     kwargs: dict = {}
     if default_start_value is not None:
@@ -2627,6 +2748,8 @@ def update_event_frame_attribute_template(
         )
     if default_end_lookup_value_id is not None:
         kwargs["default_end_lookup_value_id"] = default_end_lookup_value_id
+    if is_required is not None:
+        kwargs["is_required"] = is_required
     with _Session() as session:
         try:
             t = services.update_event_frame_attribute_template(
@@ -2646,7 +2769,8 @@ def delete_event_frame_attribute_template(
 ) -> dict:
     """Delete an event frame attribute template (admin, destructive).
 
-    Without ``confirm=true`` this only previews.
+    Without ``confirm=true`` this only previews. Deleting a property deletes
+    its value on every batch that has one; the preview says how many.
     """
     with _Session() as session:
         try:
@@ -2656,15 +2780,22 @@ def delete_event_frame_attribute_template(
         except ServiceError as exc:
             return {"error": str(exc)}
         if not confirm:
+            held = services.property_count(session, attribute_template_id)
+            also = (
+                f" and its value on {held} batch(es)"
+                if t.is_property and held
+                else ""
+            )
             return {
                 "confirm_required": True,
                 "event_frame_attribute_template": (
                     event_frame_attribute_template_dict(t)
                 ),
+                "batches_with_a_value": held,
                 "message": (
                     f"Would delete event frame attribute template "
-                    f"{attribute_template_id} ({t.name}). Call again with "
-                    "confirm=true."
+                    f"{attribute_template_id} ({t.name}){also}. Call again "
+                    "with confirm=true."
                 ),
             }
         try:

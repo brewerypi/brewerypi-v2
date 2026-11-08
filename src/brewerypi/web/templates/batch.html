@@ -9,6 +9,10 @@
   <p class="muted">{{ batch.type_name }} on {{ batch.element_name }}</p>
 </div>
 <dl>
+  {% for p in properties %}
+  <dt>{{ p.name }}</dt>
+  <dd>{% if p.text is not none %}{{ p.text }}{% else %}<span class="muted">Not set{% if p.required %}: choose one with Edit{% endif %}</span>{% endif %}</dd>
+  {% endfor %}
   <dt>Status</dt>
   <dd><span class="pill{% if not batch.open %} idle{% endif %}">{{ "Running" if batch.open else "Finished" }}</span></dd>
   <dt>Started</dt>

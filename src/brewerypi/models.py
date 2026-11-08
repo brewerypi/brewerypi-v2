@@ -21,8 +21,10 @@ realizes one on an element and wires it to the Tag holding its readings.
 EventFrameTemplate is a batch type on an element template, self-referential
 like its element template (a Brew nests a Mashing). EventFrame is one batch
 window on an element; its source/destination self-FKs make it a transfer
-between batches. EventFrameAttributeTemplate defines a batch attribute, and
-EventFrameAttribute wires it, per element, to the Tag holding its readings.
+between batches. EventFrameAttributeTemplate defines a batch attribute: a
+measurement, which EventFrameAttribute wires, per element, to the Tag holding
+its readings; or a property (is_property), whose one value per batch is an
+EventFrameProperty -- what the batch is, such as its brand.
 
 Access:  User 1——* Membership *——1 Enterprise  (role operator | admin).
   A Membership covers every site of its enterprise unless has_all_sites is
@@ -544,6 +546,15 @@ class EventFrameAttributeTemplate(Base):
     __tablename__ = "event_frame_attribute_templates"
     __table_args__ = (
         UniqueConstraint("event_frame_template_id", "name"),
+        CheckConstraint(
+            "is_property OR NOT is_required",
+            name="required_needs_property",
+        ),
+        CheckConstraint(
+            "NOT is_property OR (default_end_value IS NULL"
+            " AND default_end_lookup_value_id IS NULL)",
+            name="property_no_end_default",
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -568,11 +579,26 @@ class EventFrameAttributeTemplate(Base):
     default_end_lookup_value_id: Mapped[int | None] = mapped_column(
         ForeignKey("lookup_values.id"), index=True
     )
+    # A property is what a batch IS (its brand), not something measured during
+    # it: one value per batch, kept in event_frame_properties rather than on a
+    # tag, so batches running side by side can't share it. Fixed at creation.
+    # Only a property can be required: a batch of this type can't start
+    # without a value.
+    is_property: Mapped[bool] = mapped_column(
+        default=False, server_default=text("0")
+    )
+    is_required: Mapped[bool] = mapped_column(
+        default=False, server_default=text("0")
+    )
 
     event_frame_template: Mapped[EventFrameTemplate] = relationship(
         back_populates="attribute_templates"
     )
     event_frame_attributes: Mapped[list[EventFrameAttribute]] = relationship(
+        back_populates="event_frame_attribute_template",
+        cascade="all, delete-orphan",
+    )
+    properties: Mapped[list[EventFrameProperty]] = relationship(
         back_populates="event_frame_attribute_template",
         cascade="all, delete-orphan",
     )
@@ -668,9 +694,70 @@ class EventFrame(Base):
         foreign_keys="EventFrame.destination_event_frame_id",
         remote_side="EventFrame.id",
     )
+    properties: Mapped[list[EventFrameProperty]] = relationship(
+        back_populates="event_frame",
+        cascade="all, delete-orphan",
+    )
 
     def __repr__(self) -> str:
         return f"<EventFrame {self.name!r}>"
+
+
+class EventFrameProperty(Base):
+    """One property's value on one batch: what the batch is, such as its brand.
+
+    FRAME-scoped, unlike EventFrameAttribute: two brews running side by side
+    on one brewhouse share every tag, but never a property. The value is
+    stored the way TagValue stores one (a number, or a lookup value, exactly
+    one) with no time, because a property has none. Only the latest value and
+    who last changed it are kept. The attribute template must be a property
+    of the frame's own batch type (service-enforced). A batch takes its
+    properties with it when deleted.
+    """
+
+    __tablename__ = "event_frame_properties"
+    __table_args__ = (
+        UniqueConstraint(
+            "event_frame_id", "event_frame_attribute_template_id"
+        ),
+        CheckConstraint(
+            "(value IS NOT NULL) + (lookup_value_id IS NOT NULL) = 1",
+            name="value_xor_lookup_value_id",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    event_frame_id: Mapped[int] = mapped_column(
+        ForeignKey("event_frames.id"), index=True
+    )
+    event_frame_attribute_template_id: Mapped[int] = mapped_column(
+        ForeignKey("event_frame_attribute_templates.id"), index=True
+    )
+    value: Mapped[float | None] = mapped_column()
+    # RESTRICT: an option a batch was given can't be deleted from its list.
+    lookup_value_id: Mapped[int | None] = mapped_column(
+        ForeignKey("lookup_values.id", ondelete="RESTRICT"), index=True
+    )
+    # Who set it and who last changed it; see the same columns on TagValue.
+    recorded_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), index=True
+    )
+    updated_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), index=True
+    )
+
+    event_frame: Mapped[EventFrame] = relationship(
+        back_populates="properties"
+    )
+    event_frame_attribute_template: Mapped[EventFrameAttributeTemplate] = (
+        relationship(back_populates="properties")
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<EventFrameProperty event_frame_id={self.event_frame_id!r}"
+            f" template_id={self.event_frame_attribute_template_id!r}>"
+        )
 
 
 class EventFrameAttribute(Base):

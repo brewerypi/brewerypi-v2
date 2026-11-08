@@ -28,6 +28,7 @@ from brewerypi.models import (
     EventFrame,
     EventFrameAttribute,
     EventFrameTemplate,
+    LookupValue,
     Tag,
     TagValue,
 )
@@ -42,6 +43,7 @@ from brewerypi.timezones import (
     zone_for_frame,
 )
 from brewerypi.web.auth import signed_in_user
+from brewerypi.web.entry import form_fields
 from brewerypi.web.forms import (
     OUT_OF_DATE,
     accepted_key,
@@ -56,12 +58,100 @@ from brewerypi.web.forms import (
     unaccepted,
     utc_now,
 )
-from brewerypi.web.measurements import value_text
+from brewerypi.web.measurements import property_text, value_text
 from brewerypi.web.navigation import batch_trail, trail
 from brewerypi.web.rendering import message_page, page
 
 #: How many of a site's recent batches a transfer page offers as ends.
 _TRANSFER_CHOICES = 200
+
+#: A property's form field is this followed by its attribute template's id.
+PROPERTY_PREFIX = "property_"
+
+
+def _property_fields(
+    session: Session,
+    event_frame_template_id: int,
+    typed: dict[int, str] | None = None,
+    frame: EventFrame | None = None,
+) -> list[dict]:
+    """A form's property boxes: what was typed, else held, else the default.
+
+    An option the batch holds stays offered even once it is no longer
+    selectable, or the form would quietly show it blank.
+    """
+    held = (
+        services.event_frame_property_values(session, frame.id)
+        if frame is not None
+        else {}
+    )
+    boxes = []
+    for template in services.property_templates(
+        session, event_frame_template_id
+    ):
+        options = (
+            services.selectable_values(session, template.lookup_id)
+            if template.lookup_id is not None
+            else None
+        )
+        if typed is not None:
+            value = typed.get(template.id, "")
+        elif frame is not None:
+            value = (
+                property_text(held[template.name])
+                if template.name in held
+                else ""
+            )
+        else:
+            value = _start_default(session, template)
+        if options is not None and value and value not in options:
+            options = [value, *options]
+        boxes.append(
+            {
+                "id": template.id,
+                "name": template.name,
+                "required": template.is_required,
+                "options": options,
+                "value": value,
+            }
+        )
+    return boxes
+
+
+def _start_default(session: Session, template) -> str:
+    if template.default_start_lookup_value_id is not None:
+        option = session.get(
+            LookupValue, template.default_start_lookup_value_id
+        )
+        return option.name if option is not None else ""
+    if template.default_start_value is not None:
+        return property_text(template.default_start_value)
+    return ""
+
+
+def _typed_properties(
+    session: Session, event_frame_template_id: int, fields: dict[str, str]
+) -> dict[int, str]:
+    """What was typed into each property box, by attribute template id."""
+    return {
+        template.id: fields.get(f"{PROPERTY_PREFIX}{template.id}", "").strip()
+        for template in services.property_templates(
+            session, event_frame_template_id
+        )
+    }
+
+
+def _conflict_warnings(session: Session, frame: EventFrame) -> list[str]:
+    """Where the batches going into this one, or into its destination,
+    hold different values on a list (a Lager brew and an IPA brew into one
+    fermenter)."""
+    warnings = services.property_conflicts(session, frame)
+    if frame.destination_event_frame_id is not None:
+        warnings += services.property_conflicts(
+            session,
+            session.get(EventFrame, frame.destination_event_frame_id),
+        )
+    return warnings
 
 
 def _optional_frame(
@@ -128,7 +218,7 @@ def _end_values(session: Session, frames: list[EventFrame]) -> list[str]:
         for template in services.list_event_frame_attribute_templates(
             session, frame.event_frame_template_id
         ):
-            if (
+            if template.is_property or (
                 template.default_end_value is None
                 and template.default_end_lookup_value_id is None
             ):
@@ -208,6 +298,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         error: str | None = None,
         status_code: int = 200,
         warnings: list[str] = (),
+        typed: dict[int, str] | None = None,
     ):
         zone = zone_for_element(session, element)
         parents = []
@@ -253,6 +344,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
             ends=ends,
             source_id=source_id,
             destination_id=destination_id,
+            props=_property_fields(session, template.id, typed),
             **_form_extras(request, list(warnings)),
         )
 
@@ -286,6 +378,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         destination_id: str = Form(""),
         accepted: str = Form(""),
         token: str = Form(""),
+        form: dict = Depends(form_fields),
         user: CurrentUser = Depends(signed_in_user),
     ):
         with session_factory() as session:
@@ -315,6 +408,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                 "parent_id": parent_id,
                 "source_id": source_id,
                 "destination_id": destination_id,
+                "typed": _typed_properties(session, template.id, form),
             }
 
             def again(**notice):
@@ -339,6 +433,12 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                     source,
                     destination,
                     started_by_id=caller_id(),
+                    properties={
+                        t.name: fields["typed"][t.id]
+                        for t in services.property_templates(
+                            session, template.id
+                        )
+                    },
                 )
             except ServiceError as exc:
                 session.rollback()
@@ -346,6 +446,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                     raise
                 return again(error=str(exc), status_code=400)
             warnings = future_warning(start, "That start time")
+            warnings += _conflict_warnings(session, frame)
             if unaccepted(warnings, accepted):
                 session.rollback()
                 return again(warnings=warnings)
@@ -499,6 +600,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         error=None,
         status_code=200,
         warnings=(),
+        typed=None,
     ):
         zone = zone_for_frame(session, frame)
         return page(
@@ -526,6 +628,9 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                 )
             ),
             error=error,
+            props=_property_fields(
+                session, frame.event_frame_template_id, typed, frame
+            ),
             **_form_extras(request, list(warnings)),
         )
 
@@ -548,10 +653,14 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         ended_at: str = Form(""),
         accepted: str = Form(""),
         token: str = Form(""),
+        form: dict = Depends(form_fields),
         user: CurrentUser = Depends(signed_in_user),
     ):
         with session_factory() as session:
             frame = operable(session, user, EventFrame, batch_id)
+            typed = _typed_properties(
+                session, frame.event_frame_template_id, form
+            )
 
             def again(**notice):
                 return edit_form(
@@ -561,6 +670,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                     name,
                     started_at,
                     ended_at,
+                    typed=typed,
                     **notice,
                 )
 
@@ -581,14 +691,36 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                     frame.ended_at, zone
                 ):
                     changes["ended_at"] = parse_time(ended_at, zone, "end")
-                if not changes:
+                shown = {
+                    box["id"]: box["value"]
+                    for box in _property_fields(
+                        session, frame.event_frame_template_id, frame=frame
+                    )
+                }
+                retyped = {
+                    template.name: typed[template.id]
+                    for template in services.property_templates(
+                        session, frame.event_frame_template_id
+                    )
+                    if typed[template.id] != shown[template.id]
+                }
+                if not changes and not retyped:
                     raise ValidationError("Nothing has changed.")
-                services.update_event_frame(
-                    session,
-                    frame.id,
-                    updated_by_id=caller_id(),
-                    **changes,
-                )
+                if changes:
+                    services.update_event_frame(
+                        session,
+                        frame.id,
+                        updated_by_id=caller_id(),
+                        **changes,
+                    )
+                for property_name, value in retyped.items():
+                    services.update_event_frame_property(
+                        session,
+                        frame.id,
+                        property_name,
+                        value,
+                        updated_by_id=caller_id(),
+                    )
             except ServiceError as exc:
                 session.rollback()
                 if isinstance(exc, (NotFoundError, PermissionDeniedError)):
@@ -681,6 +813,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         batch_id: int,
         source_id: str = Form(""),
         destination_id: str = Form(""),
+        accepted: str = Form(""),
         token: str = Form(""),
         user: CurrentUser = Depends(signed_in_user),
     ):
@@ -728,6 +861,10 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                 if isinstance(exc, (NotFoundError, PermissionDeniedError)):
                     raise
                 return again(error=str(exc), status_code=400)
+            warnings = _conflict_warnings(session, frame)
+            if unaccepted(warnings, accepted):
+                session.rollback()
+                return again(warnings=warnings)
             session.commit()
             return RedirectResponse(
                 f"/batches/{batch_id}?done=linked", status_code=303

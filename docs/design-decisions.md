@@ -526,8 +526,8 @@ themselves; the people tools remain admin-only.
 
 ## Batch measurements and their window
 
-**Status: the window is built; the convention and both warnings are decided,
-not built.**
+**Status: the window and batch properties are built; the convention and both
+warnings are decided, not built.**
 
 A batch's measurements are event frame attributes, and their wiring is
 ELEMENT-scoped, as upstream's is: one tag per element and attribute template,
@@ -543,26 +543,79 @@ On a non-exclusive element such as a brewhouse, two brews overlap and share
 the same Gravity tag, so each brew's window takes in the other's readings. An
 exclusive element can't overlap itself, so a fermenter is unaffected.
 
-**Convention: a batch on non-exclusive equipment is a shell.** A Brew holds no
-measurements of its own; its steps do, because each step runs on an exclusive
-child element (one mash in the mash mixer, one boil in the kettle) whose
-batches cannot collide. Measurements that feel brew-wide still have a step to
-live on: Original Gravity is taken at knockout or wort cooling, and Brand can
-go on the first step.
+**Convention: a batch on non-exclusive equipment holds properties, not
+measurements.** A Brew's measurements live on its steps, because each step
+runs on an exclusive child element (one mash in the mash mixer, one boil in
+the kettle) whose batches cannot collide. Original Gravity, which feels
+brew-wide, is taken at knockout or wort cooling. What really is brew-wide is
+what the brew *is*, its brand, and that is a property (see *Batch
+properties* below), which no two batches share.
 
 **Follow-up:** warn when someone adds a measurement to a batch type whose
-element template is non-exclusive, and point them at a step instead. A
-warning rather than a refusal, in case a brewery has a reason; it belongs in
-the service's return or the admin tool's reply so that every consumer sees
-it.
+element template is non-exclusive, and point them at a step instead, or at
+making it a property if it is a label. A warning rather than a refusal, in
+case a brewery has a reason; it belongs in the service's return or the admin
+tool's reply so that every consumer sees it.
 
 **Held in reserve:** an optional batch id on `tag_values`, so a batch shows
 only readings recorded for it. It is the only option that fully removes the
 overlap, but it is a schema change, a departure from upstream, and every
 write path (MCP included) would have to say which batch a reading is for.
-Worth it only if a brewery needs brew-level measurements on overlapping
-brews. A tag per batch was considered and rejected, as upstream rejected it:
-tags would multiply with every batch.
+Worth it only if a brewery needs brew-level *measurements* on overlapping
+brews; brand needed a property, not this. A tag per batch was considered and
+rejected, as upstream rejected it: tags would multiply with every batch.
+
+### Batch properties
+
+**Status: built.** `is_property` / `is_required` on
+`event_frame_attribute_templates`, the `event_frame_properties` table, the
+rules in `services/event_frame_properties.py`.
+
+A **property** is what a batch is, as opposed to what was measured during
+it. Brand is the one that matters: it is fixed for the batch, picked when the
+batch starts, and it is how batches get grouped more than anything else. A
+reading belongs to a batch only through its time, and two brews in flight on
+one brewhouse share the time, so the earlier brew's window took in the later
+brew's brand. A property is kept against the batch itself, one row per batch
+and property, so overlapping batches cannot mix theirs up, and "every Lager
+batch" is a plain query across brews, fermentations and canning runs. It is
+the same idea as an AF event frame attribute with no data reference.
+
+- **The batch type decides.** A property is an attribute template with
+  `is_property` set, so a batch type has a brand when it defines one, the
+  way it has a gravity. A cleaning defines none; there is no "has a brand"
+  switch on the template, and no "None" option on the list, which would
+  count as a brand and could be picked for a fermentation.
+- **Required where defined.** `is_required` stops a batch of that type
+  starting without a value, so a missing brand only ever means the type has
+  none. It is checked at the start, so batches older than the setting show
+  "not set" rather than refusing anything. Only a property can be required.
+- **Fixed kind.** `is_property` is set when the attribute is created and
+  never changes, so nothing converts readings into properties. To switch,
+  delete and recreate. A property has no tag and no wiring, takes a start
+  default at most (a database check refuses an end default), and the start
+  default becomes the batch's value rather than a reading.
+- **A brand changes where the beer does.** A Lager brew feeds a Dry Hopped
+  Lager fermentation; an IPA fermentation feeds a Hazy IPA conditioning.
+  Each batch's brand is picked when it starts, so nothing is copied down the
+  line and nothing needs keeping in step. Left blank, a property takes its
+  start default, then the value its source batch (`source_event_frame_id`)
+  holds on the same list, which covers a packaging run drawing from a brite
+  tank.
+- **The one warning.** A batch whose brand differs from its source is
+  normal, so that is never flagged. What is flagged, once, is the batches
+  going *into* one batch disagreeing: a Lager brew and an IPA brew knocking
+  out into the same fermenter. The check looks one hop upstream (the batch's
+  source, and each transfer into it or that transfer's source), which keeps
+  yeast out: a yeast pitch delivers into a wort cooling, not into the
+  fermentation, so its donor is never compared. Catching one IPA brew going
+  into a Dry Hopped Lager fermenter would need the list to know which brands
+  are made from which; not built.
+- **What is kept.** The value and who set it and last changed it, like a
+  reading's attribution, with no time and no history. Deleting a batch takes
+  its properties; deleting a property deletes its values behind a preview
+  that counts them; a list option a batch holds cannot be deleted, and
+  `delete_user` counts property authorship.
 
 ### Back-to-back batches
 

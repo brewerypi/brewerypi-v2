@@ -6,6 +6,24 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+- Batch properties: what a batch is, such as its brand, kept on the batch
+  itself rather than on a tag, so two brews running side by side on one
+  brewhouse can no longer show each other's brand. An event frame attribute
+  template marked `is_property` (and optionally `is_required`) stores one
+  value per batch in the new `event_frame_properties` table. Batches take
+  them when they start (the web start form; `create_event_frame`'s new
+  `properties`), a blank one taking the start default or its source
+  batch's value; they are changed on the web edit page or with the new
+  operator tool `update_event_frame_property`. Batch pages and cards show
+  them, `list_event_frames` filters by one (`property_value`), and
+  `get_event_frame_template` lists a batch type's properties and options.
+  Linking batches warns when the ones going into a batch disagree, such as
+  Lager and IPA brews into one fermenter. The configuration brief and
+  workbook gain a "What each batch is" table. **Requires `alembic upgrade
+  head`.** Existing Brand measurements stay measurements; recreate them as
+  properties.
+
 ### Changed
 - `delete_user` and `brewerypi-users remove` now refuse anyone a reading or
   batch names; deactivate them instead.

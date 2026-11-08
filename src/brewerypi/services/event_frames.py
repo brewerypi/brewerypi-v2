@@ -67,7 +67,7 @@ commit.
 
 from __future__ import annotations
 
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
 from datetime import datetime, timezone
 
 from sqlalchemy import func, or_, select
@@ -79,10 +79,13 @@ from brewerypi.models import (
     EventFrame,
     EventFrameAttribute,
     EventFrameAttributeTemplate,
+    EventFrameProperty,
     EventFrameTemplate,
+    LookupValue,
     TagValue,
 )
 from brewerypi.services._validation import clean_str
+from brewerypi.services.event_frame_properties import apply_start_properties
 from brewerypi.services.exceptions import (
     ConflictError,
     NotFoundError,
@@ -108,6 +111,7 @@ def list_event_frames(
     limit: int | None = None,
     offset: int = 0,
     event_frame_template_ids: Collection[int] | None = None,
+    property_value: str | None = None,
 ) -> list[EventFrame]:
     """Return event frames, newest first, optionally filtered.
 
@@ -119,7 +123,9 @@ def list_event_frames(
     ties on id: a page must not repeat or skip a batch.
     ``event_frame_template_ids`` keeps frames of any of those templates --
     several kinds of equipment can each have a "Cleaning" -- and an empty
-    collection keeps none.
+    collection keeps none. ``property_value`` keeps batches holding that
+    list option as a property, on any list: "every Lager batch", brews,
+    fermentations and canning runs alike.
     """
     stmt = select(EventFrame).order_by(
         EventFrame.started_at.desc(), EventFrame.id.desc()
@@ -163,6 +169,17 @@ def list_event_frames(
         stmt = stmt.where(EventFrame.ended_at.is_not(None))
     if top_level_only:
         stmt = stmt.where(EventFrame.parent_id.is_(None))
+    if property_value is not None:
+        stmt = stmt.where(
+            EventFrame.id.in_(
+                select(EventFrameProperty.event_frame_id)
+                .join(
+                    LookupValue,
+                    EventFrameProperty.lookup_value_id == LookupValue.id,
+                )
+                .where(LookupValue.name == property_value)
+            )
+        )
     if offset:
         stmt = stmt.offset(offset)
     if limit is not None:
@@ -221,6 +238,7 @@ def create_event_frame(
     source_event_frame_id: int | None = None,
     destination_event_frame_id: int | None = None,
     started_by_id: int | None = None,
+    properties: Mapping[str, object] | None = None,
 ) -> EventFrame:
     """Start an event frame on an element.
 
@@ -232,6 +250,10 @@ def create_event_frame(
     moving out of one batch and into another. Either may be filled in later
     with ``link_transfer``. When the template carries a ``parent_flow``, the
     parent frame is filled in as that end and only the other is chosen.
+
+    ``properties`` maps the batch type's property names (its brand) to
+    values; ``event_frame_properties.apply_start_properties`` says what a
+    blank one takes, and why a missing required one refuses the start.
     """
     name = clean_str(name, "name", 45)
     if started_at is None:
@@ -281,6 +303,7 @@ def create_event_frame(
     )
     session.add(frame)
     session.flush()
+    apply_start_properties(session, frame, properties, started_by_id)
     _write_boundary_values(session, frame, "start", started_at, started_by_id)
     if ended_at is not None:
         _write_boundary_values(session, frame, "end", ended_at, started_by_id)
@@ -950,7 +973,8 @@ def _write_boundary_values(
     templates = session.scalars(
         select(EventFrameAttributeTemplate).where(
             EventFrameAttributeTemplate.event_frame_template_id
-            == frame.event_frame_template_id
+            == frame.event_frame_template_id,
+            EventFrameAttributeTemplate.is_property.is_(False),
         )
     ).all()
     written: list[TagValue] = []

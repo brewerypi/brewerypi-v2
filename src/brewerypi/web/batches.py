@@ -55,7 +55,9 @@ from brewerypi.web.forms import (
 from brewerypi.web.measurements import (
     areas_with_measurements,
     batch_measurements,
+    batch_properties,
     element_measurements,
+    property_text,
 )
 from brewerypi.web.navigation import HOME, trail
 from brewerypi.web.rendering import elapsed, page
@@ -68,10 +70,12 @@ def _batch(session: Session, frame: EventFrame) -> dict:
     """A batch as the pages show it: the serialized row plus its context."""
     batch_type = session.get(EventFrameTemplate, frame.event_frame_template_id)
     until = frame.ended_at or datetime.now(timezone.utc).replace(tzinfo=None)
+    row = event_frame_dict(session, frame)
     return {
-        **event_frame_dict(session, frame),
+        **row,
         "type_name": batch_type.name if batch_type is not None else "Batch",
         "elapsed": elapsed(frame.started_at, until),
+        "labels": [property_text(v) for v in row["properties"].values()],
     }
 
 
@@ -605,6 +609,7 @@ def _batch_view(
         status_code=status_code,
         crumbs=trail(session, element),
         batch=_batch(session, frame),
+        properties=batch_properties(session, frame),
         # Reopening is one press, so a finished batch's page carries the
         # pass for it.
         token=mint_token(request) if frame.ended_at is not None else "",

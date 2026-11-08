@@ -56,7 +56,7 @@ not a can size.
 | --- | --- |
 | FV Status | Empty, Clean, Filling, Fermenting, Crashing, Ready to dump |
 | BBT Status | Empty, Clean, Filling, Carbonating, Ready to package, Packaging |
-| Brand | Pale Ale, IPA, Pilsner, Stout |
+| Brand | Pale Ale, IPA, Hazy IPA, Pilsner, Stout |
 | Can format | 12 oz, 16 oz, 19.2 oz |
 | Keg format | 1/2 bbl., 1/6 bbl. |
 | Yes/No | Yes, No |
@@ -113,13 +113,29 @@ Mashing is the first step of a brew, lautering the second.
 | Kettle | Boiling | Brew | 3 |
 | Whirlpool | Whirlpooling | Brew | 4 |
 
+What each batch is: something picked once, when the batch starts, that
+holds for the whole batch. Brand is the usual one. It is kept on the batch
+itself, so two brews in flight at once never mix theirs up, and a brand
+can change from one batch to the next: here an IPA fermentation goes into
+a Hazy IPA conditioning, because the haze goes in at the brite tank. Leave
+out a batch that has none, such as a cleaning.
+
+| Equipment | Batch | What it is | List | Required? |
+| --- | --- | --- | --- | --- |
+| Brewhouse | Brew | Brand | Brand | Yes |
+| Fermenter | Fermentation | Brand | Brand | Yes |
+| Brite tank | Conditioning | Brand | Brand | Yes |
+| Canning line | Canning | Brand | Brand | Yes |
+| Kegging line | Kegging | Brand | Brand | Yes |
+
 What gets recorded on a batch. "At start" and "at end" are the values
 filled in for you by default. Leave them blank when the value differs
-every batch and you will type it each time.
+every batch and you will type it each time. Nothing is recorded on the
+brew itself: two brews share the brewhouse, so their measurements go on
+the steps, whose equipment runs one batch at a time.
 
 | Equipment | Batch | What you record | Units or list | At start | At end |
 | --- | --- | --- | --- | --- | --- |
-| Brewhouse | Brew | Brand | Brand | | |
 | Mash mixer | Mashing | pH | pH | | |
 | Mash mixer | Mashing | Conversion complete | Yes/No | | |
 | Lauter tun | Lautering | Gravity | °P | | |
@@ -212,10 +228,22 @@ which step comes first:
 | --- | --- | --- | --- |
 |  |  |  |  |
 
+### What each batch is
+
+Something picked once, when the batch starts, that holds for the whole
+batch, such as its brand. Say whether a batch can start without it. Leave
+out a batch that has none, such as a cleaning:
+
+| Equipment | Batch | What it is | List | Required? |
+| --- | --- | --- | --- | --- |
+|  |  |  |  |  |
+
 ### What you record on a batch
 
 One row per thing you write down. Leave the start and end columns blank
-when the value differs every batch:
+when the value differs every batch. On equipment that runs more than one
+batch at once, such as a brewhouse, put measurements on the steps rather
+than on the batch itself:
 
 | Equipment | Batch | What you record | Units or list | At start | At end |
 | --- | --- | --- | --- | --- | --- |

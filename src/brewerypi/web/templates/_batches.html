@@ -7,6 +7,7 @@
     <span class="pill{% if not batch.open %} idle{% endif %}">{{ batch.type_name }}</span>
   </span>
   <span class="meta">
+    {%- for label in batch.labels %}{{ label }} · {% endfor -%}
     {%- if batch.open -%}
     Started {{ batch.started_at | local_time }} · running {{ batch.elapsed }}
     {%- else -%}

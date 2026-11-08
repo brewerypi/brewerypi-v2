@@ -236,7 +236,28 @@ delete guards.
   ambiguous tag ownership. Holds no value; boundary defaults are written as
   readings on the linked tag at the frame's `started_at`/`ended_at`. `tag_id`
   is `ON DELETE RESTRICT`; `Element` and `EventFrameAttributeTemplate` cascade
-  the wiring, while deleting an event *frame* touches nothing.
+  the wiring, while deleting an event *frame* touches nothing. MEASUREMENTS
+  ONLY: `is_property` on the shared template decides which table an
+  attribute uses -- `event_frame_attributes` (wiring, per element) or
+  `event_frame_properties` (values, per batch).
+- `EventFrameProperty` (`event_frame_properties`): BATCH PROPERTIES, what a
+  batch is (its brand), from an `EventFrameAttributeTemplate` with
+  `is_property` (fixed at creation) and optionally `is_required` (only a
+  property; checked at start). One row per frame+template (`event_frame_id`,
+  `event_frame_attribute_template_id`, `value` float XOR `lookup_value_id`
+  RESTRICT, `recorded_by_id`/`updated_by_id`), no time. FRAME-scoped, so
+  overlapping brews on a non-exclusive brewhouse never share one -- the fix
+  for the window edge in `docs/design-decisions.md` (*Batch properties*).
+  A property has no tag/wiring and a start default at most (DB CHECKs
+  `required_needs_property`, `property_no_end_default`). Rules in
+  `services/event_frame_properties.py`: `create_event_frame(properties=)`
+  takes values by property name (option names for lists); a blank one takes
+  the start default, then the source batch's value on the same list;
+  `update_event_frame_property` sets/changes/clears; `property_conflicts`
+  warns when a batch's sources disagree on a list (one hop, so yeast pitches
+  never count). `list_event_frames(property_value=)` groups by brand. A frame
+  and a property template cascade their values; `delete_lookup_value` and
+  `delete_user` count them.
 - Derived from upstream BreweryPi's schema; tested in `tests/test_models.py`.
 
 ## OPEN DECISION — schema naming (parked; decide before renaming anything)
@@ -338,13 +359,14 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
   neither, same-enterprise) and extended `delete_lookup` /
   `delete_measurement_unit` (refuse if an attribute template references them);
   admin owns its `list_`/`create`/`update`/`delete` tools.
-  Operators read elements; admins write. MCP tools: operator tier 28
+  Operators read elements; admins write. MCP tools: operator tier 29
   (the browse tree and reading tools, element reads, element-attribute reads,
   and event-frame-template reads —
   operators browse batch types to start instances, and run the whole event
   frame lifecycle: create/close/reopen/update/delete_event_frame, plus
-  `link_transfer` and `trace_batch_lineage`), admin tier
-  89 (adds the people tools -- `list`/`get`/`create`/`update`/
+  `update_event_frame_property`, `link_transfer` and
+  `trace_batch_lineage`), admin tier
+  90 (adds the people tools -- `list`/`get`/`create`/`update`/
   `delete_user`, `list`/`create`/`update`/`delete_membership` --
   `create`/`update`/`delete_element`, the config tables' CRUD, the element
   attribute template tools, `wire`/`unwire_element_attribute`,

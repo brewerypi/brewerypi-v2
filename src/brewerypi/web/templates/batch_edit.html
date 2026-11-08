@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_forms.html" import notices, save %}
+{% from "_forms.html" import notices, property_fields, save %}
 {% block title %}Edit {{ frame.name }}{% endblock %}
 {% block content %}
 <h1>Edit {{ type_name }} on {{ vessel }}</h1>
@@ -11,6 +11,7 @@
   <label class="field" for="started_at">Start time ({{ timezone }})
     <input id="started_at" name="started_at" type="datetime-local" value="{{ started_at }}" required>
   </label>
+  {{ property_fields(props) }}
   {% if frame.ended_at %}
   <label class="field" for="ended_at">End time ({{ timezone }})
     <input id="ended_at" name="ended_at" type="datetime-local" value="{{ ended_at }}" required>
