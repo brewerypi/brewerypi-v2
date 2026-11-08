@@ -62,3 +62,31 @@
 </label>
 <p class="muted">Fill in any you have; blank ones are skipped.</p>
 {% endmacro %}
+
+{# One batch's measurements, as rows: a box each when ``entry`` is the
+   page's form, else a summary. ``g`` is a group from ``steps``. #}
+{% macro batch_rows(g, entry) %}
+{% for m in g.measurements %}
+<div class="reading{% if entry %} entry-row{% endif %}{% if entry and entry.errors.get(m.tag_id) %} has-error{% endif %}">
+  <span class="batch-head">
+    <span class="vessel">{{ m.name }}</span>
+    {% if m.tag_id is none %}
+    <span class="meta">Not set up on {{ g.element_name }} yet.</span>
+    {% elif not m.count %}
+    <span class="meta">No readings yet.</span>
+    {% else %}
+    <span class="batch-name">{{ m.latest.value }}</span>
+    <span class="meta">{% if m.count > 1 %}Started at {{ m.first.value }} · {% endif %}{{ m.latest.at }} · {{ m.count }} reading{{ "" if m.count == 1 else "s" }}</span>
+    {% endif %}
+  </span>
+  {% if entry %}
+  {# Both columns are always there, so the boxes line up down the list. #}
+  {% if m.tag_id is not none %}{{ entry_box(m.tag_id, m.name, m.unit, m.options, entry) }}{% else %}<span></span>{% endif %}
+  <span class="see-all">{% if m.count %}<a class="btn quiet" href="/measurements/{{ m.tag_id }}?batch={{ g.frame_id }}">See all</a>{% endif %}</span>
+  {{ entry_error(m.tag_id, entry) }}
+  {% elif m.count %}
+  <span class="chips"><a class="btn quiet" href="/measurements/{{ m.tag_id }}?batch={{ g.frame_id }}">See all</a></span>
+  {% endif %}
+</div>
+{% endfor %}
+{% endmacro %}

@@ -1,12 +1,12 @@
 {% extends "base.html" %}
 {% from "_batches.html" import batch_card, batch_list %}
-{% from "_forms.html" import notices, save %}
-{% from "_measurements.html" import entry_box, entry_error, entry_time %}
+{% from "_forms.html" import notices %}
+{% from "_measurements.html" import batch_rows %}
 {% block title %}{{ batch.name }}{% endblock %}
 {% block content %}
 <div>
   <h1>{{ batch.name }}</h1>
-  <p class="muted">{{ batch.type_name }} on {{ batch.element_name }}</p>
+  <p class="muted">{{ batch.type_name }} on <a href="/equipment/{{ batch.element_id }}">{{ batch.element_name }}</a></p>
 </div>
 <dl>
   {% for p in properties %}
@@ -41,42 +41,85 @@
   <a class="btn quiet" href="/batches/{{ batch.id }}/transfer">Transfer</a>
   <a class="btn quiet" href="/batches/{{ batch.id }}/delete">Delete</a>
 </div>
-{% if measurements %}
+{% set shown_steps = steps if entry else (steps | selectattr("runs") | list) %}
+{% macro measurements_section() %}
+{% if own %}
 <section class="section" id="measurements">
   <h2>Measurements</h2>
-  {% if entry %}
-  {{ notices(entry.error, entry.warnings) }}
-  <form method="post" action="/batches/{{ batch.id }}/readings" class="fields">
-  {% endif %}
-  {% for m in measurements %}
-  <div class="reading{% if entry %} entry-row{% endif %}{% if entry and entry.errors.get(m.tag_id) %} has-error{% endif %}">
-    <span class="batch-head">
-      <span class="vessel">{{ m.name }}</span>
-      {% if m.tag_id is none %}
-      <span class="meta">Not set up on {{ batch.element_name }} yet.</span>
-      {% elif not m.count %}
-      <span class="meta">No readings yet.</span>
-      {% else %}
-      <span class="batch-name">{{ m.latest.value }}</span>
-      <span class="meta">{% if m.count > 1 %}Started at {{ m.first.value }} · {% endif %}{{ m.latest.at }} · {{ m.count }} reading{{ "" if m.count == 1 else "s" }}</span>
+  {% for g in own %}{{ batch_rows(g, entry) }}{% endfor %}
+</section>
+{% endif %}
+{% endmacro %}
+{% macro steps_section() %}
+{% if shown_steps %}
+<section class="section" id="steps">
+  <h2>Steps</h2>
+  {% for row in shown_steps %}
+  <div class="section">
+    <div class="reading">
+      <span class="batch-head"><span class="vessel">{{ row.order }}</span><span class="batch-name">{{ row.name }}</span>{% if not row.runs %}<span class="meta">Not started.</span>{% endif %}</span>
+      {% if entry %}
+      <span class="actions">
+        {% for place in row.places %}
+        {% set label = ("Start " ~ row.name if not row.runs else "Start another") ~ (" on " ~ place.name if row.places | length > 1 else "") %}
+        {% if place.busy_here %}
+        {% elif place.busy %}<span class="meta">{{ place.name }} is busy with {{ place.busy }}</span>
+        {% elif row.needs_form %}<a class="btn{% if not row.next %} quiet{% endif %}" href="/equipment/{{ place.id }}/start?type_id={{ row.id }}&amp;parent_id={{ batch.id }}">{{ label }}</a>
+        {% else %}<button class="btn{% if not row.next %} quiet{% endif %}" type="submit" formaction="/batches/{{ batch.id }}/steps" name="action" value="start:{{ row.id }}:{{ place.id }}">{{ label }}</button>{% endif %}
+        {% else %}
+        <span class="meta">No {{ row.kind }} inside {{ batch.element_name }}</span>
+        {% endfor %}
+      </span>
       {% endif %}
-    </span>
-    {% if entry %}
-    {# Both columns are always there, so the boxes line up down the list. #}
-    {% if m.tag_id is not none %}{{ entry_box(m.tag_id, m.name, m.unit, m.options, entry) }}{% else %}<span></span>{% endif %}
-    <span class="see-all">{% if m.count %}<a class="btn quiet" href="/measurements/{{ m.tag_id }}?batch={{ batch.id }}">See all</a>{% endif %}</span>
-    {{ entry_error(m.tag_id, entry) }}
-    {% elif m.count %}
-    <span class="chips"><a class="btn quiet" href="/measurements/{{ m.tag_id }}?batch={{ batch.id }}">See all</a></span>
+    </div>
+    {% if row.runs %}
+    <div class="steps">
+      {% for run in row.runs %}
+      <div class="reading">
+        <a class="meta" href="/batches/{{ run.id }}">{{ run.element_name }} · {% if run.open %}running since {{ run.started_at | local_time }}{% else %}{{ run.started_at | local_time }} to {{ run.ended_at | local_time }}{% endif %}</a>
+        {% if entry and run.open %}
+        {% if run.has_open_steps %}<a class="btn" href="/batches/{{ run.id }}/close">Finish {{ row.name }}</a>
+        {% else %}<button class="btn" type="submit" formaction="/batches/{{ batch.id }}/steps" name="action" value="finish:{{ run.id }}">Finish {{ row.name }}{% if row.runs | selectattr("open") | list | length > 1 %} on {{ run.element_name }}{% endif %}</button>{% endif %}
+        {% endif %}
+      </div>
+      {% for g in run.groups %}
+      {% if g.headed %}<h3>{{ g.title }}</h3>{% endif %}
+      {{ batch_rows(g, entry if run.open else none) }}
+      {% endfor %}
+      {% endfor %}
+    </div>
     {% endif %}
   </div>
   {% endfor %}
-  {% if entry %}
-  {{ entry_time(entry) }}
-  {{ save("Record readings", entry.token, entry.warnings, entry.accepted) }}
-  </form>
-  {% endif %}
 </section>
+{% endif %}
+{% endmacro %}
+{% if entry %}
+{# One form for the page: Record readings saves the boxes; Start and
+   Finish save them too, with the step, at the same time. #}
+<form method="post" action="/batches/{{ batch.id }}/readings" class="fields" id="batch-form">
+  {# Enter presses a form's first button: with boxes, that records them;
+     without, it is disabled, so Enter starts or finishes nothing. #}
+  <button type="submit" hidden aria-hidden="true" tabindex="-1"{% if not has_boxes %} disabled{% endif %}></button>
+  {{ notices(entry.error, entry.warnings) }}
+  <input type="hidden" name="token" value="{{ entry.token }}">
+  {% if entry.warnings %}
+  <input type="hidden" name="accepted" value="{{ entry.accepted }}">
+  {% if entry.action %}<div class="actions"><button class="btn" id="step-anyway" type="submit" formaction="/batches/{{ batch.id }}/steps" name="action" value="{{ entry.action }}">{{ entry.label }} anyway</button></div>{% endif %}
+  {% endif %}
+  <label class="field" for="observed_at">Time ({{ entry.timezone }})
+    <input id="observed_at" name="observed_at" type="datetime-local" value="{{ entry.observed_at }}" required>
+  </label>
+  {{ measurements_section() }}
+  {{ steps_section() }}
+  {% if has_boxes %}
+  <p class="muted">Fill in any you have; blank ones are skipped. Start and Finish save them too.</p>
+  <div class="actions"><button class="btn" id="save" type="submit">Record readings{% if entry.warnings and not entry.action %} anyway{% endif %}</button></div>
+  {% endif %}
+</form>
+{% else %}
+{{ measurements_section() }}
+{{ steps_section() }}
 {% endif %}
 {% if parent %}
 <section class="section">
@@ -94,12 +137,6 @@
 <section class="section">
   <h2>Destination</h2>
   {{ batch_card(destination) }}
-</section>
-{% endif %}
-{% if steps %}
-<section class="section">
-  <h2>Steps</h2>
-  {{ batch_list(steps, "") }}
 </section>
 {% endif %}
 {% if moved_in %}

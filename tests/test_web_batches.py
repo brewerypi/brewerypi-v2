@@ -453,7 +453,8 @@ def test_batch_page_shows_who_and_when(client, world):
     _, ids = world
     text = client.get(f"/batches/{ids['finished']}").text
     assert "Batch 1239" in text
-    assert "Fermentation on FV02" in text
+    fv02 = f'<a href="/equipment/{ids["fv02"]}">FV02</a>'
+    assert f"Fermentation on {fv02}" in text
     assert "Finished" in text
     assert text.count("by Sam Brewer") == 2
     assert "9 days" in text
@@ -479,15 +480,35 @@ def test_batch_page_shows_transfers_both_ways(client, world):
     assert "Batch 1240" in transfer
 
 
+def _crumbs(text: str) -> str:
+    return text.split('aria-label="Breadcrumb">')[1].split("</nav>")[0]
+
+
 def test_batch_breadcrumb_runs_through_the_equipment_it_sits_in(
     client, world
 ):
     _, ids = world
-    text = client.get(f"/batches/{ids['running_mash']}").text
-    crumbs = text.split('aria-label="Breadcrumb">')[1].split("</nav>")[0]
+    crumbs = _crumbs(client.get(f"/batches/{ids['running_brew']}").text)
     assert crumbs.index(f'href="/sites/{ids["spr"]}"') < crumbs.index(
         f'href="/equipment/{ids["bh1"]}"'
-    ) < crumbs.index(f'href="/equipment/{ids["mm1"]}"')
+    )
+
+
+def test_a_steps_breadcrumb_leads_back_to_its_batch(client, world):
+    _, ids = world
+    text = client.get(f"/batches/{ids['running_mash']}").text
+    crumbs = _crumbs(text)
+    assert crumbs.index(f'href="/equipment/{ids["bh1"]}"') < crumbs.index(
+        f'href="/batches/{ids["running_brew"]}"'
+    )
+    assert f'href="/equipment/{ids["mm1"]}"' not in crumbs
+    # The step's own equipment is a link beside its type instead.
+    assert f'Mashing on <a href="/equipment/{ids["mm1"]}">MM1</a>' in text
+    # The pages that change a step keep the way back too.
+    close = _crumbs(client.get(f"/batches/{ids['running_mash']}/close").text)
+    assert close.index(f'href="/batches/{ids["running_brew"]}"') < (
+        close.index(f'href="/batches/{ids["running_mash"]}"')
+    )
 
 
 def _measured_batch(factory, ids, close=False):
@@ -537,7 +558,7 @@ def test_a_batch_page_sums_up_its_measurements(client, world):
     assert f'href="{view}"' in section
     # Readings go in the box on this page, not one page each.
     assert f'name="value_{gravity}"' in section
-    assert f'action="/batches/{batch}/readings"' in section
+    assert f'action="/batches/{batch}/readings"' in text
 
 
 def test_a_finished_batch_has_no_boxes_to_fill_in(client, world):

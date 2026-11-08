@@ -357,6 +357,50 @@ yesterday's gravity again one careless press away; the latest is shown
 beside each box instead. A finished batch has no boxes: its readings are
 corrected one at a time, from See all.
 
+**A batch runs its steps from its own page.** Starting a Mashing used to
+mean going to the mash mixer, starting it there, and choosing the brew it
+belonged to. But the brew's type already names its steps and what kind of
+equipment each runs on, so its page lists them in step order and starting
+one is a single press: the equipment is the one of that kind inside the
+brewhouse (a short choice of buttons when there are several, with busy
+ones saying what they are busy with), the parent is the brew, and the
+name is the brew's. One time box above the steps, defaulting to now,
+serves every button, for when staff catch up after the fact. Finishing a
+step is a press too.
+
+- **Nothing finishes another step.** Starting Lautering leaves Mashing
+  running: steps often overlap, and the user decided against finishing
+  the running one automatically.
+- **A finished step offers "Start another".** Steps do repeat, such as a
+  double mash or a second wort cooling into a propagation tank. Step order
+  is only a hint: the first step that hasn't run and has free equipment
+  gets the main button, and nothing is enforced.
+- **Two cases still need a page.** A step whose type has a required
+  property with no default opens the start form with the rest filled in.
+  Finishing a step that has running steps of its own opens the close page,
+  which lists what closes with it.
+- **"... anyway" repeats only the press that was warned.** The accepted key
+  names the button as well as the warnings.
+- **Enter never presses a step's button.** Enter presses a form's first
+  button, so a hidden one comes first: it records the boxes when there
+  are some, and is disabled when there are none.
+
+**One form, measurements under each step.** The page is one form with one
+time: the batch's own measurements first, then its steps, each run with
+its measurements under it -- boxes while it runs (deeper running steps
+too, headed "Rest on P1"), a summary with See all once it has finished.
+Record readings saves the boxes. **Start and Finish save them too**, at
+the same time and all or nothing (the user's decision), so a mash-out
+temperature and Finish Mashing are one press; a bad value or a refused
+step saves neither. HTML can't nest forms, which is what forced one form,
+and one time for the page is simpler anyway. Each reading is checked
+against its own step's window, and a warning names the step.
+
+A step's breadcrumb runs through the batch it is part of (Springfield >
+BH1 > Brew 88), however it was reached, and its equipment is linked beside
+its type instead. The equipment page keeps its Start buttons, so a step
+can still be started from there.
+
 **Plain forms, no HTMX.** HTMX was the plan, but a form followed by a full page
 does this job with no JavaScript dependency to keep current. It remains an easy
 addition if a screen ever needs to update in place.

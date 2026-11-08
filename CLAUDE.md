@@ -448,6 +448,21 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
   `web/forms.py`, breadcrumbs in `web/navigation.py`. A NEW web write must
   follow this pattern, pass `caller_id()`, and get a test in its module's
   test file (`tests/test_web_batch_actions.py`, `tests/test_web_readings.py`).
+- Web steps (`web/steps.py`, route `POST /batches/{id}/steps` in
+  `web/batches.py`; tests `tests/test_web_steps.py`): a batch's page lists
+  its type's steps in step order. Start or Finish is one press with the
+  section's shared time; the equipment is the one of the step's kind
+  inside the batch's element (a button per piece when there are several),
+  the parent is the batch, and the name is the batch's. Nothing finishes
+  automatically (steps overlap), and a finished step offers "Start
+  another". A required property with no default, or a step with running
+  steps of its own, goes to the start or close page instead. The accepted
+  key includes the `action`, so "... anyway" repeats only the press that
+  was warned. The page is ONE form with one time (`observed_at`); step
+  buttons post to `/steps` via `formaction` and save any typed boxes in
+  the same transaction (all or nothing). Each step run's measurements sit
+  under it: boxes while running, a summary once finished. A step's
+  breadcrumb goes through its parent batch (`navigation.batch_page_trail`).
 - Web reading pages (`web/readings.py`, helpers in `web/measurements.py`):
   equipment lists its element attributes; an area page lists its STANDALONE
   tags (`services.list_standalone_tags`: wired to no element or event frame
