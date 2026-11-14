@@ -308,6 +308,14 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
   actually installed in the active environment (`pip install -e .`).
 
 ## Not done yet
+- Automated backups of the live database. Today the only plan is copying
+  `/opt/brewerypi/app.db` off the box by hand
+  (`docs/deploy-mcp-hetzner.md`), and that file holds the pilot's real data.
+  Planned: Litestream streaming the WAL to object storage at a different
+  provider than the server, with a retention window for point-in-time
+  restores, a restore that has actually been tested, and an alert if
+  replication stops. Document it in the deploy guide. A restore rolls back the
+  demo company and the pilot together, since they share the file.
 - `create_all` (in `main.py`) still builds the schema for the throwaway
   demo DB; Alembic is now the mechanism for versioned schema changes. Adopt
   Alembic on the existing server DB with `alembic stamp head`.
