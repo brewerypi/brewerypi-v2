@@ -26,7 +26,7 @@
   {% if template.parent_flow != "source" %}
   <label class="field" for="source_id">Source (optional)
     <select id="source_id" name="source_id">
-      <option value="">Not a transfer in</option>
+      <option value="">No source</option>
       {% for choice in ends %}<option value="{{ choice.id }}"{% if choice.id|string == source_id %} selected{% endif %}>{{ choice.label }}</option>{% endfor %}
     </select>
   </label>
@@ -36,7 +36,7 @@
   {% if template.parent_flow != "destination" %}
   <label class="field" for="destination_id">Destination (optional)
     <select id="destination_id" name="destination_id">
-      <option value="">Not a transfer out, or not known yet</option>
+      <option value="">No destination, or not known yet</option>
       {% for choice in ends %}<option value="{{ choice.id }}"{% if choice.id|string == destination_id %} selected{% endif %}>{{ choice.label }}</option>{% endfor %}
     </select>
   </label>
