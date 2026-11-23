@@ -16,22 +16,26 @@ _MONTHS = (
     "Jan", "Feb", "Mar", "Apr", "May", "Jun",
     "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 )
-_LOCAL_TIME = re.compile(r"^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})")
+_LOCAL_TIME = re.compile(
+    r"^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?"
+)
 
 
 def local_time(iso: str | None) -> str:
-    """Show a serialized local time as ``20 Oct 2026, 9:45 AM``.
+    """Show a serialized local time as ``20 Oct 2026, 9:45:00 AM``.
 
-    Serializers have already converted to the right zone, and the wall clock
-    is read straight from the text so that nothing here does timezone math.
+    Seconds always show, so two times in one minute can be told apart and
+    every time reads the same way. Serializers have
+    already converted to the right zone, and the wall clock is read
+    straight from the text so that nothing here does timezone math.
     """
     match = _LOCAL_TIME.match(iso or "")
     if match is None:
         return iso or ""
-    year, month, day, hour, minute = match.groups()
+    year, month, day, hour, minute, second = match.groups()
     hour_24 = int(hour)
     period = "AM" if hour_24 < 12 else "PM"
-    clock = f"{hour_24 % 12 or 12}:{minute} {period}"
+    clock = f"{hour_24 % 12 or 12}:{minute}:{second or '00'} {period}"
     return f"{int(day)} {_MONTHS[int(month) - 1]} {year}, {clock}"
 
 

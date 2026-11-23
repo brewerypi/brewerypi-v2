@@ -497,11 +497,12 @@ def _press_as_offered(client, batch_id, action, **extra):
     )
 
 
-def test_a_step_started_and_finished_within_a_minute_finishes(
+def test_a_step_started_and_finished_within_a_second_finishes(
     client, world
 ):
-    # The page's time shows only the minute; untouched, it means the moment
-    # the page was filled in, so a quick Finish still comes after Start.
+    # The page's time shows only the whole second; untouched, it means the
+    # exact moment the page was filled in, so a quick Finish still comes
+    # after Start.
     factory, ids = world
     made = _brewhouse(factory, ids)
     started = _press_as_offered(

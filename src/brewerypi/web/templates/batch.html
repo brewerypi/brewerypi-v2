@@ -108,7 +108,7 @@
   {% if entry.action %}<div class="actions"><button class="btn" id="step-anyway" type="submit" formaction="/batches/{{ batch.id }}/steps" name="action" value="{{ entry.action }}">{{ entry.label }} anyway</button></div>{% endif %}
   {% endif %}
   <label class="field" for="observed_at">Time ({{ entry.timezone }})
-    <input id="observed_at" name="observed_at" type="datetime-local" value="{{ entry.observed_at }}" required>
+    <input id="observed_at" name="observed_at" type="datetime-local" step="1" value="{{ entry.observed_at }}" required>
   </label>
   <input type="hidden" name="observed_at_exact" value="{{ entry.observed_at_exact }}">
   {{ measurements_section() }}

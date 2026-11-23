@@ -451,11 +451,13 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
   stops the save once and "... anyway" accepts exactly the warnings shown
   (`forms.unaccepted`). Every form carries a one-use pass from the session
   (last `KEPT_PASSES` kept, so several tabs work); a spent one brings the
-  form back with what was typed. A time box shows only the minute, so a
-  box offering "now" carries the exact moment in a hidden `<name>_exact`
-  field (`forms.prefill_time`), and `parse_time` uses it when the box comes
-  back unchanged; without it, a batch started and closed within one minute
-  is refused. The pass, warnings, time-parsing and
+  form back with what was typed. Time boxes show and take the second
+  (`step="1"`; a browser may send `:00` left off, so `forms.box_changed`
+  compares as times, not text), and pages always show seconds. A box
+  offering "now" also carries the exact moment, fraction included, in a
+  hidden `<name>_exact` field (`forms.prefill_time`), and `parse_time` uses
+  it when the box comes back unchanged; without it, a batch started and
+  closed within one second is refused. The pass, warnings, time-parsing and
   read/operate checks are in
   `web/forms.py`, breadcrumbs in `web/navigation.py`. A NEW web write must
   follow this pattern, pass `caller_id()`, and get a test in its module's

@@ -254,7 +254,7 @@ def test_the_form_offers_the_current_time_in_the_right_zone(client, world):
     assert page.status_code == 200
     assert "America/Chicago" in page.text
     assert re.search(
-        r'name="started_at"[^>]*value="\d{4}-\d\d-\d\dT\d\d:\d\d"',
+        r'name="started_at"[^>]*value="\d{4}-\d\d-\d\dT\d\d:\d\d(:\d\d)?"',
         page.text,
     )
 
@@ -519,9 +519,9 @@ def _press_as_offered(client, url, data, field):
     )
 
 
-def test_a_batch_started_and_closed_within_a_minute_closes(client, world):
-    # The boxes show only the minute; untouched, they mean the moment the
-    # form was filled in, so the end still comes after the start.
+def test_a_batch_started_and_closed_within_a_second_closes(client, world):
+    # The boxes show only the whole second; untouched, they mean the exact
+    # moment the form was filled in, so the end still comes after the start.
     factory, ids = world
     started = _press_as_offered(
         client, f"/equipment/{ids['fv03']}/start", _start_data(ids),
@@ -538,7 +538,7 @@ def test_a_batch_started_and_closed_within_a_minute_closes(client, world):
     assert made.ended_at > made.started_at
 
 
-def test_a_changed_time_box_is_taken_to_the_minute(client, world):
+def test_a_changed_time_box_is_taken_as_typed(client, world):
     factory, ids = world
     url = f"/equipment/{ids['fv03']}/start"
     form = client.get(_form_url(url, _start_data(ids))).text
@@ -751,12 +751,50 @@ def test_renaming_leaves_seconds_on_the_stored_times_alone(client, world):
     response = _press(
         client,
         f"/batches/{batch_id}/edit",
-        {"name": "Exact 2", "started_at": "2026-01-15T12:30", "ended_at": ""},
+        {
+            "name": "Exact 2",
+            "started_at": "2026-01-15T12:30:45",
+            "ended_at": "",
+        },
     )
     assert response.status_code == 303
     edited = _frame(factory, batch_id)
     assert edited.name == "Exact 2"
     assert edited.started_at == exact
+
+
+def test_the_edit_page_shows_and_takes_the_second(client, world):
+    factory, ids = world
+    with factory() as s:
+        batch = create_event_frame(
+            s, ids["fv03"], ids["fermentation"], "Exact",
+            started_at=datetime(2026, 1, 15, 18, 30, 45, 500000),
+        )
+        s.commit()
+        batch_id = batch.id
+    form = client.get(f"/batches/{batch_id}/edit").text
+    assert 'value="2026-01-15T12:30:45"' in form
+    assert 'step="1"' in form
+    response = _press(
+        client,
+        f"/batches/{batch_id}/edit",
+        {"name": "Exact", "started_at": "2026-01-15T12:30:50", "ended_at": ""},
+    )
+    assert response.status_code == 303
+    assert _frame(factory, batch_id).started_at == datetime(
+        2026, 1, 15, 18, 30, 50
+    )
+
+
+def test_a_typed_second_is_kept(client, world):
+    factory, ids = world
+    _press(
+        client,
+        f"/equipment/{ids['fv03']}/start",
+        {**_start_data(ids), "started_at": "2026-01-20T10:44:07"},
+    )
+    made = next(f for f in _frames(factory) if f.name == "Batch 1241")
+    assert made.started_at == datetime(2026, 1, 20, 16, 44, 7)
 
 
 def test_a_running_batch_cant_be_ended_from_the_edit_page(client, world):
