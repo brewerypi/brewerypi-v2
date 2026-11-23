@@ -2,11 +2,11 @@
 {% from "_batches.html" import batch_card, batch_list %}
 {% from "_forms.html" import notices %}
 {% from "_measurements.html" import batch_rows %}
-{% block title %}{{ batch.name }}{% endblock %}
+{% block title %}{{ label }}{% endblock %}
 {% block content %}
 <div>
-  <h1>{{ batch.name }}</h1>
-  <p class="muted">{{ batch.type_name }} on <a href="/equipment/{{ batch.element_id }}">{{ batch.element_name }}</a></p>
+  <h1>{{ label }}</h1>
+  <p class="muted">On <a href="/equipment/{{ batch.element_id }}">{{ batch.element_name }}</a></p>
 </div>
 <dl>
   {% for p in properties %}

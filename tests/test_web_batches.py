@@ -400,9 +400,12 @@ def test_equipment_page_lists_what_is_inside_it(client, world):
 
 def test_equipment_breadcrumb_climbs_back_up(client, world):
     _, ids = world
-    crumbs = client.get(f"/equipment/{ids['mm1']}").text.split("</nav>")[0]
+    crumbs = _crumbs(client.get(f"/equipment/{ids['mm1']}").text)
     assert f'href="/sites/{ids["spr"]}"' in crumbs
     assert f'href="/equipment/{ids["bh1"]}"' in crumbs
+    # The trail ends at the page itself, as text rather than a link.
+    assert crumbs.endswith('<span aria-current="page">MM1</span>')
+    assert f'href="/equipment/{ids["mm1"]}"' not in crumbs
 
 
 def test_equipment_is_busy_when_anything_inside_it_is():
@@ -452,9 +455,9 @@ def test_equipment_page_shows_its_running_and_finished_batches(client, world):
 def test_batch_page_shows_who_and_when(client, world):
     _, ids = world
     text = client.get(f"/batches/{ids['finished']}").text
-    assert "Batch 1239" in text
+    assert "<h1>Fermentation: Batch 1239</h1>" in text
     fv02 = f'<a href="/equipment/{ids["fv02"]}">FV02</a>'
-    assert f"Fermentation on {fv02}" in text
+    assert f"On {fv02}" in text
     assert "Finished" in text
     assert text.count("by Sam Brewer") == 2
     assert "9 days" in text
@@ -492,6 +495,9 @@ def test_batch_breadcrumb_runs_through_the_equipment_it_sits_in(
     assert crumbs.index(f'href="/sites/{ids["spr"]}"') < crumbs.index(
         f'href="/equipment/{ids["bh1"]}"'
     )
+    # It ends at the batch, by type and name, and not as a link.
+    assert crumbs.endswith('<span aria-current="page">Brew: Brew 88</span>')
+    assert f'href="/batches/{ids["running_brew"]}"' not in crumbs
 
 
 def test_a_steps_breadcrumb_leads_back_to_its_batch(client, world):
@@ -502,8 +508,12 @@ def test_a_steps_breadcrumb_leads_back_to_its_batch(client, world):
         f'href="/batches/{ids["running_brew"]}"'
     )
     assert f'href="/equipment/{ids["mm1"]}"' not in crumbs
-    # The step's own equipment is a link beside its type instead.
-    assert f'Mashing on <a href="/equipment/{ids["mm1"]}">MM1</a>' in text
+    assert f'href="/batches/{ids["running_mash"]}"' not in crumbs
+    assert ">Brew: Brew 88</a>" in crumbs
+    assert crumbs.endswith('<span aria-current="page">Mashing: Mash 88</span>')
+    assert "<h1>Mashing: Mash 88</h1>" in text
+    # The step's own equipment is a link under its heading instead.
+    assert f'On <a href="/equipment/{ids["mm1"]}">MM1</a>' in text
     # The pages that change a step keep the way back too.
     close = _crumbs(client.get(f"/batches/{ids['running_mash']}/close").text)
     assert close.index(f'href="/batches/{ids["running_brew"]}"') < (

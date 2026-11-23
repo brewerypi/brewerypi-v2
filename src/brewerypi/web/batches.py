@@ -65,7 +65,13 @@ from brewerypi.web.measurements import (
     element_measurements,
     property_text,
 )
-from brewerypi.web.navigation import HOME, batch_page_trail, trail
+from brewerypi.web.navigation import (
+    HOME,
+    batch_label,
+    batch_trail,
+    here,
+    trail,
+)
 from brewerypi.web.rendering import elapsed, page
 from brewerypi.web.steps import (
     action_label,
@@ -355,7 +361,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
             return page(
                 request,
                 "site.html",
-                crumbs=[HOME],
+                crumbs=[HOME, {"name": site.name}],
                 site=site,
                 timezone=resolve_timezone(session, site),
                 running=[
@@ -635,7 +641,7 @@ def _equipment_view(
         element=element,
         kind=template.name,
         site=site,
-        crumbs=trail(session, element, include_self=False),
+        crumbs=here(trail(session, element)),
         inside=_chips(children, _site_busy(session, site.id)),
         measurements=measurements,
         entry=entry,
@@ -698,7 +704,8 @@ def _batch_view(
         request,
         "batch.html",
         status_code=status_code,
-        crumbs=batch_page_trail(session, frame),
+        crumbs=here(batch_trail(session, frame)),
+        label=batch_label(session, frame),
         batch=_batch(session, frame),
         properties=batch_properties(session, frame),
         # Reopening is one press, so a finished batch's page carries the

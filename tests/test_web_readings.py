@@ -285,6 +285,21 @@ def test_a_measurement_breadcrumb_runs_through_its_equipment(client, world):
     assert f'href="/equipment/{ids["fv01"]}"' in crumbs
     standalone = _crumbs(client.get(f"/measurements/{ids['glycol']}").text)
     assert f'href="/areas/{ids["utilities"]}"' in standalone
+    # Each ends at the page itself, which is not a link.
+    assert crumbs.endswith('<span aria-current="page">Temperature</span>')
+    assert standalone.endswith(
+        '<span aria-current="page">Glycol Supply</span>'
+    )
+
+
+def test_site_and_area_breadcrumbs_end_at_the_page(client, world):
+    _, ids = world
+    site = _crumbs(client.get(f"/sites/{ids['spr']}").text)
+    assert site.endswith('<span aria-current="page">Springfield</span>')
+    assert f'href="/sites/{ids["spr"]}"' not in site
+    area = _crumbs(client.get(f"/areas/{ids['utilities']}").text)
+    assert f'href="/sites/{ids["spr"]}"' in area
+    assert area.endswith('<span aria-current="page">Utilities</span>')
 
 
 def test_a_list_measurement_offers_only_selectable_options(client, world):
@@ -539,13 +554,14 @@ def test_reading_pages_carry_the_breadcrumb_to_the_measurement(
     client, world
 ):
     _, ids = world
-    for path in (
-        f"/readings/{ids['reading']}/edit",
-        f"/readings/{ids['reading']}/delete",
+    for path, last in (
+        (f"/readings/{ids['reading']}/edit", "Correct reading"),
+        (f"/readings/{ids['reading']}/delete", "Delete reading"),
     ):
         crumbs = _crumbs(client.get(path).text)
         assert f'href="/equipment/{ids["fv01"]}"' in crumbs
         assert f'href="/measurements/{ids["temperature"]}"' in crumbs
+        assert crumbs.endswith(f'<span aria-current="page">{last}</span>')
 
 
 # -- what a signed-in person can't reach -----------------------------------
