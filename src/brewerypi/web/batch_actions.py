@@ -47,6 +47,7 @@ from brewerypi.web.entry import form_fields
 from brewerypi.web.forms import (
     OUT_OF_DATE,
     accepted_key,
+    box_changed,
     future_warning,
     input_time,
     mint_token,
@@ -719,18 +720,18 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
             if not spend_token(request, token):
                 return again(error=OUT_OF_DATE, status_code=409)
             zone = zone_for_frame(session, frame)
-            # Inputs are to the minute and stored times may not be, so only
+            # Inputs are to the second and stored times may not be, so only
             # what the person actually retyped counts as a change.
             changes: dict = {}
             try:
                 if name.strip() != frame.name:
                     changes["name"] = name
-                if started_at != input_time(frame.started_at, zone):
+                if box_changed(started_at, frame.started_at, zone):
                     changes["started_at"] = parse_time(
                         started_at, zone, "start"
                     )
-                if frame.ended_at is not None and ended_at != input_time(
-                    frame.ended_at, zone
+                if frame.ended_at is not None and box_changed(
+                    ended_at, frame.ended_at, zone
                 ):
                     changes["ended_at"] = parse_time(ended_at, zone, "end")
                 shown = {

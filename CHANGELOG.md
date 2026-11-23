@@ -27,6 +27,8 @@ All notable changes to this project are documented here. The format is based on
 ### Changed
 - `delete_user` and `brewerypi-users remove` now refuse anyone a reading or
   batch names; deactivate them instead.
+- The web app shows and takes times to the second: time boxes accept
+  seconds, and every page shows them (`9:45:07 AM`, `9:45:00 AM`).
 
 ### Added
 - Attribution (phase 3 of *Identity and access*). Readings now record who

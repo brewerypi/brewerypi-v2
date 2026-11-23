@@ -9,12 +9,12 @@
     <input id="name" name="name" value="{{ name }}" maxlength="45" required autocomplete="off">
   </label>
   <label class="field" for="started_at">Start time ({{ timezone }})
-    <input id="started_at" name="started_at" type="datetime-local" value="{{ started_at }}" required>
+    <input id="started_at" name="started_at" type="datetime-local" step="1" value="{{ started_at }}" required>
   </label>
   {{ property_fields(props) }}
   {% if frame.ended_at %}
   <label class="field" for="ended_at">End time ({{ timezone }})
-    <input id="ended_at" name="ended_at" type="datetime-local" value="{{ ended_at }}" required>
+    <input id="ended_at" name="ended_at" type="datetime-local" step="1" value="{{ ended_at }}" required>
   </label>
   {% else %}
   <p class="muted">It's still running. To end it, close the batch.</p>

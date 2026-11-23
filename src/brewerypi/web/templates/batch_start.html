@@ -10,7 +10,7 @@
     <input id="name" name="name" value="{{ name }}" maxlength="45" required autocomplete="off">
   </label>
   <label class="field" for="started_at">Start time ({{ timezone }})
-    <input id="started_at" name="started_at" type="datetime-local" value="{{ started_at }}" required>
+    <input id="started_at" name="started_at" type="datetime-local" step="1" value="{{ started_at }}" required>
   </label>
   <input type="hidden" name="started_at_exact" value="{{ started_at_exact }}">
   {{ property_fields(props) }}

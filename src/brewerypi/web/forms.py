@@ -121,10 +121,10 @@ def parse_time(
 ) -> datetime:
     """Read a local time from a form into naive UTC.
 
-    A time box shows only the minute. ``exact`` is the moment the box was
-    filled in with (``prefill_time``), so a box sent back untouched means
-    that moment to the second; otherwise a batch started and closed within
-    one minute would get an end no later than its start.
+    A time box shows the second, not the fraction of it. ``exact`` is the
+    moment the box was filled in with (``prefill_time``), so a box sent
+    back untouched means that moment exactly; otherwise a batch started and
+    closed within one second would get an end no later than its start.
     """
     if not value.strip():
         raise ValidationError(f"Enter the {which} date and time.")
@@ -133,7 +133,7 @@ def parse_time(
             moment = to_utc(exact.strip(), zone)
         except ValidationError:
             moment = None
-        if moment is not None and input_time(moment, zone) == value.strip():
+        if moment is not None and not box_changed(value, moment, zone):
             return moment
     try:
         return to_utc(value.strip(), zone)
@@ -148,8 +148,26 @@ def utc_now() -> datetime:
 
 
 def input_time(moment: datetime, zone: str) -> str:
-    """A UTC moment as a ``datetime-local`` input expects, to the minute."""
-    return from_utc(moment, zone)[:16]
+    """A UTC moment as a ``datetime-local`` input expects, to the second.
+
+    Seconds are always written, even ``:00``, so the box always shows
+    them. A browser may send ``:00`` back left off, which is why a box is
+    compared with ``box_changed`` rather than as text.
+    """
+    return from_utc(moment, zone)[:19]
+
+
+def box_changed(value: str, moment: datetime, zone: str) -> bool:
+    """Whether a time box sent back means a different second than shown.
+
+    Compared as times rather than text, so ``07:00`` and ``07:00:00`` are
+    the same. Junk counts as changed, and ``parse_time`` then says so.
+    """
+    try:
+        sent = to_utc(value.strip(), zone)
+    except ValidationError:
+        return True
+    return input_time(sent, zone) != input_time(moment, zone)
 
 
 def prefill_time(zone: str) -> tuple[str, str]:

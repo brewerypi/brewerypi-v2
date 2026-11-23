@@ -241,7 +241,7 @@ def test_equipment_lists_its_measurements_with_the_latest_value(
     section = text.split("<h2>Measurements</h2>")[1]
     assert f'href="/measurements/{ids["temperature"]}"' in section
     assert "18.5 °C" in section
-    assert "5 Jan 2026, 6:00 AM" in section
+    assert "5 Jan 2026, 6:00:00 AM" in section
     assert "No readings yet" in section  # Status
 
 
@@ -467,8 +467,8 @@ def test_correcting_shows_the_change_and_records_who(client, world):
     url = f"/readings/{ids['reading']}/edit"
     form = client.get(url).text
     assert 'value="18.5"' in form
-    assert 'value="2026-01-04T23:00"' not in form  # stays in Chicago time
-    assert 'value="2026-01-05T06:00"' in form
+    assert 'value="2026-01-04T23:00:00"' not in form  # stays in Chicago time
+    assert 'value="2026-01-05T06:00:00"' in form
     assert ">Save changes</button>" in form
     response = _press(
         client, url, {"value": "18.0", "observed_at": "2026-01-05T06:00"}
@@ -527,7 +527,7 @@ def test_deleting_asks_first_then_removes_the_reading(client, world):
     assert review.status_code == 200
     assert (
         "Delete the 18.5 °C reading for Temperature on FV01 at "
-        "5 Jan 2026, 6:00 AM?" in review.text
+        "5 Jan 2026, 6:00:00 AM?" in review.text
     )
     assert "This can't be undone." in html.unescape(review.text)
     assert "Times are in America/Chicago." in review.text

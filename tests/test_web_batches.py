@@ -430,8 +430,8 @@ def test_equipment_is_busy_when_anything_inside_it_is():
 def test_times_show_in_the_sites_zone(client, world):
     _, ids = world
     text = client.get(f"/batches/{ids['finished']}").text
-    assert "1 Jan 2026, 6:00 AM" in text
-    assert "10 Jan 2026, 6:00 AM" in text
+    assert "1 Jan 2026, 6:00:00 AM" in text
+    assert "10 Jan 2026, 6:00:00 AM" in text
 
 
 def test_times_follow_the_users_own_zone(world):
@@ -446,7 +446,7 @@ def test_times_follow_the_users_own_zone(world):
     text = _client(factory, "london@brewery.com").get(
         f"/batches/{ids['finished']}"
     ).text
-    assert "1 Jan 2026, 12:00 PM" in text
+    assert "1 Jan 2026, 12:00:00 PM" in text
     assert "Times are in Europe/London." in text
 
 

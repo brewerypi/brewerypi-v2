@@ -15,7 +15,7 @@
   <form method="post" action="{{ action_url }}" class="fields">
     {{ value_field(options, unit, value) }}
     <label class="field" for="observed_at">Time ({{ timezone }})
-      <input id="observed_at" name="observed_at" type="datetime-local" value="{{ observed_at }}" required>
+      <input id="observed_at" name="observed_at" type="datetime-local" step="1" value="{{ observed_at }}" required>
     </label>
     <input type="hidden" name="observed_at_exact" value="{{ observed_at_exact }}">
     {{ save("Record reading", token, warnings, accepted) }}

@@ -14,7 +14,7 @@
 {% endif %}
 <form method="post" action="/batches/{{ frame.id }}/close" class="fields">
   <label class="field" for="ended_at">End time ({{ timezone }})
-    <input id="ended_at" name="ended_at" type="datetime-local" value="{{ ended_at }}" required>
+    <input id="ended_at" name="ended_at" type="datetime-local" step="1" value="{{ ended_at }}" required>
   </label>
   <input type="hidden" name="ended_at_exact" value="{{ ended_at_exact }}">
   {{ save("Close batch", token, warnings, accepted, "/batches/" ~ frame.id) }}

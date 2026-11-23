@@ -32,6 +32,7 @@ from brewerypi.web.entry import parse_value, refusal, window_warnings
 from brewerypi.web.forms import (
     OUT_OF_DATE,
     accepted_key,
+    box_changed,
     future_warning,
     input_time,
     mint_token,
@@ -373,7 +374,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                 return again(error=OUT_OF_DATE, status_code=409)
             zone = zone_for_tag(session, tag)
             old_raw = raw_value(session, tv)
-            # Inputs are to the minute and stored times may not be, so only
+            # Inputs are to the second and stored times may not be, so only
             # what the person actually retyped counts as a change.
             changes: dict = {}
             moved = None
@@ -384,7 +385,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                         changes["lookup_value"] = option
                     elif number_value != tv.value:
                         changes["value"] = number_value
-                if observed_at != input_time(tv.observed_at, zone):
+                if box_changed(observed_at, tv.observed_at, zone):
                     moved = parse_time(observed_at, zone, "reading's")
                     changes["observed_at"] = moved.isoformat()
                 if not changes:
