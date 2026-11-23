@@ -530,14 +530,14 @@ def test_two_brews_into_one_fermentation(brew_and_ferm):
 
 def test_transfer_may_not_start_before_its_source(brew_and_ferm):
     session, ids, brew, ferm = brew_and_ferm
-    with pytest.raises(ValidationError, match="starts before its source"):
+    with pytest.raises(ValidationError, match="source must already be"):
         knockout(session, ids, brew.id, ferm.id, start=D(17, 5, 30))
 
 
 def test_transfer_after_the_source_closed_refused(brew_and_ferm):
     session, ids, brew, ferm = brew_and_ferm
     close_event_frame(session, brew.id, ended_at=D(17, 9))
-    with pytest.raises(ValidationError, match="ends after its source"):
+    with pytest.raises(ValidationError, match="source must stay open"):
         knockout(
             session, ids, brew.id, ferm.id,
             start=D(17, 10), end=D(17, 11),
@@ -547,7 +547,7 @@ def test_transfer_after_the_source_closed_refused(brew_and_ferm):
 def test_open_transfer_needs_an_open_source(brew_and_ferm):
     session, ids, brew, ferm = brew_and_ferm
     close_event_frame(session, brew.id, ended_at=D(17, 9))
-    with pytest.raises(ValidationError, match="cannot be left open"):
+    with pytest.raises(ValidationError, match="can't be left running"):
         knockout(session, ids, brew.id, ferm.id, start=D(17, 8))
 
 
@@ -598,15 +598,25 @@ def test_endpoint_at_another_site_refused(brew_and_ferm):
 def test_source_cannot_close_while_the_transfer_runs(brew_and_ferm):
     session, ids, brew, ferm = brew_and_ferm
     knockout(session, ids, brew.id, ferm.id)  # left open
-    with pytest.raises(ConflictError, match="still running out of"):
+    with pytest.raises(ConflictError) as blocked:
         close_event_frame(session, brew.id, ended_at=D(17, 9, 30))
+    assert str(blocked.value) == (
+        "Can't close " 'Brew "Brew #1" yet: Knockout "Knockout" on BH1 is '
+        'still running. Close Knockout "Knockout" first, then close '
+        'Brew "Brew #1".'
+    )
 
 
 def test_destination_cannot_close_while_the_transfer_runs(brew_and_ferm):
     session, ids, brew, ferm = brew_and_ferm
     knockout(session, ids, brew.id, ferm.id)  # left open
-    with pytest.raises(ConflictError, match="still running into"):
+    with pytest.raises(ConflictError) as blocked:
         close_event_frame(session, ferm.id, ended_at=D(17, 9, 30))
+    assert str(blocked.value) == (
+        "Can't close " 'Fermentation "FV01 B123" yet: Knockout "Knockout" on '
+        'BH1 is still running. Close Knockout "Knockout" first, then close '
+        'Fermentation "FV01 B123".'
+    )
 
 
 def test_close_the_transfer_then_the_brew(brew_and_ferm):
@@ -621,14 +631,14 @@ def test_close_the_transfer_then_the_brew(brew_and_ferm):
 def test_brew_cannot_close_before_the_transfer_finished(brew_and_ferm):
     session, ids, brew, ferm = brew_and_ferm
     knockout(session, ids, brew.id, ferm.id, end=D(17, 9, 30))
-    with pytest.raises(ValidationError, match="past the new end"):
+    with pytest.raises(ValidationError, match="Can.t move the end of"):
         close_event_frame(session, brew.id, ended_at=D(17, 9))
 
 
 def test_moving_an_endpoint_start_past_the_transfer_refused(brew_and_ferm):
     session, ids, brew, ferm = brew_and_ferm
     knockout(session, ids, brew.id, ferm.id, end=D(17, 9, 30))
-    with pytest.raises(ValidationError, match="before the new start"):
+    with pytest.raises(ValidationError, match="Can.t move the start of"):
         update_event_frame(session, ferm.id, started_at=D(17, 8, 30))
 
 
@@ -636,7 +646,7 @@ def test_moving_the_transfer_outside_its_source_refused(brew_and_ferm):
     session, ids, brew, ferm = brew_and_ferm
     ko = knockout(session, ids, brew.id, ferm.id, end=D(17, 9, 30))
     close_event_frame(session, brew.id, ended_at=D(17, 9, 30))
-    with pytest.raises(ValidationError, match="ends after its source"):
+    with pytest.raises(ValidationError, match="source must stay open"):
         update_event_frame(session, ko.id, ended_at=D(17, 10))
 
 
@@ -644,7 +654,7 @@ def test_reopening_a_transfer_needs_open_endpoints(brew_and_ferm):
     session, ids, brew, ferm = brew_and_ferm
     ko = knockout(session, ids, brew.id, ferm.id, end=D(17, 9, 30))
     close_event_frame(session, brew.id, ended_at=D(17, 9, 30))
-    with pytest.raises(ValidationError, match="cannot be left open"):
+    with pytest.raises(ValidationError, match="can't be left running"):
         reopen_event_frame(session, ko.id)
 
 
@@ -692,7 +702,7 @@ def test_link_transfer_rejects_a_late_opened_destination(flow_ctx):
         started_at=D(24, 9),  # opened after the transfer began
     )
     with pytest.raises(
-        ValidationError, match="starts before its destination"
+        ValidationError, match="destination must already be running"
     ):
         link_transfer(session, cent.id, destination_event_frame_id=late.id)
 
@@ -700,7 +710,7 @@ def test_link_transfer_rejects_a_late_opened_destination(flow_ctx):
 def test_deleting_a_linked_batch_is_refused(brew_and_ferm):
     session, ids, brew, ferm = brew_and_ferm
     ko = knockout(session, ids, brew.id, ferm.id, end=D(17, 9, 30))
-    with pytest.raises(ConflictError, match="unlink the transfer first"):
+    with pytest.raises(ConflictError, match="Unlink or delete"):
         delete_event_frame(session, brew.id)
     link_transfer(session, ko.id, source_event_frame_id=None)
     delete_event_frame(session, brew.id)
@@ -728,7 +738,7 @@ def test_deleting_a_parent_refused_when_a_child_is_linked(ctx):
         session, ids["bh"], ids["brew_t"], "Wort transfer",
         started_at=D(17, 7), source_event_frame_id=mash.id,
     )
-    with pytest.raises(ConflictError, match="unlink the transfer first"):
+    with pytest.raises(ConflictError, match="a step inside it"):
         delete_event_frame(session, brew.id)
 
 
@@ -803,16 +813,16 @@ def test_yeast_pitch_delivers_into_its_wort_cooling(brew_and_ferm):
 
 def test_an_implied_end_cannot_name_another_batch(brew_and_ferm):
     session, ids, brew, ferm = brew_and_ferm
-    with pytest.raises(ValidationError, match="always the batch it sits"):
+    with pytest.raises(ValidationError, match="always the batch it runs"):
         wort_cooling(session, ids, brew.id, source_event_frame_id=ferm.id)
 
 
 def test_an_implied_end_cannot_be_cleared_or_moved(brew_and_ferm):
     session, ids, brew, ferm = brew_and_ferm
     cooling = wort_cooling(session, ids, brew.id)
-    with pytest.raises(ValidationError, match="cannot be cleared"):
+    with pytest.raises(ValidationError, match="can't be cleared"):
         link_transfer(session, cooling.id, source_event_frame_id=None)
-    with pytest.raises(ValidationError, match="always the batch it sits"):
+    with pytest.raises(ValidationError, match="always the batch it runs"):
         link_transfer(session, cooling.id, source_event_frame_id=ferm.id)
     # the chosen end is still free to set and clear
     link_transfer(session, cooling.id, destination_event_frame_id=ferm.id)
@@ -864,7 +874,7 @@ def test_a_separate_transfer_blocks_even_when_steps_close_along(
     session, ids, brew, ferm = brew_and_ferm
     wort_cooling(session, ids, brew.id, destination_event_frame_id=ferm.id)
     knockout(session, ids, brew.id, ferm.id, start=D(17, 9))
-    with pytest.raises(ConflictError, match="still running out of"):
+    with pytest.raises(ConflictError, match='Knockout "Knockout" on BH1'):
         close_event_frame(session, brew.id, ended_at=D(17, 10))
 
 

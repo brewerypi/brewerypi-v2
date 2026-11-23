@@ -114,7 +114,7 @@ def test_a_transfer_outside_its_source_is_refused(seeded):
         started_at="2026-07-17T04:00", ended_at="2026-07-17T05:00",
         source_event_frame_id=brew["id"],
     )
-    assert "starts before its source" in result["error"]
+    assert "source must already be running" in result["error"]
 
 
 def test_closing_the_brew_waits_for_the_knockout(seeded):
@@ -128,7 +128,11 @@ def test_closing_the_brew_waits_for_the_knockout(seeded):
     blocked = mcp_server.close_event_frame(
         brew["id"], ended_at="2026-07-17T09:30"
     )
-    assert "still running out of" in blocked["error"]
+    assert blocked["error"] == (
+        "Can't close " 'Brew "Brew #1" yet: Knockout "Knockout" on BH1 is '
+        'still running. Close Knockout "Knockout" first, then close '
+        'Brew "Brew #1".'
+    )
 
 
 def test_picker_lists_open_batches_by_equipment_type(seeded):
@@ -155,7 +159,7 @@ def test_delete_preview_names_the_transfer_that_blocks_it(seeded):
         {"id": ko["id"], "name": "Knockout"}
     ]
     refused = mcp_server.delete_event_frame(brew["id"], confirm=True)
-    assert "unlink the transfer first" in refused["error"]
+    assert "Unlink or delete" in refused["error"]
     assert mcp_server.get_event_frame(brew["id"])["name"] == "Brew #1"
 
 
@@ -200,7 +204,7 @@ def test_wort_cooling_names_its_brew_and_closes_with_it(seeded):
     assert "error" not in closed
     assert mcp_server.get_event_frame(cooling["id"])["open"] is False
     fixed = mcp_server.link_transfer(cooling["id"], clear_source=True)
-    assert "cannot be cleared" in fixed["error"]
+    assert "can't be cleared" in fixed["error"]
 
 
 def test_lineage_leaves_out_a_batch_type_on_request(seeded):
