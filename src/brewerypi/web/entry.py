@@ -29,10 +29,9 @@ from brewerypi.services import (
 from brewerypi.web.forms import (
     accepted_key,
     future_warning,
-    input_time,
     mint_token,
     parse_time,
-    utc_now,
+    prefill_time,
 )
 
 #: A box's form field is this followed by its tag's id.
@@ -95,11 +94,22 @@ def typed_values(fields: dict[str, str], tags: list[Tag]) -> dict[int, str]:
     return {t.id: fields.get(f"{FIELD_PREFIX}{t.id}", "") for t in tags}
 
 
+def form_time(fields: dict[str, str], zone: str, which: str) -> datetime:
+    """The shared time a several-measurements form sent."""
+    return parse_time(
+        fields.get("observed_at", ""),
+        zone,
+        which,
+        fields.get("observed_at_exact", ""),
+    )
+
+
 def entry_form(
     request: Request,
     zone: str,
     values: dict[int, str] | None = None,
     observed_at: str | None = None,
+    observed_at_exact: str = "",
     errors: dict[int, str] | None = None,
     error: str | None = None,
     warnings: list[str] = (),
@@ -113,6 +123,8 @@ def entry_form(
     "... anyway" repeats only that press.
     """
     warnings = list(warnings)
+    if observed_at is None:
+        observed_at, observed_at_exact = prefill_time(zone)
     return {
         "typed": values or {},
         "errors": errors or {},
@@ -122,9 +134,8 @@ def entry_form(
         "action": action,
         "label": label,
         "token": mint_token(request),
-        "observed_at": (
-            input_time(utc_now(), zone) if observed_at is None else observed_at
-        ),
+        "observed_at": observed_at,
+        "observed_at_exact": observed_at_exact,
         "timezone": zone,
     }
 
@@ -137,6 +148,7 @@ def record_entries(
     frames: dict[int, EventFrame] | None = None,
     own: EventFrame | None = None,
     required: bool = True,
+    when: datetime | None = None,
 ) -> tuple[dict[int, str], str | None, list[str]]:
     """Record every filled-in box at the shared time.
 
@@ -144,16 +156,18 @@ def record_entries(
     it warns; ``own`` is the page's batch, called "this batch", and any
     other is one of its steps, called by its type and equipment. Unless
     ``required``, nothing filled in is fine: a step's Start or Finish saves
-    the boxes only if there are some.
+    the boxes only if there are some. ``when`` is the shared time already
+    read, so a step pressed with the boxes gets the same instant.
 
     Returns what stops the save: refusals by tag id, a refusal of the form
     as a whole, and warnings. The caller commits only when all three are
     empty, or the warnings were accepted, and rolls back otherwise.
     """
-    try:
-        when = parse_time(fields.get("observed_at", ""), zone, "reading's")
-    except ValidationError as exc:
-        return {}, str(exc), []
+    if when is None:
+        try:
+            when = form_time(fields, zone, "reading's")
+        except ValidationError as exc:
+            return {}, str(exc), []
     filled = [
         (tag_id, raw.strip())
         for tag_id, raw in typed_values(fields, tags).items()

@@ -499,6 +499,61 @@ def test_the_close_form_names_the_end_values_it_records(client, world):
     assert "Gravity" not in form
 
 
+def _offered(page: str, field: str) -> str:
+    match = re.search(rf'name="{field}"[^>]*value="([^"]*)"', page)
+    assert match, f"the form has no {field}"
+    return html.unescape(match.group(1))
+
+
+def _press_as_offered(client, url, data, field):
+    """Press a form's button leaving its time box as the form filled it."""
+    form = client.get(_form_url(url, data)).text
+    return client.post(
+        url,
+        data={
+            **data,
+            field: _offered(form, field),
+            f"{field}_exact": _offered(form, f"{field}_exact"),
+            "token": _token(form),
+        },
+    )
+
+
+def test_a_batch_started_and_closed_within_a_minute_closes(client, world):
+    # The boxes show only the minute; untouched, they mean the moment the
+    # form was filled in, so the end still comes after the start.
+    factory, ids = world
+    started = _press_as_offered(
+        client, f"/equipment/{ids['fv03']}/start", _start_data(ids),
+        "started_at",
+    )
+    assert started.status_code == 303
+    made = next(f for f in _frames(factory) if f.name == "Batch 1241")
+    closed = _press_as_offered(
+        client, f"/batches/{made.id}/close", {}, "ended_at"
+    )
+    assert closed.status_code == 303, closed.text
+    made = _frame(factory, made.id)
+    assert made.started_at.second or made.started_at.microsecond
+    assert made.ended_at > made.started_at
+
+
+def test_a_changed_time_box_is_taken_to_the_minute(client, world):
+    factory, ids = world
+    url = f"/equipment/{ids['fv03']}/start"
+    form = client.get(_form_url(url, _start_data(ids))).text
+    client.post(
+        url,
+        data={
+            **_start_data(ids),
+            "started_at_exact": _offered(form, "started_at_exact"),
+            "token": _token(form),
+        },
+    )
+    made = next(f for f in _frames(factory) if f.name == "Batch 1241")
+    assert made.started_at == datetime(2026, 1, 20, 16, 44)
+
+
 def test_closing_before_it_started_is_refused_on_the_form(client, world):
     factory, ids = world
     response = _press(

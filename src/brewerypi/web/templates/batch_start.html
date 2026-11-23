@@ -12,6 +12,7 @@
   <label class="field" for="started_at">Start time ({{ timezone }})
     <input id="started_at" name="started_at" type="datetime-local" value="{{ started_at }}" required>
   </label>
+  <input type="hidden" name="started_at_exact" value="{{ started_at_exact }}">
   {{ property_fields(props) }}
   {% if props and template.parent_flow != "source" %}<p class="muted">Left blank, {{ "a property is" if props|length > 1 else props[0].name ~ " is" }} taken from the source batch, if it has one.</p>{% endif %}
   {% if template.parent_id %}
