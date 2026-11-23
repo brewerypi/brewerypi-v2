@@ -59,7 +59,7 @@ from brewerypi.web.forms import (
     utc_now,
 )
 from brewerypi.web.measurements import property_text, value_text
-from brewerypi.web.navigation import batch_trail, trail
+from brewerypi.web.navigation import batch_trail, ending_with, trail
 from brewerypi.web.rendering import message_page, page
 
 #: How many of a site's recent batches a transfer page offers as ends.
@@ -329,7 +329,9 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         return page(
             request,
             "batch_start.html",
-            crumbs=trail(session, element),
+            crumbs=ending_with(
+                trail(session, element), f"Start {template.name}"
+            ),
             status_code=status_code,
             element=element,
             template=template,
@@ -475,7 +477,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         return page(
             request,
             "batch_close.html",
-            crumbs=batch_trail(session, frame),
+            crumbs=ending_with(batch_trail(session, frame), "Close"),
             status_code=status_code,
             frame=frame,
             type_name=_type_name(session, frame),
@@ -611,7 +613,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         return page(
             request,
             "batch_edit.html",
-            crumbs=batch_trail(session, frame),
+            crumbs=ending_with(batch_trail(session, frame), "Edit"),
             status_code=status_code,
             frame=frame,
             type_name=_type_name(session, frame),
@@ -778,7 +780,9 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         return page(
             request,
             "batch_transfer.html",
-            crumbs=batch_trail(session, frame),
+            crumbs=ending_with(
+                batch_trail(session, frame), "Source and destination"
+            ),
             status_code=status_code,
             frame=frame,
             type_name=_type_name(session, frame),
@@ -892,7 +896,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                 return page(
                     request,
                     "batch_delete_blocked.html",
-                    crumbs=batch_trail(session, frame),
+                    crumbs=ending_with(batch_trail(session, frame), "Delete"),
                     status_code=409,
                     frame=frame,
                     blockers=[_choice(session, b) for b in blockers],
@@ -908,7 +912,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
             return page(
                 request,
                 "batch_confirm.html",
-                crumbs=batch_trail(session, frame),
+                crumbs=ending_with(batch_trail(session, frame), "Delete"),
                 heading=(
                     f"Delete {_type_name(session, frame)} "
                     f"“{frame.name}” on "

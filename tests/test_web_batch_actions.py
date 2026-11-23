@@ -426,6 +426,9 @@ def test_a_step_with_a_parent_flow_records_that_end_itself(client, world):
     assert crumbs.index(f'href="/equipment/{ids["bh1"]}"') < crumbs.index(
         f'href="/equipment/{ids["wc1"]}"'
     )
+    assert crumbs.endswith(
+        '<span aria-current="page">Start Wort cooling</span>'
+    )
     response = _press(
         client,
         url,
@@ -610,8 +613,18 @@ def test_editing_is_one_press_and_names_who_did_it(client, world):
     assert edited.updated_by_id == ids["sam"]
 
 
-@pytest.mark.parametrize("action", ["edit", "close", "transfer"])
-def test_changing_a_batch_keeps_the_whole_breadcrumb(client, world, action):
+@pytest.mark.parametrize(
+    "action, last",
+    [
+        ("edit", "Edit"),
+        ("close", "Close"),
+        ("transfer", "Source and destination"),
+        ("delete", "Delete"),
+    ],
+)
+def test_changing_a_batch_keeps_the_whole_breadcrumb(
+    client, world, action, last
+):
     _, ids = world
     batch = ids["running"]
     form = client.get(f"/batches/{batch}/{action}").text
@@ -620,6 +633,8 @@ def test_changing_a_batch_keeps_the_whole_breadcrumb(client, world, action):
     assert 'href="/sites/' in crumbs
     assert 'href="/equipment/' in crumbs
     assert f'href="/batches/{batch}"' in crumbs
+    # The form itself ends the trail, as text.
+    assert crumbs.endswith(f'<span aria-current="page">{last}</span>')
 
 
 def test_an_edit_that_changes_nothing_is_refused_with_its_breadcrumb(

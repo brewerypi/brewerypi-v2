@@ -53,7 +53,7 @@ from brewerypi.web.measurements import (
     unit_of,
     value_text,
 )
-from brewerypi.web.navigation import HOME, batch_trail
+from brewerypi.web.navigation import HOME, batch_trail, ending_with
 from brewerypi.web.rendering import page
 
 #: Readings per page on a measurement's page.
@@ -137,6 +137,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                 crumbs=[
                     HOME,
                     {"href": f"/sites/{site.id}", "name": site.name},
+                    {"name": area.name},
                 ],
                 area=area,
                 measurements=[measurement(session, t, t.name) for t in tags],
@@ -178,7 +179,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
             request,
             "measurement.html",
             status_code=status_code,
-            crumbs=_tag_crumbs(session, tag, frame),
+            crumbs=ending_with(_tag_crumbs(session, tag, frame), name),
             tag=tag,
             batch=frame,
             action_url=_measurement_url(tag.id, frame),
@@ -298,7 +299,9 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
             request,
             "reading_edit.html",
             status_code=status_code,
-            crumbs=_reading_trail(session, tag, frame),
+            crumbs=ending_with(
+                _reading_trail(session, tag, frame), "Correct reading"
+            ),
             reading=tv,
             action_url=_with_batch(f"/readings/{tv.id}/edit", frame),
             cancel_url=_measurement_url(tag.id, frame),
@@ -425,7 +428,9 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
             return page(
                 request,
                 "batch_confirm.html",
-                crumbs=_reading_trail(session, tag, frame),
+                crumbs=ending_with(
+                    _reading_trail(session, tag, frame), "Delete reading"
+                ),
                 heading=(
                     f"Delete the {value_text(session, tag, tv)} reading "
                     f"for {_title(session, tag)} at "
