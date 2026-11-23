@@ -138,12 +138,13 @@ def test_overlapping_mashing_refused_on_exclusive_mixer(ctx):
         )
 
 
-def test_touching_windows_allowed(ctx):
+def _mashing_until_7_30(ctx):
+    """Brew #1 with a 6:00-7:30 mashing, and Brew #2 open from 7:30."""
     session, ids = ctx
     b1 = create_event_frame(
         session, ids["bh"], ids["brew_t"], "Brew #1", started_at=D(17, 6)
     )
-    create_event_frame(
+    m1 = create_event_frame(
         session, ids["mm"], ids["mash_t"], "M1",
         started_at=D(17, 6), ended_at=D(17, 7, 30), parent_id=b1.id,
     )
@@ -151,11 +152,72 @@ def test_touching_windows_allowed(ctx):
         session, ids["bh"], ids["brew_t"], "Brew #2",
         started_at=D(17, 7, 30)
     )
-    # starts exactly when the previous ended -- half-open, so fine
+    return m1, b2
+
+
+def test_touching_brews_allowed_on_non_exclusive_brewhouse(ctx):
+    session, ids = ctx
+    b1 = create_event_frame(
+        session, ids["bh"], ids["brew_t"], "Brew #1",
+        started_at=D(17, 6), ended_at=D(17, 7, 30),
+    )
+    # the brewhouse overlaps freely, so touching is no different
+    b2 = create_event_frame(
+        session, ids["bh"], ids["brew_t"], "Brew #2",
+        started_at=b1.ended_at,
+    )
+    assert b2.id is not None
+
+
+def test_start_touching_the_previous_end_refused(ctx):
+    # A vessel empties before it fills again: starting at the very moment
+    # the previous batch ended is an entry mistake.
+    session, ids = ctx
+    _, b2 = _mashing_until_7_30(ctx)
+    with pytest.raises(ConflictError, match="ends the same second"):
+        create_event_frame(
+            session, ids["mm"], ids["mash_t"], "M2",
+            started_at=D(17, 7, 30), parent_id=b2.id,
+        )
+
+
+def test_start_just_after_the_previous_end_allowed(ctx):
+    session, ids = ctx
+    _, b2 = _mashing_until_7_30(ctx)
+    m2 = create_event_frame(
+        session, ids["mm"], ids["mash_t"], "M2",
+        started_at=D(17, 7, 30) + datetime.timedelta(seconds=1),
+        parent_id=b2.id,
+    )
+    assert m2.id is not None
+
+
+def test_end_touching_the_next_start_refused(ctx):
+    session, ids = ctx
+    b1 = create_event_frame(
+        session, ids["bh"], ids["brew_t"], "Brew #1", started_at=D(17, 5)
+    )
     create_event_frame(
         session, ids["mm"], ids["mash_t"], "M2",
-        started_at=D(17, 7, 30), parent_id=b2.id,
+        started_at=D(17, 7), ended_at=D(17, 8), parent_id=b1.id,
     )
+    # entered after the fact, ending as M2 starts
+    with pytest.raises(ConflictError, match="starts the same second"):
+        create_event_frame(
+            session, ids["mm"], ids["mash_t"], "M1",
+            started_at=D(17, 5), ended_at=D(17, 7), parent_id=b1.id,
+        )
+
+
+def test_moving_an_end_onto_the_next_start_refused(ctx):
+    session, ids = ctx
+    m1, b2 = _mashing_until_7_30(ctx)
+    create_event_frame(
+        session, ids["mm"], ids["mash_t"], "M2",
+        started_at=D(17, 8), parent_id=b2.id,
+    )
+    with pytest.raises(ConflictError, match="starts the same second"):
+        update_event_frame(session, m1.id, ended_at=D(17, 8))
 
 
 def test_open_frame_blocks_exclusive_element(ctx):
@@ -881,7 +943,12 @@ def test_a_separate_transfer_blocks_even_when_steps_close_along(
 def test_one_brew_cools_into_a_fermentation_and_a_propagation(
     brew_and_ferm,
 ):
-    """Two wort coolings in one brew, each to its own destination."""
+    """Two wort coolings in one brew, each to its own destination.
+
+    The valve swings at once, but the cooler is exclusive, so the second
+    cooling starts a second after the first ends rather than at the same
+    moment.
+    """
     session, ids, brew, ferm = brew_and_ferm
     prop = create_event_frame(
         session, ids["fv02"], ids["ferm_t"], "FV02 Prop", started_at=D(17, 5)
@@ -891,7 +958,9 @@ def test_one_brew_cools_into_a_fermentation_and_a_propagation(
         destination_event_frame_id=ferm.id,
     )
     second = wort_cooling(
-        session, ids, brew.id, start=D(17, 9), ended_at=D(17, 9, 30),
+        session, ids, brew.id,
+        start=D(17, 9) + datetime.timedelta(seconds=1),
+        ended_at=D(17, 9, 30),
         destination_event_frame_id=prop.id,
     )
     assert first.source_event_frame_id == second.source_event_frame_id
