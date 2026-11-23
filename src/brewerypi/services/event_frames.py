@@ -565,9 +565,9 @@ def delete_event_frame(session: Session, event_frame_id: int) -> None:
         others = len(blockers) - 1
         if others:
             message += (
-                f" {others} other transfer"
-                f"{' is' if others == 1 else 's are'} linked to it too. "
-                "Unlink or delete those transfers first."
+                f" {others} other batch"
+                f"{' is' if others == 1 else 'es are'} linked to it too. "
+                "Unlink or delete those batches first."
             )
         else:
             message += f" Unlink or delete {transfer} first."
@@ -840,7 +840,7 @@ def _check_transfer_links(
     """Enforce the flow rules for a frame's source/destination links."""
     if source_id is not None and source_id == destination_id:
         raise ValidationError(
-            "a transfer's source and destination must be different batches"
+            "The source and destination must be different batches."
         )
     site_id = _site_id_for_element(session, element)
     for role, endpoint_id in (
@@ -851,7 +851,7 @@ def _check_transfer_links(
             continue
         if frame_id is not None and endpoint_id == frame_id:
             raise ValidationError(
-                f"a batch cannot be its own transfer {role}"
+                f"A batch can't be its own {role}."
             )
         endpoint = session.get(EventFrame, endpoint_id)
         if endpoint is None:
@@ -862,7 +862,7 @@ def _check_transfer_links(
         if site_id is not None and endpoint_site != site_id:
             raise ValidationError(
                 f"{_batch_label(session, endpoint)} is at another site. "
-                "Beer can't transfer between sites."
+                "Beer can't move between sites."
             )
         _check_transfer_fits(session, endpoint, role, started_at, ended_at)
 
@@ -882,20 +882,20 @@ def _check_transfer_fits(
     batch = _batch_label(session, endpoint)
     if started_at < endpoint.started_at:
         raise ValidationError(
-            f"Can't start before {batch} started: a transfer's {role} must "
-            "already be running when beer moves."
+            f"Can't start before {batch} started: a {role} must already "
+            "be running when beer moves."
         )
     if endpoint.ended_at is None:
         return
     if ended_at is None:
         raise ValidationError(
-            f"{batch} is already closed, so a transfer with it as its "
+            f"{batch} is already closed, so a batch with it as its "
             f"{role} can't be left running. Give it an end time."
         )
     if ended_at > endpoint.ended_at:
         raise ValidationError(
-            f"Can't end after {batch} closed: a transfer's {role} must stay "
-            "open until the transfer finishes."
+            f"Can't end after {batch} closed: a {role} must stay open "
+            "until beer stops moving."
         )
 
 

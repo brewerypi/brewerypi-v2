@@ -567,7 +567,7 @@ def test_packaging_run_needs_no_destination(flow_ctx):
 def test_a_batch_cannot_be_its_own_source(brew_and_ferm):
     session, ids, brew, ferm = brew_and_ferm
     ko = knockout(session, ids, brew.id, ferm.id, end=D(17, 9, 30))
-    with pytest.raises(ValidationError, match="its own transfer source"):
+    with pytest.raises(ValidationError, match="its own source"):
         link_transfer(session, ko.id, source_event_frame_id=ko.id)
 
 
