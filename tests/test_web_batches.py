@@ -220,6 +220,14 @@ def test_home_lists_my_sites_with_what_is_running(client, world):
     assert "Secret Site" not in home
 
 
+def test_a_batch_card_reads_equipment_type_then_name(client, world):
+    _, ids = world
+    text = client.get(f"/sites/{ids['spr']}").text
+    card = text.split(f'href="/batches/{ids["running_brew"]}"')[1]
+    card = card.split('class="meta"')[0]
+    assert card.index("BH1") < card.index(">Brew<") < card.index("Brew 88")
+
+
 def test_site_page_nests_steps_and_separates_finished_batches(client, world):
     _, ids = world
     page = client.get(f"/sites/{ids['spr']}")

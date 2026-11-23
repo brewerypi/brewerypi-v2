@@ -3,8 +3,8 @@
 <a class="batch{% if not batch.open %} closed{% endif %}" href="/batches/{{ batch.id }}">
   <span class="batch-head">
     <span class="vessel">{{ batch.element_name or "Unknown equipment" }}</span>
-    <span class="batch-name">{{ batch.name }}</span>
     <span class="pill{% if not batch.open %} idle{% endif %}">{{ batch.type_name }}</span>
+    <span class="batch-name">{{ batch.name }}</span>
   </span>
   <span class="meta">
     {%- for label in batch.labels %}{{ label }} · {% endfor -%}
