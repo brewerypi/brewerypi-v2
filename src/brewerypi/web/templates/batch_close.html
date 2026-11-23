@@ -16,6 +16,7 @@
   <label class="field" for="ended_at">End time ({{ timezone }})
     <input id="ended_at" name="ended_at" type="datetime-local" value="{{ ended_at }}" required>
   </label>
+  <input type="hidden" name="ended_at_exact" value="{{ ended_at_exact }}">
   {{ save("Close batch", token, warnings, accepted, "/batches/" ~ frame.id) }}
 </form>
 {% endblock %}

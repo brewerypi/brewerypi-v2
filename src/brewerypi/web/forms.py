@@ -116,10 +116,25 @@ def parse_id(value: str) -> int | None:
     return int(value)
 
 
-def parse_time(value: str, zone: str, which: str) -> datetime:
-    """Read a local time from a form into naive UTC."""
+def parse_time(
+    value: str, zone: str, which: str, exact: str = ""
+) -> datetime:
+    """Read a local time from a form into naive UTC.
+
+    A time box shows only the minute. ``exact`` is the moment the box was
+    filled in with (``prefill_time``), so a box sent back untouched means
+    that moment to the second; otherwise a batch started and closed within
+    one minute would get an end no later than its start.
+    """
     if not value.strip():
         raise ValidationError(f"Enter the {which} date and time.")
+    if exact.strip():
+        try:
+            moment = to_utc(exact.strip(), zone)
+        except ValidationError:
+            moment = None
+        if moment is not None and input_time(moment, zone) == value.strip():
+            return moment
     try:
         return to_utc(value.strip(), zone)
     except ValidationError as exc:
@@ -135,6 +150,16 @@ def utc_now() -> datetime:
 def input_time(moment: datetime, zone: str) -> str:
     """A UTC moment as a ``datetime-local`` input expects, to the minute."""
     return from_utc(moment, zone)[:16]
+
+
+def prefill_time(zone: str) -> tuple[str, str]:
+    """Now, for a time box: what it shows, and the exact moment behind it.
+
+    The exact moment goes in a hidden field beside the box and comes back
+    to ``parse_time`` as ``exact``.
+    """
+    now = utc_now()
+    return input_time(now, zone), from_utc(now, zone)
 
 
 def shown_time(moment: datetime, zone: str) -> str:

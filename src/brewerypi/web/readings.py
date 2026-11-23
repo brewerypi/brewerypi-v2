@@ -37,12 +37,12 @@ from brewerypi.web.forms import (
     mint_token,
     operable,
     parse_time,
+    prefill_time,
     readable,
     shown_time,
     spend_token,
     stale_page,
     unaccepted,
-    utc_now,
 )
 from brewerypi.web.measurements import (
     batch_tag,
@@ -151,12 +151,15 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         page_number: int = 1,
         value: str = "",
         observed_at: str | None = None,
+        observed_at_exact: str = "",
         error: str | None = None,
         status_code: int = 200,
         frame: EventFrame | None = None,
         warnings: list[str] = (),
     ):
         zone = zone_for_tag(session, tag)
+        if observed_at is None:
+            observed_at, observed_at_exact = prefill_time(zone)
         element, name = owner(session, tag)
         found = services.list_tag_values(
             session,
@@ -194,11 +197,8 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                 else None
             ),
             value=value,
-            observed_at=(
-                input_time(utc_now(), zone)
-                if observed_at is None
-                else observed_at
-            ),
+            observed_at=observed_at,
+            observed_at_exact=observed_at_exact,
             timezone=zone,
             readings=readings,
             page_number=page_number,
@@ -230,6 +230,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         tag_id: int,
         value: str = Form(""),
         observed_at: str = Form(""),
+        observed_at_exact: str = Form(""),
         accepted: str = Form(""),
         token: str = Form(""),
         batch_id: int | None = Query(None, alias="batch"),
@@ -246,6 +247,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                     tag,
                     value=value,
                     observed_at=observed_at,
+                    observed_at_exact=observed_at_exact,
                     frame=frame,
                     **notice,
                 )
@@ -254,7 +256,9 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                 return again(error=OUT_OF_DATE, status_code=409)
             zone = zone_for_tag(session, tag)
             try:
-                when = parse_time(observed_at, zone, "reading's")
+                when = parse_time(
+                    observed_at, zone, "reading's", observed_at_exact
+                )
                 number_value, option = parse_value(session, tag, value)
                 services.record_tag_value(
                     session,

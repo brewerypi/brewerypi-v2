@@ -36,6 +36,7 @@ from brewerypi.services import (
     NotFoundError,
     PermissionDeniedError,
     ServiceError,
+    ValidationError,
 )
 from brewerypi.timezones import (
     resolve_timezone,
@@ -46,6 +47,7 @@ from brewerypi.web.auth import signed_in_user
 from brewerypi.web.entry import (
     entry_form,
     form_fields,
+    form_time,
     record_entries,
     typed_values,
 )
@@ -54,7 +56,6 @@ from brewerypi.web.forms import (
     future_warning,
     mint_token,
     operable,
-    parse_time,
     readable,
     spend_token,
     unaccepted,
@@ -525,9 +526,15 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
 
             if not spend_token(request, fields.get("token", "")):
                 return again(409, error=OUT_OF_DATE)
-            # Whatever was typed saves with the press, all or nothing.
+            try:
+                when = form_time(fields, zone, "")
+            except ValidationError as exc:
+                return again(400, error=str(exc))
+            # Whatever was typed saves with the press, all or nothing, at
+            # the step's own instant.
             errors, error, warnings = record_entries(
-                session, tags, fields, zone, frames, frame, required=False
+                session, tags, fields, zone, frames, frame, required=False,
+                when=when,
             )
             if errors or error:
                 session.rollback()
@@ -535,7 +542,6 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
             recorded = bool(
                 [v for v in typed_values(fields, tags).values() if v.strip()]
             )
-            when = parse_time(fields.get("observed_at", ""), zone, "")
             try:
                 done, more = run_action(session, user, frame, action, when)
             except (NotFoundError, PermissionDeniedError):
@@ -598,6 +604,7 @@ def _typed_entry(request, session, element, tags, fields):
             zone,
             values=typed_values(fields, tags),
             observed_at=fields.get("observed_at", ""),
+            observed_at_exact=fields.get("observed_at_exact", ""),
             **notice,
         )
 

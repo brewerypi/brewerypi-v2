@@ -475,6 +475,53 @@ def test_finishing_a_step_saves_what_was_typed_with_it(client, world):
     assert "Step finished and readings recorded." in text
 
 
+def _press_as_offered(client, batch_id, action, **extra):
+    """Press a step's button leaving the page's time as the page filled it."""
+    url = f"/batches/{batch_id}"
+    page = client.get(url).text
+
+    def offered(field):
+        found = re.search(rf'name="{field}"[^>]*value="([^"]*)"', page)
+        assert found, f"the page has no {field}"
+        return html.unescape(found.group(1))
+
+    return client.post(
+        f"{url}/steps",
+        data={
+            "action": action,
+            "observed_at": offered("observed_at"),
+            "observed_at_exact": offered("observed_at_exact"),
+            "token": _token(page),
+            **extra,
+        },
+    )
+
+
+def test_a_step_started_and_finished_within_a_minute_finishes(
+    client, world
+):
+    # The page's time shows only the minute; untouched, it means the moment
+    # the page was filled in, so a quick Finish still comes after Start.
+    factory, ids = world
+    made = _brewhouse(factory, ids)
+    started = _press_as_offered(
+        client, ids["running_brew"],
+        f"start:{made['lautering']}:{made['lt1']}",
+    )
+    assert started.status_code == 303, started.text
+    [step] = _frames(factory, event_frame_template_id=made["lautering"])
+    finished = _press_as_offered(
+        client, ids["running_brew"], f"finish:{step.id}",
+        **{f"value_{made['runoff']}": "13.8"},
+    )
+    assert finished.status_code == 303, finished.text
+    [step] = _frames(factory, id=step.id)
+    assert step.ended_at > step.started_at
+    # The readings typed with the press share its instant exactly.
+    [reading] = _values(factory, made["runoff"])
+    assert reading.observed_at == step.ended_at
+
+
 def test_a_bad_value_stops_the_step_too(client, world):
     factory, ids = world
     made = _brewhouse(factory, ids)

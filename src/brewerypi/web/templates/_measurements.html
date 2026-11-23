@@ -60,6 +60,7 @@
 <label class="field" for="observed_at">Time ({{ entry.timezone }})
   <input id="observed_at" name="observed_at" type="datetime-local" value="{{ entry.observed_at }}" required>
 </label>
+<input type="hidden" name="observed_at_exact" value="{{ entry.observed_at_exact }}">
 <p class="muted">Fill in any you have; blank ones are skipped.</p>
 {% endmacro %}
 

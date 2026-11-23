@@ -53,10 +53,10 @@ from brewerypi.web.forms import (
     operable,
     parse_id,
     parse_time,
+    prefill_time,
     spend_token,
     stale_page,
     unaccepted,
-    utc_now,
 )
 from brewerypi.web.measurements import property_text, value_text
 from brewerypi.web.navigation import batch_trail, ending_with, trail
@@ -311,6 +311,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         template: EventFrameTemplate,
         name: str = "",
         started_at: str = "",
+        started_at_exact: str = "",
         parent_id: str = "",
         source_id: str = "",
         destination_id: str = "",
@@ -320,6 +321,8 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         typed: dict[int, str] | None = None,
     ):
         zone = zone_for_element(session, element)
+        if not started_at:
+            started_at, started_at_exact = prefill_time(zone)
         parents = []
         if template.parent_id is not None:
             parents = [
@@ -357,7 +360,8 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
             timezone=zone,
             error=error,
             name=name,
-            started_at=started_at or input_time(utc_now(), zone),
+            started_at=started_at,
+            started_at_exact=started_at_exact,
             parents=parents,
             # With one running batch to belong to, there's nothing to ask.
             parent_id=parent_id
@@ -399,6 +403,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         type_id: str = Form(""),
         name: str = Form(""),
         started_at: str = Form(""),
+        started_at_exact: str = Form(""),
         parent_id: str = Form(""),
         source_id: str = Form(""),
         destination_id: str = Form(""),
@@ -431,6 +436,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
             fields = {
                 "name": name,
                 "started_at": started_at,
+                "started_at_exact": started_at_exact,
                 "parent_id": parent_id,
                 "source_id": source_id,
                 "destination_id": destination_id,
@@ -447,7 +453,9 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                 return again(error=OUT_OF_DATE, status_code=409)
             zone = zone_for_element(session, element)
             try:
-                start = parse_time(started_at, zone, "start")
+                start = parse_time(
+                    started_at, zone, "start", started_at_exact
+                )
                 frame = services.create_event_frame(
                     session,
                     element.id,
@@ -487,11 +495,14 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         session,
         frame,
         ended_at="",
+        ended_at_exact="",
         error=None,
         status_code=200,
         warnings=(),
     ):
         zone = zone_for_frame(session, frame)
+        if not ended_at:
+            ended_at, ended_at_exact = prefill_time(zone)
         steps = _open_descendants(session, frame)
         return page(
             request,
@@ -502,7 +513,8 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
             type_name=_type_name(session, frame),
             vessel=_vessel_name(session, frame),
             timezone=zone,
-            ended_at=ended_at or input_time(utc_now(), zone),
+            ended_at=ended_at,
+            ended_at_exact=ended_at_exact,
             steps=[
                 f"{_type_name(session, s)} “{s.name}” on "
                 f"{_vessel_name(session, s)}"
@@ -532,6 +544,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
         request: Request,
         batch_id: int,
         ended_at: str = Form(""),
+        ended_at_exact: str = Form(""),
         accepted: str = Form(""),
         token: str = Form(""),
         user: CurrentUser = Depends(signed_in_user),
@@ -540,7 +553,10 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
             frame = operable(session, user, EventFrame, batch_id)
 
             def again(**notice):
-                return close_form(request, session, frame, ended_at, **notice)
+                return close_form(
+                    request, session, frame, ended_at, ended_at_exact,
+                    **notice,
+                )
 
             if frame.ended_at is not None:
                 # Most likely a second tab: the first already closed it.
@@ -551,7 +567,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                 return again(error=OUT_OF_DATE, status_code=409)
             zone = zone_for_frame(session, frame)
             try:
-                end = parse_time(ended_at, zone, "end")
+                end = parse_time(ended_at, zone, "end", ended_at_exact)
                 services.close_event_frame(
                     session, frame.id, end, ended_by_id=caller_id()
                 )
