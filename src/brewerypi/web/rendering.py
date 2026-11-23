@@ -56,7 +56,7 @@ _NOTICES = {
     "closed": "Batch closed.",
     "reopened": "Batch reopened.",
     "updated": "Changes saved.",
-    "linked": "Transfer saved.",
+    "linked": "Source / Destination saved.",
     "deleted": "Batch deleted.",
     "recorded": "Reading recorded.",
     "readings_recorded": "Readings recorded.",

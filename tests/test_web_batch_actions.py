@@ -739,6 +739,9 @@ def test_linking_a_transfer_late_names_who_did_it(client, world):
         client, url, {"source_id": str(ids["running"]), "destination_id": ""}
     )
     assert response.status_code == 303
+    batch_page = client.get(response.headers["location"]).text
+    assert "Source / Destination saved." in batch_page
+    assert f'href="{url}">Source / Destination</a>' in batch_page
     linked = _frame(factory, move_id)
     assert linked.source_event_frame_id == ids["running"]
     assert linked.updated_by_id == ids["sam"]
@@ -754,7 +757,10 @@ def test_clearing_a_transfer_end(client, world):
         s.commit()
         move_id = move.id
     url = f"/batches/{move_id}/transfer"
-    assert f'value="{ids["running"]}" selected' in client.get(url).text
+    form = client.get(url).text
+    assert f'value="{ids["running"]}" selected' in form
+    assert '<option value="">No source</option>' in form
+    assert '<option value="">No destination</option>' in form
     _press(client, url, {"source_id": "", "destination_id": ""})
     assert _frame(factory, move_id).source_event_frame_id is None
 
@@ -848,7 +854,33 @@ def test_a_batch_a_transfer_points_at_cant_be_deleted(client, world):
     assert response.status_code == 409
     assert 'name="token"' not in response.text
     assert f'href="/batches/{move_id}"' in response.text
+    assert "delete Fermentation “Batch 1240” yet" in response.text
+    assert (
+        "Fermentation “Move” on FV03 has it as its source. "
+        "Unlink or delete Fermentation “Move” first." in response.text
+    )
+    assert "press Source / Destination, and choose “No source”" in (
+        response.text
+    )
     assert _frame(factory, ids["running"]) is not None
+
+
+def test_a_delete_blocked_twice_says_which_end_each_is(client, world):
+    factory, ids = world
+    with factory() as s:
+        create_event_frame(
+            s, ids["fv03"], ids["fermentation"], "Move", started_at=_at(12),
+            source_event_frame_id=ids["running"],
+        )
+        create_event_frame(
+            s, ids["fv02"], ids["fermentation"], "Back", started_at=_at(12),
+            destination_event_frame_id=ids["running"],
+        )
+        s.commit()
+    page = client.get(f"/batches/{ids['running']}/delete").text
+    assert "These batches have it, or a step inside it, as their" in page
+    assert "Fermentation “Move” on FV03 · source</a>" in page
+    assert "Fermentation “Back” on FV02 · destination</a>" in page
 
 
 def test_delete_needs_the_token(client, world):

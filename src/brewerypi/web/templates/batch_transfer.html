@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "_forms.html" import notices, save %}
-{% block title %}Transfer for {{ frame.name }}{% endblock %}
+{% block title %}Source / Destination for {{ frame.name }}{% endblock %}
 {% block content %}
 <h1>Source and destination of “{{ frame.name }}”</h1>
 {{ notices(error, warnings) }}
@@ -10,7 +10,7 @@
   {% else %}
   <label class="field" for="source_id">Source
     <select id="source_id" name="source_id">
-      <option value="">Nothing recorded</option>
+      <option value="">No source</option>
       {% for choice in choices %}<option value="{{ choice.id }}"{% if choice.id|string == source_id %} selected{% endif %}>{{ choice.label }}</option>{% endfor %}
     </select>
   </label>
@@ -20,12 +20,12 @@
   {% else %}
   <label class="field" for="destination_id">Destination
     <select id="destination_id" name="destination_id">
-      <option value="">Nothing recorded</option>
+      <option value="">No destination</option>
       {% for choice in choices %}<option value="{{ choice.id }}"{% if choice.id|string == destination_id %} selected{% endif %}>{{ choice.label }}</option>{% endfor %}
     </select>
   </label>
   {% endif %}
   <p class="muted">Only batches running for this batch's whole time are listed, because both ends have to be.</p>
-  {{ save("Save transfer", token, warnings, accepted, "/batches/" ~ frame.id) }}
+  {{ save("Save source / destination", token, warnings, accepted, "/batches/" ~ frame.id) }}
 </form>
 {% endblock %}

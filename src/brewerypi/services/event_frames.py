@@ -275,6 +275,7 @@ def create_event_frame(
     _check_parent(session, element, template, parent_id, started_at, ended_at)
     _check_overlap(session, element, started_at, ended_at)
     source_event_frame_id, destination_event_frame_id = _apply_parent_flow(
+        session,
         template,
         parent_id,
         source_event_frame_id,
@@ -331,8 +332,7 @@ def close_event_frame(
     frame = get_event_frame(session, event_frame_id)
     if frame.ended_at is not None:
         raise ValidationError(
-            f"event frame {event_frame_id} is already closed "
-            f"(ended {frame.ended_at.isoformat()})"
+            f"{_batch_label(session, frame)} is already closed."
         )
     if ended_at is None:
         ended_at = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -388,7 +388,7 @@ def reopen_event_frame(
     frame = get_event_frame(session, event_frame_id)
     if frame.ended_at is None:
         raise ValidationError(
-            f"event frame {event_frame_id} is already open"
+            f"{_batch_label(session, frame)} is already running."
         )
     _check_overlap(
         session,
@@ -496,9 +496,10 @@ def link_transfer(
     if (implied == "source" and source_event_frame_id is None) or (
         implied == "destination" and destination_event_frame_id is None
     ):
+        parent = session.get(EventFrame, frame.parent_id)
         raise ValidationError(
-            f"this batch's {implied} is always the batch it sits inside, so "
-            "it cannot be cleared"
+            f"A {template.name}'s {implied} is always the batch it runs "
+            f"inside, {_batch_label(session, parent)}. It can't be cleared."
         )
     source = (
         frame.source_event_frame_id
@@ -511,6 +512,7 @@ def link_transfer(
         else destination_event_frame_id
     )
     source, destination = _apply_parent_flow(
+        session,
         template, frame.parent_id, source, destination
     )
     _check_transfer_links(
@@ -546,25 +548,30 @@ def delete_event_frame(session: Session, event_frame_id: int) -> None:
     window over data it does not own.
     """
     frame = get_event_frame(session, event_frame_id)
-    doomed = _subtree_ids(session, frame.id)
     blockers = transfers_blocking_delete(session, event_frame_id)
     if blockers:
         first = blockers[0]
-        role = (
-            "source"
-            if first.source_event_frame_id in doomed
-            else "destination"
+        role, linked_frame = blocking_link(session, frame, first)
+        linked = (
+            "it"
+            if linked_frame.id == frame.id
+            else _batch_label(session, linked_frame) + ", a step inside it,"
         )
-        extra = (
-            f" (and {len(blockers) - 1} other transfer(s))"
-            if len(blockers) > 1
-            else ""
+        transfer = _batch_label(session, first)
+        message = (
+            f"Can't delete {_batch_label(session, frame)}: {transfer} on "
+            f"{_element_name(session, first)} has {linked} as its {role}."
         )
-        raise ConflictError(
-            f"cannot delete event frame {event_frame_id}: it is the {role} "
-            f"of transfer frame {first.id} ({first.name!r}){extra}; unlink "
-            "the transfer first"
-        )
+        others = len(blockers) - 1
+        if others:
+            message += (
+                f" {others} other batch"
+                f"{' is' if others == 1 else 'es are'} linked to it too. "
+                "Unlink or delete those batches first."
+            )
+        else:
+            message += f" Unlink or delete {transfer} first."
+        raise ConflictError(message)
     session.delete(frame)
     session.flush()
 
@@ -579,6 +586,23 @@ def transfers_blocking_delete(
     """
     doomed = _subtree_ids(session, event_frame_id)
     return transfers_referencing(session, doomed, exclude_ids=doomed)
+
+
+def blocking_link(
+    session: Session, frame: EventFrame, transfer: EventFrame
+) -> tuple[str, EventFrame]:
+    """Which end of a delete-blocking transfer is tied to ``frame``.
+
+    Returns the end (``"source"`` or ``"destination"``) and the batch at
+    that end: ``frame`` itself, or a step inside it. ``transfer`` must be
+    one of ``transfers_blocking_delete(frame.id)``.
+    """
+    doomed = _subtree_ids(session, frame.id)
+    if transfer.source_event_frame_id in doomed:
+        role, linked_id = "source", transfer.source_event_frame_id
+    else:
+        role, linked_id = "destination", transfer.destination_event_frame_id
+    return role, session.get(EventFrame, linked_id)
 
 
 def transfers_referencing(
@@ -612,7 +636,7 @@ def _check_window(
 ) -> None:
     if ended_at is not None and ended_at <= started_at:
         raise ValidationError(
-            "ended_at must be after started_at"
+            "The end time must be after the start time."
         )
 
 
@@ -650,7 +674,7 @@ def _check_parent(
             f"element {element.id} must be a child of the parent frame's "
             f"element ({parent.element_id})"
         )
-    _check_contains(parent, started_at, ended_at)
+    _check_contains(session, parent, started_at, ended_at)
 
 
 def _check_within_parent(
@@ -663,30 +687,32 @@ def _check_within_parent(
         return
     parent = session.get(EventFrame, frame.parent_id)
     if parent is not None:
-        _check_contains(parent, started_at, ended_at)
+        _check_contains(session, parent, started_at, ended_at)
 
 
 def _check_contains(
+    session: Session,
     parent: EventFrame,
     started_at: datetime,
     ended_at: datetime | None,
 ) -> None:
     """A child's window must sit within its parent's."""
+    batch = _batch_label(session, parent)
     if started_at < parent.started_at:
         raise ValidationError(
-            f"frame starts before its parent frame {parent.id} "
-            f"({parent.started_at.isoformat()})"
+            f"Can't start before {batch} started: a step runs inside its "
+            "batch."
         )
     if parent.ended_at is not None:
         if ended_at is None:
             raise ValidationError(
-                f"parent frame {parent.id} is closed, so this frame cannot "
-                "be left open"
+                f"{batch} is already closed, so a step inside it can't be "
+                "left running. Give it an end time."
             )
         if ended_at > parent.ended_at:
             raise ValidationError(
-                f"frame ends after its parent frame {parent.id} "
-                f"({parent.ended_at.isoformat()})"
+                f"Can't end after {batch} closed: a step runs inside its "
+                "batch."
             )
 
 
@@ -702,14 +728,20 @@ def _check_children_fit(
     ).all()
     for child in children:
         if child.started_at < started_at:
+            step = _batch_label(session, child)
             raise ValidationError(
-                f"child frame {child.id} starts before the new window"
+                f"Can't move the start of {_batch_label(session, frame)}: "
+                f"{step} on {_element_name(session, child)} starts "
+                f"earlier. Move {step} first."
             )
         if ended_at is not None and (
             child.ended_at is None or child.ended_at > ended_at
         ):
+            step = _batch_label(session, child)
             raise ValidationError(
-                f"child frame {child.id} would extend past the new end"
+                f"Can't move the end of {_batch_label(session, frame)}: "
+                f"{step} on {_element_name(session, child)} ends later. "
+                f"Move {step} first."
             )
 
 
@@ -743,16 +775,9 @@ def _check_overlap(
         stmt = stmt.where(EventFrame.id != exclude_id)
     clash = session.scalars(stmt).first()
     if clash is not None:
-        end_text = (
-            clash.ended_at.isoformat()
-            if clash.ended_at is not None
-            else "open"
-        )
         raise ConflictError(
-            f"element {element.name!r} is single-occupancy and already has "
-            f"event frame {clash.id} ({clash.name!r}, "
-            f"{clash.started_at.isoformat()} to {end_text}) overlapping "
-            "this window"
+            f"{element.name} runs one batch at a time, and "
+            f"{_batch_label(session, clash)} is on it then."
         )
 
 
@@ -775,6 +800,7 @@ def _implied_end(
 
 
 def _apply_parent_flow(
+    session: Session,
     template: EventFrameTemplate | None,
     parent_id: int | None,
     source_id: int | None,
@@ -792,10 +818,10 @@ def _apply_parent_flow(
         return source_id, destination_id
     given = source_id if implied == "source" else destination_id
     if given is not None and given != parent_id:
+        parent = session.get(EventFrame, parent_id)
         raise ValidationError(
-            f"a {template.name!r} batch's {implied} is always the batch it "
-            f"sits inside (event frame {parent_id}); it cannot be event "
-            f"frame {given}"
+            f"A {template.name}'s {implied} is always the batch it runs "
+            f"inside, {_batch_label(session, parent)}. It can't be changed."
         )
     if implied == "source":
         return parent_id, destination_id
@@ -814,7 +840,7 @@ def _check_transfer_links(
     """Enforce the flow rules for a frame's source/destination links."""
     if source_id is not None and source_id == destination_id:
         raise ValidationError(
-            "a transfer's source and destination must be different batches"
+            "The source and destination must be different batches."
         )
     site_id = _site_id_for_element(session, element)
     for role, endpoint_id in (
@@ -825,7 +851,7 @@ def _check_transfer_links(
             continue
         if frame_id is not None and endpoint_id == frame_id:
             raise ValidationError(
-                f"a batch cannot be its own transfer {role}"
+                f"A batch can't be its own {role}."
             )
         endpoint = session.get(EventFrame, endpoint_id)
         if endpoint is None:
@@ -835,13 +861,14 @@ def _check_transfer_links(
         )
         if site_id is not None and endpoint_site != site_id:
             raise ValidationError(
-                f"the {role} batch {endpoint.id} ({endpoint.name!r}) is at "
-                "another site; beer does not transfer between sites"
+                f"{_batch_label(session, endpoint)} is at another site. "
+                "Beer can't move between sites."
             )
-        _check_transfer_fits(endpoint, role, started_at, ended_at)
+        _check_transfer_fits(session, endpoint, role, started_at, ended_at)
 
 
 def _check_transfer_fits(
+    session: Session,
     endpoint: EventFrame,
     role: str,
     started_at: datetime,
@@ -852,24 +879,23 @@ def _check_transfer_fits(
     An open endpoint runs to +infinity, so it constrains only the start; an
     open transfer runs to +infinity too, so it needs an open endpoint.
     """
+    batch = _batch_label(session, endpoint)
     if started_at < endpoint.started_at:
         raise ValidationError(
-            f"the transfer starts before its {role} batch {endpoint.id} "
-            f"({endpoint.name!r}, {endpoint.started_at.isoformat()}); the "
-            f"{role} batch must already be running when beer moves"
+            f"Can't start before {batch} started: a {role} must already "
+            "be running when beer moves."
         )
     if endpoint.ended_at is None:
         return
     if ended_at is None:
         raise ValidationError(
-            f"the {role} batch {endpoint.id} ({endpoint.name!r}) is already "
-            "closed, so this transfer cannot be left open"
+            f"{batch} is already closed, so a batch with it as its "
+            f"{role} can't be left running. Give it an end time."
         )
     if ended_at > endpoint.ended_at:
         raise ValidationError(
-            f"the transfer ends after its {role} batch {endpoint.id} "
-            f"({endpoint.name!r}, {endpoint.ended_at.isoformat()}); the "
-            f"{role} batch must stay open until the transfer finishes"
+            f"Can't end after {batch} closed: a {role} must stay open "
+            "until beer stops moving."
         )
 
 
@@ -887,34 +913,46 @@ def _check_linked_transfers_fit(
     it is judged as already closed there rather than as still running.
     """
     for transfer in transfers_referencing(session, [frame.id], [frame.id]):
-        role = (
-            "out of"
-            if transfer.source_event_frame_id == frame.id
-            else "into"
-        )
         transfer_ended_at = transfer.ended_at
         if transfer_ended_at is None and transfer.id in closing_ids:
             transfer_ended_at = ended_at
         if ended_at is not None and transfer_ended_at is None:
+            batch = _batch_label(session, frame)
+            running = _batch_label(session, transfer)
             raise ConflictError(
-                f"transfer frame {transfer.id} ({transfer.name!r}) is still "
-                f"running {role} this batch; close the transfer first"
+                f"Can't close {batch} yet: {running} on "
+                f"{_element_name(session, transfer)} is still running. "
+                f"Close {running} first, then close {batch}."
             )
         if transfer.started_at < started_at:
+            moving = _batch_label(session, transfer)
             raise ValidationError(
-                f"transfer frame {transfer.id} ({transfer.name!r}) starts "
-                f"{transfer.started_at.isoformat()}, before the new start"
+                f"Can't move the start of {_batch_label(session, frame)}: "
+                f"{moving} on {_element_name(session, transfer)} starts "
+                f"earlier. Move {moving} first."
             )
         if (
             ended_at is not None
             and transfer_ended_at is not None
             and transfer_ended_at > ended_at
         ):
+            moving = _batch_label(session, transfer)
             raise ValidationError(
-                f"transfer frame {transfer.id} ({transfer.name!r}) runs "
-                f"{role} this batch until "
-                f"{transfer_ended_at.isoformat()}, past the new end"
+                f"Can't move the end of {_batch_label(session, frame)}: "
+                f"{moving} on {_element_name(session, transfer)} ends "
+                f"later. Move {moving} first."
             )
+
+
+def _batch_label(session: Session, frame: EventFrame) -> str:
+    """A batch as staff know it: its type and name, as configured."""
+    template = session.get(EventFrameTemplate, frame.event_frame_template_id)
+    return f'{template.name} "{frame.name}"'
+
+
+def _element_name(session: Session, frame: EventFrame) -> str:
+    """The equipment a batch runs on, as configured."""
+    return session.get(Element, frame.element_id).name
 
 
 def _subtree_ids(session: Session, frame_id: int) -> set[int]:

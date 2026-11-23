@@ -82,6 +82,7 @@ from brewerypi.services.event_frame_templates import (
     update_event_frame_template,
 )
 from brewerypi.services.event_frames import (
+    blocking_link,
     close_event_frame,
     count_finished_top_level_by_template,
     create_event_frame,
@@ -181,6 +182,7 @@ __all__ = [
     "ValidationError",
     "add_default_measurement_units",
     "attributed_counts",
+    "blocking_link",
     "build_tag_name",
     "close_event_frame",
     "count_finished_top_level_by_template",

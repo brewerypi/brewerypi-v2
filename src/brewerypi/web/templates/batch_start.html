@@ -43,7 +43,7 @@
   {% else %}
   <p class="muted">Its destination is the batch it's part of.</p>
   {% endif %}
-  <p class="muted">For a transfer, the batches at both ends must already be running at the start time. You can add the receiving batch later.</p>
+  <p class="muted">For a source or destination, the batches at both ends must already be running at the start time. You can add the receiving batch later.</p>
   {{ save("Start batch", token, warnings, accepted, "/equipment/" ~ element.id) }}
 </form>
 {% endblock %}

@@ -484,7 +484,7 @@ def test_batch_page_shows_steps_and_parent_both_ways(client, world):
 def test_batch_page_shows_transfers_both_ways(client, world):
     _, ids = world
     source = client.get(f"/batches/{ids['running_ferment']}").text
-    assert "Transfers out" in source
+    assert "Destinations" in source
     assert "Move 1239" in source
     transfer = client.get(f"/batches/{ids['knockout']}").text
     assert "<h2>Source</h2>" in transfer
