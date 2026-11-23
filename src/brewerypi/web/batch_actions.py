@@ -181,6 +181,25 @@ def _choice(session: Session, frame: EventFrame) -> dict:
     }
 
 
+def _named(session: Session, frame: EventFrame) -> str:
+    """A batch as its type and name: Wort Cooling “1”."""
+    return f"{_type_name(session, frame)} “{frame.name}”"
+
+
+def _blocker(
+    session: Session, frame: EventFrame, transfer: EventFrame
+) -> dict:
+    """A transfer stopping ``frame``'s delete, and which end ties them."""
+    role, linked = services.blocking_link(session, frame, transfer)
+    return {
+        "id": transfer.id,
+        "name": _named(session, transfer),
+        "vessel": _vessel_name(session, transfer),
+        "role": role,
+        "via": None if linked.id == frame.id else _named(session, linked),
+    }
+
+
 def _form_extras(request: Request, warnings: list[str]) -> dict:
     """What every write form's template needs: its warnings and a pass."""
     return {
@@ -899,7 +918,10 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                     crumbs=ending_with(batch_trail(session, frame), "Delete"),
                     status_code=409,
                     frame=frame,
-                    blockers=[_choice(session, b) for b in blockers],
+                    type_name=_type_name(session, frame),
+                    blockers=[
+                        _blocker(session, frame, b) for b in blockers
+                    ],
                 )
             nested = _all_descendants(session, frame)
             notes = ["Readings and measurements are kept."]

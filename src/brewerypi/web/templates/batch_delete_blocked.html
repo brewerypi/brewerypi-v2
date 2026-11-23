@@ -1,10 +1,17 @@
 {% extends "base.html" %}
 {% block title %}Can't delete {{ frame.name }}{% endblock %}
 {% block content %}
-<h1>Can't delete “{{ frame.name }}” yet</h1>
-<p>These transfers still record beer moving to or from it. Unlink or delete them first, so that no batch loses track of where its beer came from.</p>
+<h1>Can't delete {{ type_name }} “{{ frame.name }}” yet</h1>
+{% if blockers|length == 1 %}
+{% set b = blockers[0] %}
+<p>{{ b.name }} on {{ b.vessel }} has {% if b.via %}{{ b.via }}, a step inside it,{% else %}it{% endif %} as its {{ b.role }}. Unlink or delete {{ b.name }} first.</p>
+<p class="muted">To unlink it, open {{ b.name }}, press Source / Destination, and choose “No {{ b.role }}”.</p>
+{% else %}
+<p>These batches have it, or a step inside it, as their source or destination. Unlink or delete them first.</p>
+<p class="muted">To unlink one, open it, press Source / Destination, and choose “No source” or “No destination”.</p>
+{% endif %}
 <section class="section">
-  {% for blocker in blockers %}<a class="tile" href="/batches/{{ blocker.id }}">{{ blocker.label }}</a>{% endfor %}
+  {% for b in blockers %}<a class="tile" href="/batches/{{ b.id }}">{{ b.name }} on {{ b.vessel }}{% if blockers|length > 1 %} · {{ b.role }}{% if b.via %}, through {{ b.via }}, a step inside it{% endif %}{% endif %}</a>{% endfor %}
 </section>
 <p><a class="btn quiet" href="/batches/{{ frame.id }}">Back to the batch</a></p>
 {% endblock %}

@@ -548,19 +548,14 @@ def delete_event_frame(session: Session, event_frame_id: int) -> None:
     window over data it does not own.
     """
     frame = get_event_frame(session, event_frame_id)
-    doomed = _subtree_ids(session, frame.id)
     blockers = transfers_blocking_delete(session, event_frame_id)
     if blockers:
         first = blockers[0]
-        if first.source_event_frame_id in doomed:
-            role, linked_id = "source", first.source_event_frame_id
-        else:
-            role, linked_id = "destination", first.destination_event_frame_id
+        role, linked_frame = blocking_link(session, frame, first)
         linked = (
             "it"
-            if linked_id == frame.id
-            else _batch_label(session, session.get(EventFrame, linked_id))
-            + ", a step inside it,"
+            if linked_frame.id == frame.id
+            else _batch_label(session, linked_frame) + ", a step inside it,"
         )
         transfer = _batch_label(session, first)
         message = (
@@ -591,6 +586,23 @@ def transfers_blocking_delete(
     """
     doomed = _subtree_ids(session, event_frame_id)
     return transfers_referencing(session, doomed, exclude_ids=doomed)
+
+
+def blocking_link(
+    session: Session, frame: EventFrame, transfer: EventFrame
+) -> tuple[str, EventFrame]:
+    """Which end of a delete-blocking transfer is tied to ``frame``.
+
+    Returns the end (``"source"`` or ``"destination"``) and the batch at
+    that end: ``frame`` itself, or a step inside it. ``transfer`` must be
+    one of ``transfers_blocking_delete(frame.id)``.
+    """
+    doomed = _subtree_ids(session, frame.id)
+    if transfer.source_event_frame_id in doomed:
+        role, linked_id = "source", transfer.source_event_frame_id
+    else:
+        role, linked_id = "destination", transfer.destination_event_frame_id
+    return role, session.get(EventFrame, linked_id)
 
 
 def transfers_referencing(
