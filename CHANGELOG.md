@@ -25,6 +25,14 @@ All notable changes to this project are documented here. The format is based on
   properties.
 
 ### Changed
+- On equipment that runs one batch at a time, a batch can no longer start
+  at the very moment the previous one ended, or end at the very moment the
+  next one starts: leave at least a second between them. A vessel empties
+  before it fills again, and a shared moment put both batches' boundary
+  values on one tag at one instant, inside both windows. Equipment that
+  runs batches side by side, such as a brewhouse, is unchanged. Batches
+  that already touch are kept, but a reopen or time edit on one is refused
+  until the times are separated.
 - `delete_user` and `brewerypi-users remove` now refuse anyone a reading or
   batch names; deactivate them instead.
 - The web app shows and takes times to the second: time boxes accept

@@ -177,7 +177,11 @@ delete guards.
   parent, so `close_event_frame` passes `closing_ids` to the linked-transfer
   check — a descendant being closed in the same call must not block it. A
   separate (non-descendant) transfer still does.
-  Half-open intervals (touching allowed; open = +infinity).
+  Half-open intervals (open = +infinity), but on an EXCLUSIVE element
+  touching is refused too: a batch must start at least a second after the
+  previous one ended (a vessel empties before it fills; see *Back-to-back
+  batches* in `docs/design-decisions.md`). Non-exclusive elements may
+  touch and overlap freely.
   Open writes default START values as readings at `started_at`; close writes
   END values at `ended_at` and closes open descendants too. Reopen re-runs the
   guards and leaves readings alone. Boundary moves never touch readings — a
@@ -491,9 +495,9 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
   with BOTH ends inclusive so the close's end value counts; `?batch=` keeps a
   measurement page and its record/edit/delete to that window, and is "not
   found" unless the tag holds one of that batch's measurements. Overlapping
-  batches on non-exclusive equipment share tags, and touching batches share
-  the boundary instant -- read `docs/design-decisions.md`, *Batch
-  measurements and their window*, before adding measurements to a brew-like
+  batches on non-exclusive equipment share tags (touching batches can't
+  share a boundary instant on exclusive equipment: refused) -- read
+  `docs/design-decisions.md`, *Batch measurements and their window*, before adding measurements to a brew-like
   batch type.
 - Web batch screens (`web/batches.py`, Jinja templates in `web/templates/`,
   autoescaped): a page checks the row its address names with `_readable`, and

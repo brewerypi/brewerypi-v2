@@ -13,7 +13,9 @@ Structural rules:
   frame's element must be the child element's parent element.
 * A child frame's window must sit within its parent's window.
 * Overlap: if the element's template is ``exclusive`` (single-occupancy), no
-  two frames on that element may overlap in time, across any template. A
+  two frames on that element may overlap in time, across any template, and
+  they may not touch either: a vessel empties before it fills again, so one
+  batch ending at the very moment the next starts is an entry mistake. A
   non-exclusive element (an umbrella like a brewhouse) allows unlimited
   concurrency.
 
@@ -752,7 +754,13 @@ def _check_overlap(
     ended_at: datetime | None,
     exclude_id: int | None = None,
 ) -> None:
-    """Single-occupancy elements refuse overlapping frames (any template)."""
+    """Single-occupancy elements refuse overlapping frames (any template).
+
+    Touching counts as overlapping: a vessel empties before it fills again,
+    so a batch can't end at the very moment the next one starts. Allowing it
+    would also put both batches' boundary values (say "Empty" and "Ready to
+    fill") on one tag at one instant, inside both windows.
+    """
     if element is None:
         return
     element_template = session.get(
@@ -762,23 +770,35 @@ def _check_overlap(
         return
     stmt = select(EventFrame).where(
         EventFrame.element_id == element.id,
-        # existing ends after we start (NULL end = still running)
+        # existing ends at or after we start (NULL end = still running)
         or_(
             EventFrame.ended_at.is_(None),
-            EventFrame.ended_at > started_at,
+            EventFrame.ended_at >= started_at,
         ),
     )
     if ended_at is not None:
-        # ...and existing starts before we end (half-open: touching is fine)
-        stmt = stmt.where(EventFrame.started_at < ended_at)
+        # ...and existing starts at or before we end
+        stmt = stmt.where(EventFrame.started_at <= ended_at)
     if exclude_id is not None:
         stmt = stmt.where(EventFrame.id != exclude_id)
     clash = session.scalars(stmt).first()
-    if clash is not None:
+    if clash is None:
+        return
+    batch = _batch_label(session, clash)
+    if clash.ended_at is not None and clash.ended_at == started_at:
         raise ConflictError(
-            f"{element.name} runs one batch at a time, and "
-            f"{_batch_label(session, clash)} is on it then."
+            f"{element.name} runs one batch at a time, and {batch} ends "
+            "the same second this one would start. Start it later."
         )
+    if ended_at is not None and clash.started_at == ended_at:
+        raise ConflictError(
+            f"{element.name} runs one batch at a time, and {batch} "
+            "starts the same second this one would end. End it earlier."
+        )
+    raise ConflictError(
+        f"{element.name} runs one batch at a time, and "
+        f"{batch} is on it then."
+    )
 
 
 def _site_id_for_element(

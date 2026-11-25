@@ -570,8 +570,8 @@ themselves; the people tools remain admin-only.
 
 ## Batch measurements and their window
 
-**Status: the window and batch properties are built; the convention and both
-warnings are decided, not built.**
+**Status: the window, batch properties and the back-to-back refusal are
+built; the convention and its warning are decided, not built.**
 
 A batch's measurements are event frame attributes, and their wiring is
 ELEMENT-scoped, as upstream's is: one tag per element and attribute template,
@@ -579,7 +579,7 @@ shared by every batch of that type run on that element. A reading carries no
 batch id. What makes a reading "this batch's" is only its time: the batch page
 counts readings from `started_at` to `ended_at`, **both ends inclusive**, so
 the end value written at close is part of the batch it closes. That choice has
-two edges.
+two edges: batches running side by side, and batches back to back.
 
 ### Batches running side by side
 
@@ -663,21 +663,44 @@ the same idea as an AF event frame attribute with no data reference.
 
 ### Back-to-back batches
 
-Half-open frames may touch: one batch can end at exactly the moment the next
-starts on the same element. A reading at that instant then falls in both
-windows. With boundary defaults it is worse than a duplicate: the closing
-batch's end value (say, FV Status "Empty") and the next batch's start value
-("Ready to fill") are written at the same instant on the same tag, and the
-later-written start value becomes the finished batch's latest.
+**Status: built** (`_check_overlap` in `services/event_frames.py`).
 
-No counting rule gets both cases right -- excluding the end instant would drop
-the end value written at close -- and refusing touching batches would break
-transfers, which line up end to end on purpose.
+**On exclusive equipment, a batch may not start at the moment the previous
+one ended.** Its start must come at least a second after: 09:00:00, then
+09:00:01. Equipment that is not exclusive may overlap anyway, so it is
+unaffected.
 
-**Follow-up:** warn on the web forms (as their other warnings do) when a start, close, reopen or time
-edit would make a batch touch another on the same element: the reading at that
-moment counts for both, so leave a minute between them if that matters. This
-is web-only and changes no rule.
+The reason is physical. A vessel empties before it fills again, so two
+batches touching on a fermenter is always an entry mistake. In-line
+equipment such as a wort cooler can switch destinations at once when a valve
+swings, but times are kept to the second, so the second cooling starts at
+least a second later. The web's time boxes show and take the second, and
+pages always show seconds, so two times in one minute can be told apart and
+a refusal can be fixed by the second. A box left on its
+prefilled "now" saves the exact moment, so batches pressed as they happen
+are rarely refused.
+
+Allowing it would have broken the batch window. A reading at the shared
+moment falls in both windows. With boundary defaults it is worse than a
+duplicate: the closing batch's end value (say, FV Status "Empty") and the
+next batch's start value ("Ready to fill") would be written at the same
+instant on the same tag, and the later-written start value would become the
+finished batch's latest. No counting rule gets both cases right, since
+excluding the end instant would drop the end value written at close.
+Refusing the touch keeps both ends of the window inclusive and unambiguous.
+
+Two alternatives were rejected. A *warning* would let the contradiction in
+whenever someone pressed "... anyway", and nothing at that moment is correct
+to accept. *Moving the time* automatically would change a time the operator
+entered.
+
+An earlier version of this note claimed that refusing touching batches would
+break transfers. It would not. A transfer is checked for *containment*
+against its endpoints, which are on other equipment, and touching is only
+refused between batches on the *same* equipment.
+
+Batches that already touch are left as they are. A reopen or a time edit on
+one of them is refused until the times are separated.
 
 ---
 
