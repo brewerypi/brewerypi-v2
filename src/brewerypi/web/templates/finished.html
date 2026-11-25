@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% from "_batches.html" import batch_list, paging, type_filter %}
+{% block title %}Finished batches · {{ site.name }}{% endblock %}
+{% block content %}
+<h1>Finished batches</h1>
+<section class="section">
+  {{ type_filter(finished_filter, "Show finished batch type") }}
+  {{ batch_list(finished, "No finished " ~ finished_type ~ " batches to show." if finished_type else "No finished batches to show.") }}
+  {{ paging(page_number, has_older, paging_query) }}
+</section>
+<footer>Times are in {{ timezone }}.</footer>
+{% endblock %}
