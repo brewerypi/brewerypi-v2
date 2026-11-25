@@ -200,6 +200,7 @@ def test_every_batch_page_needs_sign_in(world):
     for path in (
         "/",
         f"/sites/{ids['spr']}",
+        f"/sites/{ids['spr']}/finished",
         f"/equipment/{ids['fv01']}",
         f"/batches/{ids['finished']}",
     ):
@@ -228,19 +229,37 @@ def test_a_batch_card_reads_equipment_type_then_name(client, world):
     assert card.index("BH1") < card.index(">Brew<") < card.index("Brew 88")
 
 
-def test_site_page_nests_steps_and_separates_finished_batches(client, world):
+def test_site_page_nests_steps_and_leaves_finished_batches_out(
+    client, world
+):
     _, ids = world
     page = client.get(f"/sites/{ids['spr']}")
     assert page.status_code == 200
     text = page.text
-    running, finished = text.split("Recently finished")
-    assert "Brew 88" in running
-    assert "Mash 88" in running
-    assert running.index("Brew 88") < running.index("Mash 88")
-    assert 'class="steps"' in running
-    assert "Batch 1240" in running
-    assert "Batch 1239" in finished
-    assert "Batch 1239" not in running
+    assert "Brew 88" in text
+    assert "Mash 88" in text
+    assert text.index("Brew 88") < text.index("Mash 88")
+    assert 'class="steps"' in text
+    assert "Batch 1240" in text
+    # Finished batches have their own page, linked with how many there are.
+    assert "Batch 1239" not in text
+    assert "Recently finished" not in text
+    link = text.split(f'href="/sites/{ids["spr"]}/finished"')[1]
+    assert link.startswith('>Finished batches <span class="pill idle">1<')
+
+
+def test_finished_page_lists_only_finished_batches(client, world):
+    _, ids = world
+    response = client.get(f"/sites/{ids['spr']}/finished")
+    assert response.status_code == 200
+    text = response.text
+    assert "Batch 1239" in text
+    assert "Batch 1240" not in text
+    assert "Brew 88" not in text
+    assert "Times are in America/Chicago." in text
+    crumbs = text.split('aria-label="Breadcrumb"')[1].split("</nav>")[0]
+    assert f'href="/sites/{ids["spr"]}"' in crumbs
+    assert "Finished batches" in crumbs
 
 
 def test_site_page_groups_equipment_and_says_what_is_busy(client, world):
@@ -260,13 +279,10 @@ def test_running_batches_filter_by_type(client, world):
     assert 'aria-label="Show running batch type"' in everything
     assert 'All <span class="pill">3</span>' in everything
     assert f'href="{url}?running=Transfer+out"' in everything
-    running = client.get(url, params={"running": "Fermentation"}).text
-    shown, finished = running.split("Recently finished")
+    shown = client.get(url, params={"running": "Fermentation"}).text
     assert "Batch 1240" in shown
     assert "Brew 88" not in shown
     assert "Move 1239" not in shown
-    # Only the running list is filtered.
-    assert "Batch 1239" in finished
 
 
 def test_filtering_keeps_steps_inside_their_batch(client, world):
@@ -274,10 +290,9 @@ def test_filtering_keeps_steps_inside_their_batch(client, world):
     text = client.get(
         f"/sites/{ids['spr']}", params={"running": "Brew"}
     ).text
-    shown = text.split("Recently finished")[0]
-    assert "Brew 88" in shown
-    assert "Mash 88" in shown
-    assert "Batch 1240" not in shown
+    assert "Brew 88" in text
+    assert "Mash 88" in text
+    assert "Batch 1240" not in text
     # A step isn't offered as a filter of its own.
     assert "=Mashing" not in text
 
@@ -291,12 +306,16 @@ def test_a_type_with_nothing_running_says_so(client, world):
     assert f'href="/sites/{ids["spr"]}"' in text
 
 
-def test_one_type_running_needs_no_filter(client, world):
+def test_one_type_at_the_site_needs_no_filter(client, world):
     factory, ids = world
     with factory() as s:
         tank_t = create_element_template(s, ids["atl"], "Tank")
         batch_t = create_event_frame_template(s, tank_t.id, "Conditioning")
         tank = create_element(s, tank_t.id, "T1")
+        create_event_frame(
+            s, tank.id, batch_t.id, "Done", started_at=_at(2),
+            ended_at=_at(2, 14),
+        )
         create_event_frame(
             s, tank.id, batch_t.id, "Only one", started_at=_at(3)
         )
@@ -304,10 +323,41 @@ def test_one_type_running_needs_no_filter(client, world):
     text = client.get(f"/sites/{ids['atl']}").text
     assert "Only one" in text
     assert 'aria-label="Show running batch type"' not in text
+    finished = client.get(f"/sites/{ids['atl']}/finished").text
+    assert "Done" in finished
+    assert 'aria-label="Show finished batch type"' not in finished
+
+
+def test_every_batch_type_at_the_site_is_offered(world):
+    """One type running still gets a filter, when the site has others."""
+    factory, ids = world
+    with factory() as s:
+        tank_t = create_element_template(s, ids["atl"], "Tank")
+        conditioning = create_event_frame_template(
+            s, tank_t.id, "Conditioning"
+        )
+        create_event_frame_template(s, tank_t.id, "CIP")
+        tank = create_element(s, tank_t.id, "T1")
+        create_event_frame(
+            s, tank.id, conditioning.id, "Cond 2", started_at=_at(3)
+        )
+        s.commit()
+    client = _client(factory)
+    url = f"/sites/{ids['atl']}"
+    text = client.get(url).text
+    assert 'aria-label="Show running batch type"' in text
+    assert f'href="{url}?running=Conditioning"' in text
+    # Nothing is cleaning, but the type is still offered, at 0.
+    assert 'CIP <span class="pill">0</span>' in text
+    shown = client.get(url, params={"running": "CIP"}).text
+    assert "No CIP batches are running at Atlanta." in shown
+    finished = client.get(f"{url}/finished").text
+    assert 'CIP <span class="pill">0</span>' in finished
+    assert 'Conditioning <span class="pill">0</span>' in finished
 
 
 def _finish_a_brew(factory, ids):
-    """A second finished type at Springfield, so its filter has a choice."""
+    """A second finished type at Springfield."""
     with factory() as s:
         create_event_frame(
             s, ids["bh1"], ids["brew"], "Brew 80",
@@ -320,45 +370,28 @@ def test_finished_batches_filter_by_type(world):
     factory, ids = world
     _finish_a_brew(factory, ids)
     client = _client(factory)
-    url = f"/sites/{ids['spr']}"
+    url = f"/sites/{ids['spr']}/finished"
     everything = client.get(url).text
-    finished = everything.split("Recently finished")[1]
-    assert 'aria-label="Show finished batch type"' in finished
-    assert 'All <span class="pill">2</span>' in finished
-    assert f'href="{url}?finished=Brew"' in finished
-    text = client.get(url, params={"finished": "Brew"}).text
-    running, finished = text.split("Recently finished")
-    assert "Brew 80" in finished
-    assert "Batch 1239" not in finished
-    # The running list is left alone.
-    assert "Batch 1240" in running
-
-
-def test_each_list_keeps_the_other_lists_choice(world):
-    factory, ids = world
-    _finish_a_brew(factory, ids)
-    url = f"/sites/{ids['spr']}"
-    text = _client(factory).get(
-        url, params={"running": "Brew", "finished": "Fermentation"}
-    ).text
-    running, finished = text.split("Recently finished")
-    assert f'href="{url}?finished=Fermentation&amp;running=Fermentation"' \
-        in running
-    assert f'href="{url}?running=Brew&amp;finished=Brew"' in finished
-    # Each row's All clears only its own list.
-    assert f'href="{url}?finished=Fermentation"' in running
-    assert f'href="{url}?running=Brew"' in finished
+    assert 'aria-label="Show finished batch type"' in everything
+    assert 'All <span class="pill">2</span>' in everything
+    assert f'href="{url}?type=Brew"' in everything
+    assert "Brew 80" in everything
+    assert "Batch 1239" in everything
+    text = client.get(url, params={"type": "Brew"}).text
+    assert "Brew 80" in text
+    assert "Batch 1239" not in text
+    assert f'href="{url}"' in text  # All clears it
 
 
 def test_a_finished_type_with_nothing_finished_says_so(client, world):
     _, ids = world
     text = client.get(
-        f"/sites/{ids['spr']}", params={"finished": "Lagering"}
+        f"/sites/{ids['spr']}/finished", params={"type": "Lagering"}
     ).text
     assert "No finished Lagering batches to show." in text
 
 
-def test_paging_finished_batches_keeps_both_filters(world):
+def test_paging_finished_batches_keeps_the_filter(world):
     factory, ids = world
     with factory() as s:
         for day in range(1, PAGE_SIZE + 2):
@@ -369,21 +402,16 @@ def test_paging_finished_batches_keeps_both_filters(world):
             )
         s.commit()
     client = _client(factory)
-    url = f"/sites/{ids['spr']}"
-    text = client.get(
-        url, params={"running": "Brew", "finished": "Fermentation"}
-    ).text
-    assert 'href="?running=Brew&amp;finished=Fermentation&amp;page=2"' in text
+    url = f"/sites/{ids['spr']}/finished"
+    text = client.get(url, params={"type": "Fermentation"}).text
+    assert 'href="?type=Fermentation&amp;page=2"' in text
     second = client.get(
-        url,
-        params={"running": "Brew", "finished": "Fermentation", "page": 2},
+        url, params={"type": "Fermentation", "page": 2}
     ).text
     assert "Old 01" in second
-    # Choosing a running type keeps the page you're on; a finished type
-    # starts over.
-    running, finished = second.split("Recently finished")
-    assert "page=2" in running
-    assert "page=2" not in finished.split("</nav>")[0]
+    # Choosing a type starts the paging over.
+    filter_row = second.split('aria-label="Show finished batch type"')[1]
+    assert "page=2" not in filter_row.split("</nav>")[0]
 
 
 def test_site_page_lists_only_top_level_equipment(client, world):
@@ -615,6 +643,7 @@ def test_a_batch_with_no_author_says_nothing_about_one(client, world):
     "path",
     [
         "/sites/{sec}",
+        "/sites/{sec}/finished",
         "/equipment/{other_tank}",
         "/batches/{other_batch}",
     ],
@@ -644,6 +673,7 @@ def test_a_site_restricted_user_sees_only_their_site(world):
     assert client.get(f"/sites/{ids['atl']}").status_code == 200
     for path in (
         f"/sites/{ids['spr']}",
+        f"/sites/{ids['spr']}/finished",
         f"/equipment/{ids['fv01']}",
         f"/batches/{ids['running_brew']}",
     ):
@@ -691,7 +721,8 @@ def test_finished_batches_page_through_older_ones(world):
 
 
 @pytest.mark.parametrize(
-    "path", ["/sites/abc", "/batches/abc", "/sites/1?page=0", "/nowhere"]
+    "path",
+    ["/sites/abc", "/batches/abc", "/sites/1/finished?page=0", "/nowhere"],
 )
 def test_a_bad_address_gets_a_page_not_an_error_dump(client, path):
     response = client.get(path)

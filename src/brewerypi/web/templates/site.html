@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_batches.html" import batch_card, batch_list, paging, type_filter %}
+{% from "_batches.html" import batch_card, type_filter %}
 {% block title %}{{ site.name }}{% endblock %}
 {% block content %}
 <h1>{{ site.name }}</h1>
@@ -35,10 +35,9 @@
 </section>
 {% endif %}
 <section class="section">
-  <h2>Recently finished</h2>
-  {{ type_filter(finished_filter, "Show finished batch type") }}
-  {{ batch_list(finished, "No finished " ~ finished_type ~ " batches to show." if finished_type else "No finished batches to show.") }}
-  {{ paging(page_number, has_older, paging_query) }}
+  <div class="chips">
+    <a class="chip" href="/sites/{{ site.id }}/finished">Finished batches <span class="pill idle">{{ finished_count }}</span></a>
+  </div>
 </section>
 <footer>Times are in {{ timezone }}.</footer>
 {% endblock %}

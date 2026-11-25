@@ -503,10 +503,12 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
   autoescaped): a page checks the row its address names with `_readable`, and
   lists filter through `access.visible`. Anything missing or out of scope gets
   the same 404 page, byte for byte. The site page lists only top-level
-  equipment (children are reached from their parent's page) and filters
-  running and finished batches separately by top-level type name
-  (`?running=`, `?finished=`; the finished filter is a database query, by
-  template ids sharing that name, because that list pages); equipment counts as
+  equipment (children are reached from their parent's page) and its running
+  batches (`?running=`); finished ones are on their own page,
+  `/sites/{id}/finished` (`?type=`, a database query by template ids sharing
+  that name, because that list pages), linked from the site page with a
+  count. Both filters offer every top-level batch type at the site, at 0 when
+  none is in the list, and appear once the site has two; equipment counts as
   busy when it or anything inside it runs a batch. Only `base.html` holds
   CSS, and it holds
   the scripts that reload a page restored on Back and drop a second tap

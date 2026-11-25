@@ -135,31 +135,43 @@ def _finished(
     return [_batch(session, f) for f in shown], has_older
 
 
+def _top_level_types(session: Session, site_id: int) -> dict[int, str]:
+    """The site's top-level batch types, by template id, with their names.
+
+    Steps are left out: a step is shown inside its batch, so filtering on
+    it would hide the batch it belongs to.
+    """
+    rows = session.execute(
+        select(EventFrameTemplate.id, EventFrameTemplate.name)
+        .join(ElementTemplate)
+        .where(
+            ElementTemplate.site_id == site_id,
+            EventFrameTemplate.parent_id.is_(None),
+        )
+    )
+    return {template_id: name for template_id, name in rows}
+
+
 def _type_filter(
-    site_id: int,
-    here: dict,
+    path: str,
     key: str,
+    names: set[str],
     counts: dict[str, int],
     selected: str | None,
 ) -> list[dict]:
-    """The buttons that filter one of the site page's lists by batch type.
+    """The buttons that filter a list by batch type.
 
-    ``key`` is the list's address parameter (``running`` or ``finished``),
-    ``here`` every parameter of the current address, so a button keeps the
-    other list's choice. Choosing a finished type starts its paging over.
-    Empty when there is nothing to choose between.
+    ``key`` is the list's address parameter. Every type in ``names`` gets a
+    button, at 0 when the list holds none of it, so the choice doesn't
+    depend on what happens to be running. Choosing a type starts paging
+    over. Empty when the site has only one type to choose.
     """
-    if len(counts) < 2 and selected is None:
+    if len(names) < 2 and selected is None:
         return []
 
     def href(value: str | None) -> str:
-        params = {k: v for k, v in here.items() if k != key}
-        if key == "finished":
-            params.pop("page", None)
-        if value is not None:
-            params[key] = value
-        query = urlencode(params)
-        return f"/sites/{site_id}" + (f"?{query}" if query else "")
+        query = urlencode({key: value}) if value is not None else ""
+        return path + (f"?{query}" if query else "")
 
     buttons = [
         {
@@ -169,11 +181,11 @@ def _type_filter(
             "on": selected is None,
         }
     ]
-    for name in sorted(counts):
+    for name in sorted(names):
         buttons.append(
             {
                 "name": name,
-                "count": counts[name],
+                "count": counts.get(name, 0),
                 "href": href(name),
                 "on": name == selected,
             }
@@ -290,17 +302,33 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
             ]
             return page(request, "home.html", companies=companies)
 
+    def _finished_counts(
+        session: Session, site_id: int
+    ) -> tuple[dict[int, str], dict[str, int]]:
+        """The site's batch type names by id, and finished counts by name.
+
+        Counted without access.visible: reading a site means reading every
+        batch at it, because access is decided per site.
+        """
+        per_template = services.count_finished_top_level_by_template(
+            session, site_id
+        )
+        names = _top_level_types(session, site_id)
+        for template_id in per_template:
+            if template_id not in names:
+                names[template_id] = session.get(
+                    EventFrameTemplate, template_id
+                ).name
+        return names, _count_by_name(per_template, names)
+
     @router.get("/sites/{site_id}")
     def site_page(
         request: Request,
         site_id: int,
-        page_number: int = Query(1, alias="page", ge=1),
         running_type: str | None = Query(None, alias="running"),
-        finished_type: str | None = Query(None, alias="finished"),
         user: CurrentUser = Depends(signed_in_user),
     ):
         running_type = running_type or None
-        finished_type = finished_type or None
         with session_factory() as session:
             site = readable(session, user, Site, site_id)
             running = [
@@ -321,44 +349,7 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
             for batch in nested:
                 name = batch["type_name"]
                 running_counts[name] = running_counts.get(name, 0) + 1
-
-            # Counted without access.visible: reading a site means reading
-            # every batch at it, because access is decided per site.
-            per_template = services.count_finished_top_level_by_template(
-                session, site.id
-            )
-            names = {
-                template_id: session.get(
-                    EventFrameTemplate, template_id
-                ).name
-                for template_id in per_template
-            }
-            finished_counts = _count_by_name(per_template, names)
-            finished, has_older = _finished(
-                session,
-                user,
-                page_number,
-                site_id=site.id,
-                top_level_only=True,
-                event_frame_template_ids=(
-                    None
-                    if finished_type is None
-                    else [i for i, n in names.items() if n == finished_type]
-                ),
-            )
-
-            filters = {
-                k: v
-                for k, v in (
-                    ("running", running_type),
-                    ("finished", finished_type),
-                )
-                if v is not None
-            }
-            here = {
-                **filters,
-                **({"page": page_number} if page_number > 1 else {}),
-            }
+            names, finished_counts = _finished_counts(session, site.id)
             return page(
                 request,
                 "site.html",
@@ -373,20 +364,66 @@ def create_router(session_factory: Callable[[], Session]) -> APIRouter:
                 ],
                 running_type=running_type,
                 running_filter=_type_filter(
-                    site.id, here, "running", running_counts, running_type
+                    f"/sites/{site.id}",
+                    "running",
+                    set(names.values()) | set(running_counts),
+                    running_counts,
+                    running_type,
                 ),
                 kinds=_equipment_by_kind(session, user, site),
                 areas=areas_with_measurements(session, user, site),
+                finished_count=sum(finished_counts.values()),
+            )
+
+    @router.get("/sites/{site_id}/finished")
+    def finished_page(
+        request: Request,
+        site_id: int,
+        page_number: int = Query(1, alias="page", ge=1),
+        finished_type: str | None = Query(None, alias="type"),
+        user: CurrentUser = Depends(signed_in_user),
+    ):
+        finished_type = finished_type or None
+        with session_factory() as session:
+            site = readable(session, user, Site, site_id)
+            names, finished_counts = _finished_counts(session, site.id)
+            finished, has_older = _finished(
+                session,
+                user,
+                page_number,
+                site_id=site.id,
+                top_level_only=True,
+                event_frame_template_ids=(
+                    None
+                    if finished_type is None
+                    else [i for i, n in names.items() if n == finished_type]
+                ),
+            )
+            return page(
+                request,
+                "finished.html",
+                crumbs=[
+                    HOME,
+                    {"href": f"/sites/{site.id}", "name": site.name},
+                    {"name": "Finished batches"},
+                ],
+                site=site,
+                timezone=resolve_timezone(session, site),
                 finished=finished,
                 finished_type=finished_type,
                 finished_filter=_type_filter(
-                    site.id, here, "finished", finished_counts, finished_type
+                    f"/sites/{site.id}/finished",
+                    "type",
+                    set(names.values()),
+                    finished_counts,
+                    finished_type,
                 ),
                 page_number=page_number,
                 has_older=has_older,
-                # Paging keeps both filters, so Older doesn't lose your
-                # place.
-                paging_query=filters,
+                # Paging keeps the filter, so Older doesn't lose your place.
+                paging_query=(
+                    {"type": finished_type} if finished_type else {}
+                ),
             )
 
     @router.get("/equipment/{element_id}")
