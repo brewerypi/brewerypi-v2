@@ -409,6 +409,169 @@ in should list only the companies and sites that person has been given, and
 someone not on the user list should be told so. Signing out and back in should
 ask for the account again.
 
+## Backups
+
+Everything -- every company's readings, batches, configuration and the user
+list -- is the one file `/opt/brewerypi/app.db`. **Litestream** copies each
+change to it off the box within about a second, into a **Backblaze B2**
+bucket, with a full copy (a *snapshot*) once a day. It keeps 30 days, so you
+can restore the latest state or the state at a moment in that window.
+
+B2 is a different provider from Hetzner on purpose: a backup in the same
+account as the server goes with it if that account is lost. B2 was picked
+for being the easiest to set up; it is S3-compatible, so moving to another
+provider later means changing only the replica settings in step 3. A
+database this size fits in B2's free 10 GB.
+
+### 1. Create the bucket and a key
+
+Use the project account, as for WorkOS, so the backups don't depend on one
+person's login. Sign up at <https://www.backblaze.com/cloud-storage> and,
+under **B2 Cloud Storage**:
+
+1. **Buckets -> Create a Bucket**: a name (unique across all of B2, e.g.
+   `brewerypi-backups-<something>`), **Private**, default encryption
+   **Enable**, Object Lock **Disable**.
+2. On the new bucket, **Lifecycle Settings -> Keep only the last version of
+   the file**. Litestream never changes a file it uploaded, only deletes
+   ones past the 30 days, and B2 otherwise keeps every deleted file as a
+   hidden version you go on paying for.
+3. Note the bucket's **Endpoint** (e.g. `s3.us-west-004.backblazeb2.com`);
+   the part between `s3.` and `.backblazeb2.com` is its **region**.
+4. **Application Keys -> Add a New Application Key**: allow access to
+   **this bucket only**, type **Read and Write**. Copy the **keyID** and the
+   **applicationKey** -- the second is shown once.
+
+### 2. Install Litestream
+
+Check <https://github.com/benbjohnson/litestream/releases> for the newest
+version and use it in place of `0.5.18`:
+
+```
+cd /tmp
+V=0.5.18
+curl -fLO https://github.com/benbjohnson/litestream/releases/download/v$V/litestream-$V-linux-x86_64.deb
+curl -fLO https://github.com/benbjohnson/litestream/releases/download/v$V/checksums.txt
+grep "litestream-$V-linux-x86_64.deb" checksums.txt | sha256sum -c   # ...: OK
+dpkg -i litestream-$V-linux-x86_64.deb
+litestream version
+```
+
+The package installs the `litestream` service (not yet started) and an
+example `/etc/litestream.yml`.
+
+### 3. Configure it
+
+Replace `/etc/litestream.yml` with the following, putting in your key,
+bucket, endpoint and region. The key is a secret, so the file is root-only,
+like the env files:
+
+```
+cat > /etc/litestream.yml <<'EOF'
+access-key-id: KEY_ID_REPLACE_ME
+secret-access-key: APPLICATION_KEY_REPLACE_ME
+
+# A full copy daily, kept 30 days: how far back a restore can go.
+snapshot:
+  interval: 24h
+  retention: 720h
+
+dbs:
+  - path: /opt/brewerypi/app.db
+    replica:
+      type: s3
+      bucket: BUCKET_REPLACE_ME
+      path: app.db
+      endpoint: s3.REGION_REPLACE_ME.backblazeb2.com
+      region: REGION_REPLACE_ME
+EOF
+chmod 600 /etc/litestream.yml
+```
+
+The replica `path` is the folder in the bucket. Keep it unless a restore
+tells you to change it (see *Restoring*).
+
+### 4. Start it
+
+Litestream needs the database in WAL mode, which step 5 turned on. The
+servers already wait on locks as Litestream recommends, so nothing in them
+changes.
+
+```
+systemctl enable --now litestream
+journalctl -u litestream -n 30 --no-pager   # no errors; it uploads a first snapshot
+litestream status                          # app.db: ok
+```
+
+An `AccessDenied` or `403` in the log is the key (wrong bucket, or
+read-only); a `no such host` is the endpoint. Fix `/etc/litestream.yml`
+and `systemctl restart litestream`.
+
+### 5. Prove it restores
+
+A backup counts only once it has been restored. From the checkout (after a
+`git pull`, so the script is there):
+
+```
+sh /opt/brewerypi/scripts/check_backup.sh
+```
+
+It restores the newest backup into a scratch folder that it deletes
+afterwards, runs SQLite's full integrity check on it, and lists every
+table's row count next to the live database's. Nothing live is touched.
+Expect every table to match; a reading saved in the last second or two can
+make one differ, so run it again before worrying. Do this now, then once a
+month and after upgrading Litestream.
+
+**Nothing tells you if backups stop** (no alert yet). The monthly check is
+what catches it, along with `systemctl status litestream` when you are on
+the box.
+
+### Restoring
+
+The latest state, or the state at a moment in the last 30 days (`-timestamp`,
+in **UTC**; it restores what had been saved before that moment). Stop
+everything that uses the database first, and move the current files aside
+rather than deleting them:
+
+```
+systemctl stop brewerypi-mcp-operator brewerypi-mcp-admin brewerypi-web litestream
+ASIDE=/root/before-restore-$(date -u +%Y%m%dT%H%M%SZ)
+mkdir "$ASIDE"
+cd /opt/brewerypi
+for f in app.db app.db-wal app.db-shm .app.db-litestream; do
+  [ -e "$f" ] && mv "$f" "$ASIDE"/
+done
+litestream restore -integrity-check full /opt/brewerypi/app.db
+#   or, to a moment:
+# litestream restore -integrity-check full -timestamp 2026-11-27T14:00:00Z /opt/brewerypi/app.db
+```
+
+Before starting Litestream again, **change the replica `path`** in
+`/etc/litestream.yml` (e.g. `app.db` -> `app.db-2`). A restored database
+picks up again from an earlier point than the bucket's history has reached,
+and writing it into the same folder can leave a history that no longer
+restores. A new folder leaves the old one intact, in case you need to
+restore from it again. It is no longer pruned, so delete it in B2 once you
+are sure you won't.
+
+```
+systemctl start litestream brewerypi-mcp-operator brewerypi-mcp-admin brewerypi-web
+sh /opt/brewerypi/scripts/check_backup.sh
+```
+
+On a **new server** (the old one is gone): follow this guide through
+installing the code (step 4), but skip its Alembic line and all of step 5 --
+the restored file already has its schema, its Alembic stamp and its data.
+Install and configure Litestream (steps 2-3 here, with a new replica `path`,
+as above), run the `litestream restore` line, then carry on from step 7 (WorkOS is
+already set up; repoint the DNS records of step 2 at the new address). The
+user list comes back with the file, so skip step 8 too.
+
+The restore puts back the whole file, so it rolls back every company on the
+server together, the demo company and the pilot alike, and the user list
+with them.
+
 ## Moving a shared-secret deployment to sign-in
 
 For a box set up from an earlier version of this guide (secret paths on
@@ -501,8 +664,10 @@ systemctl restart brewerypi-mcp-operator brewerypi-mcp-admin brewerypi-web
 
 Leave `brewerypi-web` off the restart until the web app is set up (see *Running
 the web app*). The `alembic upgrade head` applies any new migrations; it's a no-op when
-there are none, so it's safe to run every time. Back up `app.db` first (see
-Notes) if the release touches data rather than just code.
+there are none, so it's safe to run every time. If the release touches data
+rather than just code, note the time in UTC (`date -u`) before you pull: if
+it goes wrong, restore to that moment (see *Backups*, *Restoring*). Before
+Litestream is set up, copy `app.db` aside instead, with the services stopped.
 
 ### Backfilling defaults an existing company missed
 
@@ -539,12 +704,17 @@ failing, and renames nothing, so a second run adds 0 and is harmless.
   batches; admins can also change configuration. Readings and batches record
   who made them and who last changed them, so someone who has recorded
   anything can only be deactivated, not deleted.
-- **Resetting the demo data:** to wipe accumulated writes, rebuild the DB —
-  `systemctl stop brewerypi-mcp-operator brewerypi-mcp-admin`,
-  `rm -f app.db app.db-wal app.db-shm`, `.venv/bin/brewerypi`,
-  `.venv/bin/python scripts/seed_sample_data.py`,
-  `systemctl start brewerypi-mcp-operator brewerypi-mcp-admin`. The user
-  list lives in the same file, so
-  re-add the users (step 8) before anyone signs in again.
-- **Backups:** the whole database is the single file `/opt/brewerypi/app.db`;
-  copy it off the box to back it up.
+- **Resetting the demo data:** this deletes the whole file, so **every
+  company on the server**, not just the demo one -- never on a server that
+  holds a real brewery's data. On a demo-only box, rebuild the DB --
+  `systemctl stop brewerypi-mcp-operator brewerypi-mcp-admin brewerypi-web
+  litestream`,
+  `rm -rf app.db app.db-wal app.db-shm .app.db-litestream`,
+  `.venv/bin/brewerypi`,
+  `.venv/bin/python scripts/seed_sample_data.py`, give the replica a new
+  `path` in `/etc/litestream.yml` (as after a restore; see *Backups*), and
+  `systemctl start litestream brewerypi-mcp-operator brewerypi-mcp-admin
+  brewerypi-web`. The user list lives in the same file, so re-add the users
+  (step 8) before anyone signs in again.
+- **Backups:** see *Backups*. Litestream streams `/opt/brewerypi/app.db` to
+  B2 continuously; `scripts/check_backup.sh` proves a restore works.

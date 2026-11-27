@@ -7,6 +7,13 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- Off-site backups for the server: the deploy guide's new *Backups* section
+  sets up Litestream to stream `app.db` to a Backblaze B2 bucket, with a
+  daily snapshot kept 30 days for point-in-time restores, and walks through
+  restoring (in place, to a moment, or onto a new server).
+  `scripts/check_backup.sh` proves a backup restores: it restores the newest
+  one to a scratch folder, checks its integrity and compares row counts
+  with the live database. No alert yet if replication stops.
 - Batch properties: what a batch is, such as its brand, kept on the batch
   itself rather than on a tag, so two brews running side by side on one
   brewhouse can no longer show each other's brand. An event frame attribute

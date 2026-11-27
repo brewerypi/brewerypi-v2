@@ -312,14 +312,18 @@ with PK `EnterpriseId` and FK `SiteId` — to `enterprises` / `id` / `enterprise
   actually installed in the active environment (`pip install -e .`).
 
 ## Not done yet
-- Automated backups of the live database. Today the only plan is copying
-  `/opt/brewerypi/app.db` off the box by hand
-  (`docs/deploy-mcp-hetzner.md`), and that file holds the pilot's real data.
-  Planned: Litestream streaming the WAL to object storage at a different
-  provider than the server, with a retention window for point-in-time
-  restores, a restore that has actually been tested, and an alert if
-  replication stops. Document it in the deploy guide. A restore rolls back the
-  demo company and the pilot together, since they share the file.
+- Backups: written up, not yet running on the server. Litestream streams
+  `/opt/brewerypi/app.db` to a Backblaze B2 bucket (another provider than
+  Hetzner; B2 chosen for ease of setup first, cost second), daily snapshot
+  kept 30 days (`docs/deploy-mcp-hetzner.md`, *Backups*);
+  `scripts/check_backup.sh` restores to scratch and compares row counts.
+  After any restore or rebuild of `app.db` the replica gets a NEW `path`:
+  a rewound database replicating into its old history can leave one that no
+  longer restores. A restore rolls back the demo company and the pilot
+  together, since they share the file. Still to consider (deferred by the
+  maintainer, 2026-11-27): an alert if replication stops, e.g. a timer
+  running the check and pinging Healthchecks.io. Until then only the
+  monthly manual check catches it.
 - `create_all` (in `main.py`) still builds the schema for the throwaway
   demo DB; Alembic is now the mechanism for versioned schema changes. Adopt
   Alembic on the existing server DB with `alembic stamp head`.
